@@ -1,0 +1,27 @@
+{
+  "datasets": [
+    {
+      "name": "VKITTI2",
+      "path": "/path/to/vkitti2/rgb",
+      "type": "rgb",
+      "gt": true,
+      "path_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/rgb/(?P<camera>Camera_\\d+)/",
+      "basename_regex": "^rgb_(?P<id>\\d+)\\.(?P<ext>jpg|png)$"
+    },
+    {
+      "name": "VKITTI2",
+      "path": "/path/to/vkitti2/depth",
+      "type": "depth",
+      "gt": true,
+      "path_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/depth/(?P<camera>Camera_\\d+)/",
+      "basename_regex": "^depth_(?P<id>\\d+)\\.(?P<ext>png)$"
+    },
+    {
+      "name": "VKITTI2",
+      "path": "/path/to/predicted_depth",
+      "type": "depth",
+      "gt": false,
+      "basename_regex": "^(?P<id>\\d+)_pred\\.(?P<ext>png|npy)$"
+    }
+  ]
+}
