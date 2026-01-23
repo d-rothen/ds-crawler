@@ -106,6 +106,9 @@ class DatasetParser:
             path_properties = path_match.groupdict()
 
         return {
+            "name": ds_config.name,
+            "type": ds_config.type,
+            "gt": ds_config.gt,
             "path": str(relative_path),
             "id": file_id,
             "path_properties": path_properties,
