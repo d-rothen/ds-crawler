@@ -116,15 +116,15 @@ class DatasetParser:
                 value = id_match.group(name)
                 if value is None:
                     return None, "no_id"
-                id_parts.append(f"{name}_{value}")
+                id_parts.append(f"{name}-{value}")
             if not id_parts:
                 return None, "no_id"
-            file_id = "-".join(id_parts)
+            file_id = "_".join(id_parts)
         else:
             groups = id_match.groups()
             if not groups or any(value is None for value in groups):
                 return None, "no_id"
-            file_id = "-".join(groups)
+            file_id = "_".join(groups)
 
         # Extract path properties if path_regex is defined
         path_properties = {}
