@@ -23,8 +23,8 @@ def main() -> int:
         "-o",
         "--output",
         type=Path,
-        default=Path("output.json"),
-        help="Output JSON file path (default: output.json)",
+        default=None,
+        help="Single output JSON file path. If not specified, writes output.json to each dataset's root folder.",
     )
 
     args = parser.parse_args()
@@ -41,8 +41,13 @@ def main() -> int:
     parser_instance = DatasetParser(config)
 
     try:
-        parser_instance.write_output(args.output)
-        print(f"Output written to: {args.output}")
+        if args.output:
+            parser_instance.write_output(args.output)
+            print(f"Output written to: {args.output}")
+        else:
+            output_paths = parser_instance.write_outputs_per_dataset()
+            for path in output_paths:
+                print(f"Output written to: {path}")
     except Exception as e:
         print(f"Error processing datasets: {e}", file=sys.stderr)
         return 1
