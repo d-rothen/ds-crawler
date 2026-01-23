@@ -62,7 +62,7 @@ class DatasetParser:
                 logger.debug(f"Skipped (id regex): {file_path}")
             elif skip_reason == "no_id":
                 skipped_no_id += 1
-                logger.debug(f"Skipped (id capture group was empty): {file_path}")
+                logger.debug(f"Skipped (capture group was empty): {file_path}")
             elif skip_reason == "path_regex":
                 skipped_path_regex += 1
                 logger.debug(f"Skipped (path regex): {file_path}")
@@ -73,7 +73,7 @@ class DatasetParser:
         if skipped_id_regex:
             logger.warning(f"Skipped {skipped_id_regex} files: id regex did not match")
         if skipped_no_id:
-            logger.warning(f"Skipped {skipped_no_id} files: 'id' capture group was empty")
+            logger.warning(f"Skipped {skipped_no_id} files: capture group was empty")
         if skipped_path_regex:
             logger.warning(f"Skipped {skipped_path_regex} files: path regex did not match")
 
@@ -108,9 +108,23 @@ class DatasetParser:
         if not id_match:
             return None, "id_regex"
 
-        file_id = id_match.groupdict().get("id")
-        if file_id is None:
-            return None, "no_id"
+        group_index = id_match.re.groupindex
+        if group_index:
+            ordered_names = sorted(group_index.items(), key=lambda item: item[1])
+            id_parts = []
+            for name, _ in ordered_names:
+                value = id_match.group(name)
+                if value is None:
+                    return None, "no_id"
+                id_parts.append(f"{name}_{value}")
+            if not id_parts:
+                return None, "no_id"
+            file_id = "-".join(id_parts)
+        else:
+            groups = id_match.groups()
+            if not groups or any(value is None for value in groups):
+                return None, "no_id"
+            file_id = "-".join(groups)
 
         # Extract path properties if path_regex is defined
         path_properties = {}

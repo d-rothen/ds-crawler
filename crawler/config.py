@@ -44,16 +44,15 @@ class DatasetConfig:
             raise ValueError(f"Invalid basename_regex: {e}")
 
     def _validate_id_regex(self) -> None:
-        """Validate id_regex has required 'id' capture group."""
+        """Validate id_regex has at least one capture group."""
         try:
             pattern = re.compile(self.id_regex)
         except re.error as e:
             raise ValueError(f"Invalid id_regex: {e}")
 
-        if "id" not in pattern.groupindex:
+        if pattern.groups == 0:
             raise ValueError(
-                "id_regex must contain named capture group 'id'. "
-                f"Found groups: {list(pattern.groupindex.keys())}"
+                "id_regex must contain at least one capture group."
             )
 
     def _validate_path_regex(self) -> None:
