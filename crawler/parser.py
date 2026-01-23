@@ -16,6 +16,7 @@ except ImportError:  # pragma: no cover - optional dependency
 logger = logging.getLogger(__name__)
 ANSI_DUPLICATE = "\033[31m"
 ANSI_RESET = "\033[0m"
+ID_MISS_PROMPT_RATIO = 0.2
 
 
 class DatasetParser:
@@ -66,6 +67,9 @@ class DatasetParser:
         skipped_id_regex = 0
         skipped_no_id = 0
         skipped_path_regex = 0
+        id_misses = 0
+        prompted_for_id_miss = False
+        id_miss_threshold = self._id_miss_threshold(len(files))
 
         progress_desc = f"{ds_config.name} files"
         for file_path in self._iter_with_progress(files, progress_desc):
@@ -93,9 +97,23 @@ class DatasetParser:
                 logger.debug(f"Skipped (basename regex): {file_path}")
             elif skip_reason == "id_regex":
                 skipped_id_regex += 1
+                id_misses += 1
+                prompted_for_id_miss = self._prompt_on_id_miss(
+                    id_misses,
+                    len(files),
+                    id_miss_threshold,
+                    prompted_for_id_miss,
+                )
                 logger.debug(f"Skipped (id regex): {file_path}")
             elif skip_reason == "no_id":
                 skipped_no_id += 1
+                id_misses += 1
+                prompted_for_id_miss = self._prompt_on_id_miss(
+                    id_misses,
+                    len(files),
+                    id_miss_threshold,
+                    prompted_for_id_miss,
+                )
                 logger.debug(f"Skipped (capture group was empty): {file_path}")
             elif skip_reason == "path_regex":
                 skipped_path_regex += 1
@@ -182,6 +200,33 @@ class DatasetParser:
             "path_properties": path_properties,
             "basename_properties": entry_properties,
         }, None
+
+    def _id_miss_threshold(self, total_files: int) -> int:
+        return max(1, int(total_files * ID_MISS_PROMPT_RATIO))
+
+    def _prompt_on_id_miss(
+        self,
+        id_misses: int,
+        total_files: int,
+        threshold: int,
+        already_prompted: bool,
+    ) -> bool:
+        if already_prompted or total_files == 0:
+            return already_prompted
+        if id_misses <= threshold:
+            return already_prompted
+        if not self._confirm_continue(id_misses, total_files):
+            raise RuntimeError("Aborted due to repeated id parse failures.")
+        return True
+
+    def _confirm_continue(self, id_misses: int, total_files: int) -> bool:
+        try:
+            response = input(
+                f"Failed to parse {id_misses} out of {total_files} ids. Continue? (Y/N) "
+            )
+        except EOFError:
+            return False
+        return response.strip().lower() in {"y", "yes"}
 
     def _iter_with_progress(
         self,
