@@ -2,11 +2,21 @@
 """Dataset crawler main entry point."""
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
 from crawler.config import Config
 from crawler.parser import DatasetParser
+
+
+def setup_logging(verbose: bool) -> None:
+    """Configure logging based on verbosity level."""
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(levelname)s: %(message)s",
+    )
 
 
 def main() -> int:
@@ -26,8 +36,16 @@ def main() -> int:
         default=None,
         help="Single output JSON file path. If not specified, writes output.json to each dataset's root folder.",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output (show each skipped file)",
+    )
 
     args = parser.parse_args()
+
+    setup_logging(args.verbose)
 
     try:
         config = Config.from_file(args.config)
@@ -40,14 +58,16 @@ def main() -> int:
 
     parser_instance = DatasetParser(config)
 
+    logger = logging.getLogger(__name__)
+
     try:
         if args.output:
             parser_instance.write_output(args.output)
-            print(f"Output written to: {args.output}")
+            logger.info(f"Output written to: {args.output}")
         else:
             output_paths = parser_instance.write_outputs_per_dataset()
             for path in output_paths:
-                print(f"Output written to: {path}")
+                logger.info(f"Output written to: {path}")
     except Exception as e:
         print(f"Error processing datasets: {e}", file=sys.stderr)
         return 1
