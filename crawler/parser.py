@@ -8,7 +8,14 @@ from typing import Any
 from .config import Config, DatasetConfig
 from .handlers import get_handler
 
+try:
+    from tqdm import tqdm
+except ImportError:  # pragma: no cover - optional dependency
+    tqdm = None
+
 logger = logging.getLogger(__name__)
+ANSI_DUPLICATE = "\033[31m"
+ANSI_RESET = "\033[0m"
 
 
 class DatasetParser:
@@ -39,20 +46,47 @@ class DatasetParser:
         handler = handler_class(ds_config)
 
         base_path = Path(ds_config.path)
-        logger.info(f"Parsing dataset '{ds_config.name}' at: {base_path}")
+        logger.info(
+            "Parsing dataset '%s' (%s, gt=%s) at: %s",
+            ds_config.name,
+            ds_config.type,
+            ds_config.gt,
+            base_path,
+        )
 
         files = list(handler.get_files())
         logger.info(f"Found {len(files)} files")
 
         entries = []
+        seen_ids: set[str] = set()
+        first_seen_paths: dict[str, str] = {}
+        duplicate_ids: set[str] = set()
+        duplicate_occurrences = 0
         skipped_basename = 0
         skipped_id_regex = 0
         skipped_no_id = 0
         skipped_path_regex = 0
 
-        for file_path in files:
+        progress_desc = f"{ds_config.name} files"
+        for file_path in self._iter_with_progress(files, progress_desc):
             entry, skip_reason = self._process_file(file_path, base_path, ds_config)
             if entry:
+                entry_id = entry["id"]
+                if entry_id in seen_ids:
+                    duplicate_occurrences += 1
+                    duplicate_ids.add(entry_id)
+                    first_path = first_seen_paths.get(entry_id, "unknown")
+                    logger.warning(
+                        "%sDuplicate id%s: %s (first: %s, again: %s)",
+                        ANSI_DUPLICATE,
+                        ANSI_RESET,
+                        entry_id,
+                        first_path,
+                        entry["path"],
+                    )
+                else:
+                    seen_ids.add(entry_id)
+                    first_seen_paths[entry_id] = entry["path"]
                 entries.append(entry)
             elif skip_reason == "basename":
                 skipped_basename += 1
@@ -68,6 +102,14 @@ class DatasetParser:
                 logger.debug(f"Skipped (path regex): {file_path}")
 
         logger.info(f"Matched {len(entries)} entries")
+        if duplicate_occurrences:
+            logger.warning(
+                "%sFound %d duplicate ids (%d extra entries)%s",
+                ANSI_DUPLICATE,
+                len(duplicate_ids),
+                duplicate_occurrences,
+                ANSI_RESET,
+            )
         if skipped_basename:
             logger.warning(f"Skipped {skipped_basename} files: basename regex did not match")
         if skipped_id_regex:
@@ -140,6 +182,30 @@ class DatasetParser:
             "path_properties": path_properties,
             "basename_properties": entry_properties,
         }, None
+
+    def _iter_with_progress(
+        self,
+        files: list[Path],
+        desc: str,
+    ):
+        if tqdm:
+            return tqdm(files, total=len(files), desc=desc, unit="file", leave=False)
+        return self._iter_with_logging(files, desc)
+
+    def _iter_with_logging(self, files: list[Path], desc: str):
+        total = len(files)
+        if total == 0:
+            return iter(files)
+
+        log_every = max(total // 10, 1)
+
+        def generator():
+            for index, item in enumerate(files, 1):
+                if index == 1 or index == total or index % log_every == 0:
+                    logger.info("%s: %d/%d", desc, index, total)
+                yield item
+
+        return generator()
 
     def write_output(self, output_path: str | Path) -> None:
         """Parse all datasets and write output to a single JSON file."""
