@@ -18,15 +18,20 @@ class DatasetParser:
         """Initialize parser with configuration."""
         self.config = config
 
-    def parse_all(self) -> dict[str, Any]:
-        """Parse all configured datasets and return combined output."""
-        all_entries = []
+    def parse_all(self) -> list[dict[str, Any]]:
+        """Parse all configured datasets and return list of dataset outputs."""
+        results = []
 
         for ds_config in self.config.datasets:
             entries = self.parse_dataset(ds_config)
-            all_entries.extend(entries)
+            results.append({
+                "name": ds_config.name,
+                "type": ds_config.type,
+                "gt": ds_config.gt,
+                "dataset": entries,
+            })
 
-        return {"dataset": all_entries}
+        return results
 
     def parse_dataset(self, ds_config: DatasetConfig) -> list[dict[str, Any]]:
         """Parse a single dataset and return its entries."""
@@ -106,9 +111,6 @@ class DatasetParser:
             path_properties = path_match.groupdict()
 
         return {
-            "name": ds_config.name,
-            "type": ds_config.type,
-            "gt": ds_config.gt,
             "path": str(relative_path),
             "id": file_id,
             "path_properties": path_properties,
@@ -132,7 +134,12 @@ class DatasetParser:
 
         for ds_config in self.config.datasets:
             entries = self.parse_dataset(ds_config)
-            output = {"dataset": entries}
+            output = {
+                "name": ds_config.name,
+                "type": ds_config.type,
+                "gt": ds_config.gt,
+                "dataset": entries,
+            }
 
             output_path = Path(ds_config.path) / filename
             with open(output_path, "w") as f:
