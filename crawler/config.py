@@ -19,12 +19,14 @@ class DatasetConfig:
     type: DatasetType
     gt: bool
     basename_regex: str
+    id_regex: str
     path_regex: str | None = None
 
     def __post_init__(self) -> None:
         """Validate the configuration."""
         self._validate_type()
         self._validate_basename_regex()
+        self._validate_id_regex()
         if self.path_regex:
             self._validate_path_regex()
 
@@ -35,15 +37,22 @@ class DatasetConfig:
             raise ValueError(f"Invalid type '{self.type}'. Must be one of: {valid_types}")
 
     def _validate_basename_regex(self) -> None:
-        """Validate basename_regex has required 'id' capture group."""
+        """Validate basename_regex is a valid regex."""
         try:
-            pattern = re.compile(self.basename_regex)
+            re.compile(self.basename_regex)
         except re.error as e:
             raise ValueError(f"Invalid basename_regex: {e}")
 
+    def _validate_id_regex(self) -> None:
+        """Validate id_regex has required 'id' capture group."""
+        try:
+            pattern = re.compile(self.id_regex)
+        except re.error as e:
+            raise ValueError(f"Invalid id_regex: {e}")
+
         if "id" not in pattern.groupindex:
             raise ValueError(
-                f"basename_regex must contain named capture group 'id'. "
+                "id_regex must contain named capture group 'id'. "
                 f"Found groups: {list(pattern.groupindex.keys())}"
             )
 
@@ -58,6 +67,11 @@ class DatasetConfig:
     def compiled_basename_regex(self) -> re.Pattern:
         """Return compiled basename regex."""
         return re.compile(self.basename_regex)
+
+    @property
+    def compiled_id_regex(self) -> re.Pattern:
+        """Return compiled id regex."""
+        return re.compile(self.id_regex)
 
     @property
     def compiled_path_regex(self) -> re.Pattern | None:
@@ -95,6 +109,7 @@ class Config:
                     type=ds_data["type"],
                     gt=ds_data["gt"],
                     basename_regex=ds_data["basename_regex"],
+                    id_regex=ds_data["id_regex"],
                     path_regex=ds_data.get("path_regex"),
                 )
                 datasets.append(ds_config)

@@ -46,6 +46,7 @@ class DatasetParser:
 
         entries = []
         skipped_basename = 0
+        skipped_id_regex = 0
         skipped_no_id = 0
         skipped_path_regex = 0
 
@@ -56,9 +57,12 @@ class DatasetParser:
             elif skip_reason == "basename":
                 skipped_basename += 1
                 logger.debug(f"Skipped (basename regex): {file_path}")
+            elif skip_reason == "id_regex":
+                skipped_id_regex += 1
+                logger.debug(f"Skipped (id regex): {file_path}")
             elif skip_reason == "no_id":
                 skipped_no_id += 1
-                logger.debug(f"Skipped (no id captured): {file_path}")
+                logger.debug(f"Skipped (id capture group was empty): {file_path}")
             elif skip_reason == "path_regex":
                 skipped_path_regex += 1
                 logger.debug(f"Skipped (path regex): {file_path}")
@@ -66,6 +70,8 @@ class DatasetParser:
         logger.info(f"Matched {len(entries)} entries")
         if skipped_basename:
             logger.warning(f"Skipped {skipped_basename} files: basename regex did not match")
+        if skipped_id_regex:
+            logger.warning(f"Skipped {skipped_id_regex} files: id regex did not match")
         if skipped_no_id:
             logger.warning(f"Skipped {skipped_no_id} files: 'id' capture group was empty")
         if skipped_path_regex:
@@ -83,7 +89,7 @@ class DatasetParser:
 
         Returns:
             Tuple of (entry_dict, skip_reason). If entry_dict is None,
-            skip_reason indicates why: "basename", "no_id", or "path_regex".
+            skip_reason indicates why: "basename", "id_regex", "no_id", or "path_regex".
         """
         relative_path = file_path.relative_to(base_path)
         basename = file_path.name
@@ -95,16 +101,20 @@ class DatasetParser:
 
         entry_properties = basename_match.groupdict()
 
-        # Validate 'id' was captured
-        if "id" not in entry_properties or entry_properties["id"] is None:
-            return None, "no_id"
+        path_str = str(relative_path)
 
-        file_id = entry_properties["id"]
+        # Extract id from full relative path
+        id_match = ds_config.compiled_id_regex.match(path_str)
+        if not id_match:
+            return None, "id_regex"
+
+        file_id = id_match.groupdict().get("id")
+        if file_id is None:
+            return None, "no_id"
 
         # Extract path properties if path_regex is defined
         path_properties = {}
         if ds_config.compiled_path_regex:
-            path_str = str(relative_path)
             path_match = ds_config.compiled_path_regex.match(path_str)
             if not path_match:
                 return None, "path_regex"
@@ -114,7 +124,7 @@ class DatasetParser:
             "path": str(relative_path),
             "id": file_id,
             "path_properties": path_properties,
-            "entry_properties": entry_properties,
+            "basename_properties": entry_properties,
         }, None
 
     def write_output(self, output_path: str | Path) -> None:
