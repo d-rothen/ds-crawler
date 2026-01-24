@@ -32,12 +32,12 @@ class DatasetParser:
 
         for ds_config in self.config.datasets:
             entries = self.parse_dataset(ds_config)
-            results.append({
+            output = {
                 "name": ds_config.name,
-                "type": ds_config.type,
-                "gt": ds_config.gt,
+                **ds_config.properties,
                 "dataset": entries,
-            })
+            }
+            results.append(output)
 
         return results
 
@@ -48,10 +48,9 @@ class DatasetParser:
 
         base_path = Path(ds_config.path)
         logger.info(
-            "Parsing dataset '%s' (%s, gt=%s) at: %s",
+            "Parsing dataset '%s' (%s) at: %s",
             ds_config.name,
             ds_config.type,
-            ds_config.gt,
             base_path,
         )
 
@@ -271,8 +270,7 @@ class DatasetParser:
             entries = self.parse_dataset(ds_config)
             output = {
                 "name": ds_config.name,
-                "type": ds_config.type,
-                "gt": ds_config.gt,
+                **ds_config.properties,
                 "dataset": entries,
             }
 

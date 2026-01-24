@@ -4,27 +4,39 @@
       "name": "VKITTI2",
       "path": "/path/to/vkitti2/rgb",
       "type": "rgb",
-      "gt": true,
       "path_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/rgb/(?P<camera>Camera_\\d+)/",
       "basename_regex": "^rgb_(?P<frame>\\d+)\\.(?P<ext>jpg|png)$",
-      "id_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/rgb/(?P<camera>Camera_\\d+)/rgb_(?P<frame>\\d+)\\.(?:jpg|png)$"
+      "id_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/rgb/(?P<camera>Camera_\\d+)/rgb_(?P<frame>\\d+)\\.(?:jpg|png)$",
+      "properties": {
+        "type": "rgb",
+        "gt": true,
+        "baseline": true,
+        "specifier": "whatever",
+        "some_other_prop": 1234566
+      }
     },
     {
       "name": "VKITTI2",
       "path": "/path/to/vkitti2/depth",
       "type": "depth",
-      "gt": true,
       "path_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/depth/(?P<camera>Camera_\\d+)/",
       "basename_regex": "^depth_(?P<frame>\\d+)\\.(?P<ext>png)$",
-      "id_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/depth/(?P<camera>Camera_\\d+)/depth_(?P<frame>\\d+)\\.png$"
+      "id_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/depth/(?P<camera>Camera_\\d+)/depth_(?P<frame>\\d+)\\.png$",
+      "properties": {
+        "type": "depth",
+        "gt": true
+      }
     },
     {
       "name": "VKITTI2",
       "path": "/path/to/predicted_depth",
       "type": "depth",
-      "gt": false,
       "basename_regex": "^(?P<frame>\\d+)_pred\\.(?P<ext>png|npy)$",
-      "id_regex": "^(?P<frame>\\d+)_pred\\.(?:png|npy)$"
+      "id_regex": "^(?P<frame>\\d+)_pred\\.(?:png|npy)$",
+      "properties": {
+        "type": "depth",
+        "gt": false
+      }
     }
   ]
 }

@@ -2,9 +2,9 @@
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 
 DatasetType = Literal["depth", "rgb", "segmentation"]
@@ -16,11 +16,11 @@ class DatasetConfig:
 
     name: str
     path: str
-    type: DatasetType
-    gt: bool
+    type: DatasetType  # Used internally for file extension filtering
     basename_regex: str
     id_regex: str
     path_regex: str | None = None
+    properties: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Validate the configuration."""
@@ -106,10 +106,10 @@ class Config:
                     name=ds_data["name"],
                     path=ds_data["path"],
                     type=ds_data["type"],
-                    gt=ds_data["gt"],
                     basename_regex=ds_data["basename_regex"],
                     id_regex=ds_data["id_regex"],
                     path_regex=ds_data.get("path_regex"),
+                    properties=ds_data.get("properties", {}),
                 )
                 datasets.append(ds_config)
             except KeyError as e:
