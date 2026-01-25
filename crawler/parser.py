@@ -1,7 +1,10 @@
 """Dataset parsing logic."""
 
+from __future__ import annotations
+
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +23,57 @@ ID_MISS_PROMPT_RATIO = 0.2
 
 ID_REGEX_JOIN_CHAR = "+"
 
+
+def _get_hierarchy_keys(
+    match: re.Match,
+    separator: str | None,
+) -> list[str]:
+    """Extract hierarchy keys from regex match.
+
+    For named capture groups: returns ['{name}{separator}{value}', ...]
+    For simple capture groups: returns ['{value}', ...]
+    """
+    group_index = match.re.groupindex
+    keys = []
+
+    if group_index:
+        # Named capture groups - sorted by their position in the pattern
+        ordered_names = sorted(group_index.items(), key=lambda item: item[1])
+        for name, _ in ordered_names:
+            value = match.group(name)
+            if value is not None:
+                keys.append(f"{name}{separator}{value}")
+    else:
+        # Simple capture groups
+        for value in match.groups():
+            if value is not None:
+                keys.append(value)
+
+    return keys
+
+
+def _ensure_hierarchy_path(root: dict, keys: list[str]) -> dict:
+    """Navigate/create hierarchy path and return the target node.
+
+    Creates 'children' dicts as needed along the path.
+    Returns the node at the end of the path.
+    """
+    current = root
+    for key in keys:
+        if "children" not in current:
+            current["children"] = {}
+        if key not in current["children"]:
+            current["children"][key] = {}
+        current = current["children"][key]
+    return current
+
+
+def _add_file_to_node(node: dict, entry: dict) -> None:
+    """Add a file entry to a node's files list."""
+    if "files" not in node:
+        node["files"] = []
+    node["files"].append(entry)
+
 class DatasetParser:
     """Parses datasets according to configuration."""
 
@@ -32,20 +86,33 @@ class DatasetParser:
         results = []
 
         for ds_config in self.config.datasets:
-            entries = self.parse_dataset(ds_config)
-            output = {
-                "name": ds_config.name,
-                "id_regex": ds_config.id_regex,
-                "id_regex_join_char": ID_REGEX_JOIN_CHAR,
-                **ds_config.properties,
-                "dataset": entries,
-            }
+            dataset_node = self.parse_dataset(ds_config)
+            output = self._build_output(ds_config, dataset_node)
             results.append(output)
 
         return results
 
-    def parse_dataset(self, ds_config: DatasetConfig) -> list[dict[str, Any]]:
-        """Parse a single dataset and return its entries."""
+    def _build_output(
+        self, ds_config: DatasetConfig, dataset_node: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Build the output dict for a dataset."""
+        output = {
+            "name": ds_config.name,
+            "id_regex": ds_config.id_regex,
+            "id_regex_join_char": ID_REGEX_JOIN_CHAR,
+            **ds_config.properties,
+            "dataset": dataset_node,
+        }
+        if ds_config.hierarchy_regex:
+            output["hierarchy_regex"] = ds_config.hierarchy_regex
+        if ds_config.named_capture_group_value_separator:
+            output["named_capture_group_value_separator"] = (
+                ds_config.named_capture_group_value_separator
+            )
+        return output
+
+    def parse_dataset(self, ds_config: DatasetConfig) -> dict[str, Any]:
+        """Parse a single dataset and return hierarchical DatasetNode."""
         handler_class = get_handler(ds_config.name)
         handler = handler_class(ds_config)
 
@@ -60,7 +127,9 @@ class DatasetParser:
         files = list(handler.get_files())
         logger.info(f"Found {len(files)} files")
 
-        entries = []
+        # Root of the hierarchical structure
+        dataset_root: dict[str, Any] = {}
+
         seen_ids: set[str] = set()
         first_seen_paths: dict[str, str] = {}
         duplicate_ids: set[str] = set()
@@ -69,9 +138,25 @@ class DatasetParser:
         skipped_id_regex = 0
         skipped_no_id = 0
         skipped_path_regex = 0
+        skipped_hierarchy = 0
         id_misses = 0
         prompted_for_id_miss = False
         id_miss_threshold = self._id_miss_threshold(len(files))
+        matched_entries = 0
+
+        # Process intrinsics files
+        intrinsics_count = self._process_camera_files(
+            files, base_path, ds_config, dataset_root, "intrinsics"
+        )
+        if intrinsics_count:
+            logger.info(f"Processed {intrinsics_count} intrinsics files")
+
+        # Process extrinsics files
+        extrinsics_count = self._process_camera_files(
+            files, base_path, ds_config, dataset_root, "extrinsics"
+        )
+        if extrinsics_count:
+            logger.info(f"Processed {extrinsics_count} extrinsics files")
 
         progress_desc = f"{ds_config.name} files"
         for file_path in self._iter_with_progress(files, progress_desc):
@@ -93,7 +178,22 @@ class DatasetParser:
                 else:
                     seen_ids.add(entry_id)
                     first_seen_paths[entry_id] = entry["path"]
-                entries.append(entry)
+
+                # Place entry in hierarchy
+                hierarchy_keys = self._get_entry_hierarchy_keys(
+                    entry["path"], ds_config
+                )
+                if hierarchy_keys is None:
+                    skipped_hierarchy += 1
+                    logger.error(
+                        "hierarchy_regex did not match for file that matched id_regex: %s",
+                        entry["path"],
+                    )
+                else:
+                    target_node = _ensure_hierarchy_path(dataset_root, hierarchy_keys)
+                    _add_file_to_node(target_node, entry)
+                    matched_entries += 1
+
             elif skip_reason == "basename":
                 skipped_basename += 1
                 logger.debug(f"Skipped (basename regex): {file_path}")
@@ -117,11 +217,11 @@ class DatasetParser:
                     prompted_for_id_miss,
                 )
                 logger.debug(f"Skipped (capture group was empty): {file_path}")
-            elif skip_reason == "path_regex"id_regex:
+            elif skip_reason == "path_regex":
                 skipped_path_regex += 1
                 logger.debug(f"Skipped (path regex): {file_path}")
 
-        logger.info(f"Matched {len(entries)} entries")
+        logger.info(f"Matched {matched_entries} entries into hierarchy")
         if duplicate_occurrences:
             logger.warning(
                 "%sFound %d duplicate ids (%d extra entries)%s",
@@ -138,8 +238,100 @@ class DatasetParser:
             logger.warning(f"Skipped {skipped_no_id} files: capture group was empty")
         if skipped_path_regex:
             logger.warning(f"Skipped {skipped_path_regex} files: path regex did not match")
+        if skipped_hierarchy:
+            logger.error(
+                f"Skipped {skipped_hierarchy} files: hierarchy_regex did not match "
+                "(but id_regex did - check your regex configuration)"
+            )
 
-        return entries
+        return dataset_root
+
+    def _get_entry_hierarchy_keys(
+        self, path_str: str, ds_config: DatasetConfig
+    ) -> list[str] | None:
+        """Get hierarchy keys for a file entry.
+
+        Returns None if hierarchy_regex doesn't match (which is an error condition
+        when id_regex did match).
+        """
+        hierarchy_regex = ds_config.compiled_hierarchy_regex
+        if not hierarchy_regex:
+            # No hierarchy defined - use flat structure with empty keys
+            return []
+
+        match = hierarchy_regex.match(path_str)
+        if not match:
+            return None
+
+        return _get_hierarchy_keys(match, ds_config.named_capture_group_value_separator)
+
+    def _process_camera_files(
+        self,
+        files: list[Path],
+        base_path: Path,
+        ds_config: DatasetConfig,
+        dataset_root: dict,
+        camera_type: str,
+    ) -> int:
+        """Process intrinsics or extrinsics files and place in hierarchy.
+
+        Args:
+            files: List of all files in the dataset
+            base_path: Base path of the dataset
+            ds_config: Dataset configuration
+            dataset_root: Root node of the hierarchy
+            camera_type: Either "intrinsics" or "extrinsics"
+
+        Returns:
+            Number of camera files processed
+        """
+        if camera_type == "intrinsics":
+            regex = ds_config.compiled_intrinsics_regex
+        elif camera_type == "extrinsics":
+            regex = ds_config.compiled_extrinsics_regex
+        else:
+            return 0
+
+        if not regex:
+            return 0
+
+        count = 0
+        key_name = f"camera_{camera_type}"
+
+        for file_path in files:
+            relative_path = file_path.relative_to(base_path)
+            path_str = str(relative_path)
+
+            match = regex.match(path_str)
+            if not match:
+                continue
+
+            # Get hierarchy keys from the match
+            hierarchy_keys = _get_hierarchy_keys(
+                match, ds_config.named_capture_group_value_separator
+            )
+
+            # Read the camera data file
+            try:
+                camera_data = self._read_camera_file(file_path)
+            except Exception as e:
+                logger.error(f"Failed to read {camera_type} file {file_path}: {e}")
+                continue
+
+            # Place at the appropriate hierarchy level
+            target_node = _ensure_hierarchy_path(dataset_root, hierarchy_keys)
+            target_node[key_name] = camera_data
+            count += 1
+
+        return count
+
+    def _read_camera_file(self, file_path: Path) -> Any:
+        """Read camera intrinsics/extrinsics file.
+
+        Supports JSON files. Can be extended for other formats.
+        """
+        with open(file_path, "r") as f:
+            return json.load(f)
 
     def _process_file(
         self,
@@ -270,14 +462,8 @@ class DatasetParser:
         output_paths = []
 
         for ds_config in self.config.datasets:
-            entries = self.parse_dataset(ds_config)
-            output = {
-                "name": ds_config.name,
-                "id_regex": ds_config.id_regex,
-                "id_regex_join_char": ID_REGEX_JOIN_CHAR,
-                **ds_config.properties,
-                "dataset": entries,
-            }
+            dataset_node = self.parse_dataset(ds_config)
+            output = self._build_output(ds_config, dataset_node)
 
             output_path = Path(ds_config.path) / filename
             with open(output_path, "w") as f:

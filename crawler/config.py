@@ -1,5 +1,7 @@
 """Configuration loading and validation."""
 
+from __future__ import annotations
+
 import json
 import re
 from dataclasses import dataclass, field
@@ -20,6 +22,10 @@ class DatasetConfig:
     basename_regex: str
     id_regex: str
     path_regex: str | None = None
+    hierarchy_regex: str | None = None
+    named_capture_group_value_separator: str | None = None
+    intrinsics_regex: str | None = None
+    extrinsics_regex: str | None = None
     properties: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -29,6 +35,12 @@ class DatasetConfig:
         self._validate_id_regex()
         if self.path_regex:
             self._validate_path_regex()
+        if self.hierarchy_regex:
+            self._validate_hierarchy_regex()
+        if self.intrinsics_regex:
+            self._validate_intrinsics_regex()
+        if self.extrinsics_regex:
+            self._validate_extrinsics_regex()
 
     def _validate_type(self) -> None:
         """Validate dataset type."""
@@ -62,6 +74,49 @@ class DatasetConfig:
         except re.error as e:
             raise ValueError(f"Invalid path_regex: {e}")
 
+    def _validate_hierarchy_regex(self) -> None:
+        """Validate hierarchy_regex has at least one capture group."""
+        try:
+            pattern = re.compile(self.hierarchy_regex)
+        except re.error as e:
+            raise ValueError(f"Invalid hierarchy_regex: {e}")
+
+        if pattern.groups == 0:
+            raise ValueError(
+                "hierarchy_regex must contain at least one capture group."
+            )
+
+        # Check if named capture groups require separator
+        if pattern.groupindex and not self.named_capture_group_value_separator:
+            raise ValueError(
+                "hierarchy_regex has named capture groups but "
+                "named_capture_group_value_separator is not defined."
+            )
+
+    def _validate_intrinsics_regex(self) -> None:
+        """Validate intrinsics_regex is a valid regex with capture groups."""
+        try:
+            pattern = re.compile(self.intrinsics_regex)
+        except re.error as e:
+            raise ValueError(f"Invalid intrinsics_regex: {e}")
+
+        if pattern.groups == 0:
+            raise ValueError(
+                "intrinsics_regex must contain at least one capture group."
+            )
+
+    def _validate_extrinsics_regex(self) -> None:
+        """Validate extrinsics_regex is a valid regex with capture groups."""
+        try:
+            pattern = re.compile(self.extrinsics_regex)
+        except re.error as e:
+            raise ValueError(f"Invalid extrinsics_regex: {e}")
+
+        if pattern.groups == 0:
+            raise ValueError(
+                "extrinsics_regex must contain at least one capture group."
+            )
+
     @property
     def compiled_basename_regex(self) -> re.Pattern:
         """Return compiled basename regex."""
@@ -77,6 +132,27 @@ class DatasetConfig:
         """Return compiled path regex or None."""
         if self.path_regex:
             return re.compile(self.path_regex)
+        return None
+
+    @property
+    def compiled_hierarchy_regex(self) -> re.Pattern | None:
+        """Return compiled hierarchy regex or None."""
+        if self.hierarchy_regex:
+            return re.compile(self.hierarchy_regex)
+        return None
+
+    @property
+    def compiled_intrinsics_regex(self) -> re.Pattern | None:
+        """Return compiled intrinsics regex or None."""
+        if self.intrinsics_regex:
+            return re.compile(self.intrinsics_regex)
+        return None
+
+    @property
+    def compiled_extrinsics_regex(self) -> re.Pattern | None:
+        """Return compiled extrinsics regex or None."""
+        if self.extrinsics_regex:
+            return re.compile(self.extrinsics_regex)
         return None
 
 
@@ -109,6 +185,12 @@ class Config:
                     basename_regex=ds_data["basename_regex"],
                     id_regex=ds_data["id_regex"],
                     path_regex=ds_data.get("path_regex"),
+                    hierarchy_regex=ds_data.get("hierarchy_regex"),
+                    named_capture_group_value_separator=ds_data.get(
+                        "named_capture_group_value_separator"
+                    ),
+                    intrinsics_regex=ds_data.get("intrinsics_regex"),
+                    extrinsics_regex=ds_data.get("extrinsics_regex"),
                     properties=ds_data.get("properties", {}),
                 )
                 datasets.append(ds_config)

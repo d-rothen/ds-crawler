@@ -6,6 +6,9 @@
       "type": "rgb",
       "path_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/rgb/(?P<camera>Camera_\\d+)/",
       "basename_regex": "^rgb_(?P<frame>\\d+)\\.(?P<ext>jpg|png)$",
+      "named_capture_group_value_separator": ":",
+      "intrinsics_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/intrinsics/(?P<camera>Camera_\\d+)_intrinsics\\.txt$",
+      "hierarchy_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/rgb/(?P<camera>Camera_\\d+)/rgb_(?P<frame>\\d+)\\.png$",
       "id_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/rgb/(?P<camera>Camera_\\d+)/rgb_(?P<frame>\\d+)\\.(?:jpg|png)$",
       "properties": {
         "type": "rgb",
@@ -21,6 +24,8 @@
       "type": "depth",
       "path_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/depth/(?P<camera>Camera_\\d+)/",
       "basename_regex": "^depth_(?P<frame>\\d+)\\.(?P<ext>png)$",
+      "named_capture_group_value_separator": ":",
+      "hierarchy_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/depth/(?P<camera>Camera_\\d+)/depth_(?P<frame>\\d+)\\.png$",
       "id_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/depth/(?P<camera>Camera_\\d+)/depth_(?P<frame>\\d+)\\.png$",
       "properties": {
         "type": "depth",
@@ -32,7 +37,9 @@
       "path": "/path/to/predicted_depth",
       "type": "depth",
       "basename_regex": "^(?P<frame>\\d+)_pred\\.(?P<ext>png|npy)$",
-      "id_regex": "^(?P<frame>\\d+)_pred\\.(?:png|npy)$",
+      "named_capture_group_value_separator": ":",
+      "id_regex": "^(?P<frame>\\d+)_pred\\.png$",
+      "hierarchy_regex": "^(?P<frame>\\d+)_pred\\.(?:png|npy)$",
       "properties": {
         "type": "depth",
         "gt": false
