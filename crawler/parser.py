@@ -24,6 +24,22 @@ ID_MISS_PROMPT_RATIO = 0.2
 ID_REGEX_JOIN_CHAR = "+"
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Deep merge override into base, returning a new dict.
+
+    - Dicts are recursively merged
+    - Non-dict values from override replace base values
+    - Keys only in base or only in override are preserved
+    """
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 def _get_hierarchy_keys(
     match: re.Match,
     separator: str | None,
@@ -96,11 +112,19 @@ class DatasetParser:
         self, ds_config: DatasetConfig, dataset_node: dict[str, Any]
     ) -> dict[str, Any]:
         """Build the output dict for a dataset."""
+        # Separate dataset-level properties from top-level properties
+        properties = ds_config.properties.copy()
+        dataset_properties = properties.pop("dataset", None)
+
+        # Deep merge dataset properties into the computed dataset_node
+        if dataset_properties and isinstance(dataset_properties, dict):
+            dataset_node = _deep_merge(dataset_node, dataset_properties)
+
         output = {
             "name": ds_config.name,
             "id_regex": ds_config.id_regex,
             "id_regex_join_char": ID_REGEX_JOIN_CHAR,
-            **ds_config.properties,
+            **properties,
             "dataset": dataset_node,
         }
         if ds_config.hierarchy_regex:
