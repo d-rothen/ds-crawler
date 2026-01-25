@@ -28,6 +28,7 @@ class DatasetConfig:
     extrinsics_regex: str | None = None
     flat_ids_unique: bool = False
     properties: dict[str, Any] = field(default_factory=dict)
+    output_json: str | None = None
 
     def __post_init__(self) -> None:
         """Validate the configuration."""
@@ -205,6 +206,7 @@ class Config:
                     extrinsics_regex=ds_data.get("extrinsics_regex"),
                     flat_ids_unique=ds_data.get("flat_ids_unique", False),
                     properties=ds_data.get("properties", {}),
+                    output_json=ds_data.get("output_json"),
                 )
                 datasets.append(ds_config)
             except KeyError as e:

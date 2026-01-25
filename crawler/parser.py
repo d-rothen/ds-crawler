@@ -527,7 +527,10 @@ class DatasetParser:
             dataset_node = self.parse_dataset(ds_config)
             output = self._build_output(ds_config, dataset_node)
 
-            output_path = Path(ds_config.path) / filename
+            if ds_config.output_json:
+                output_path = Path(ds_config.output_json)
+            else:
+                output_path = Path(ds_config.path) / filename
             with open(output_path, "w") as f:
                 json.dump(output, f, indent=2)
 
