@@ -26,6 +26,7 @@ class DatasetConfig:
     named_capture_group_value_separator: str | None = None
     intrinsics_regex: str | None = None
     extrinsics_regex: str | None = None
+    flat_ids_unique: bool = False
     properties: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -191,6 +192,7 @@ class Config:
                     ),
                     intrinsics_regex=ds_data.get("intrinsics_regex"),
                     extrinsics_regex=ds_data.get("extrinsics_regex"),
+                    flat_ids_unique=ds_data.get("flat_ids_unique", False),
                     properties=ds_data.get("properties", {}),
                 )
                 datasets.append(ds_config)

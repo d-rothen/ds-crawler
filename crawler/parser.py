@@ -130,8 +130,11 @@ class DatasetParser:
         # Root of the hierarchical structure
         dataset_root: dict[str, Any] = {}
 
+        # Duplicate tracking - either global (flat_ids_unique=True) or per-hierarchy-level
         seen_ids: set[str] = set()
         first_seen_paths: dict[str, str] = {}
+        seen_ids_per_level: dict[tuple[str, ...], set[str]] = {}
+        first_seen_paths_per_level: dict[tuple[str, ...], dict[str, str]] = {}
         duplicate_ids: set[str] = set()
         duplicate_occurrences = 0
         skipped_basename = 0
@@ -163,23 +166,8 @@ class DatasetParser:
             entry, skip_reason = self._process_file(file_path, base_path, ds_config)
             if entry:
                 entry_id = entry["id"]
-                if entry_id in seen_ids:
-                    duplicate_occurrences += 1
-                    duplicate_ids.add(entry_id)
-                    first_path = first_seen_paths.get(entry_id, "unknown")
-                    logger.warning(
-                        "%sDuplicate id%s: %s (first: %s, again: %s)",
-                        ANSI_DUPLICATE,
-                        ANSI_RESET,
-                        entry_id,
-                        first_path,
-                        entry["path"],
-                    )
-                else:
-                    seen_ids.add(entry_id)
-                    first_seen_paths[entry_id] = entry["path"]
 
-                # Place entry in hierarchy
+                # Get hierarchy keys first (needed for per-level duplicate check)
                 hierarchy_keys = self._get_entry_hierarchy_keys(
                     entry["path"], ds_config
                 )
@@ -189,10 +177,49 @@ class DatasetParser:
                         "hierarchy_regex did not match for file that matched id_regex: %s",
                         entry["path"],
                     )
+                    continue
+
+                # Duplicate check - either global or per-hierarchy-level
+                is_duplicate = False
+                first_path = "unknown"
+                if ds_config.flat_ids_unique:
+                    if entry_id in seen_ids:
+                        is_duplicate = True
+                        first_path = first_seen_paths.get(entry_id, "unknown")
+                    else:
+                        seen_ids.add(entry_id)
+                        first_seen_paths[entry_id] = entry["path"]
                 else:
-                    target_node = _ensure_hierarchy_path(dataset_root, hierarchy_keys)
-                    _add_file_to_node(target_node, entry)
-                    matched_entries += 1
+                    level_key = tuple(hierarchy_keys)
+                    if level_key not in seen_ids_per_level:
+                        seen_ids_per_level[level_key] = set()
+                        first_seen_paths_per_level[level_key] = {}
+
+                    if entry_id in seen_ids_per_level[level_key]:
+                        is_duplicate = True
+                        first_path = first_seen_paths_per_level[level_key].get(
+                            entry_id, "unknown"
+                        )
+                    else:
+                        seen_ids_per_level[level_key].add(entry_id)
+                        first_seen_paths_per_level[level_key][entry_id] = entry["path"]
+
+                if is_duplicate:
+                    duplicate_occurrences += 1
+                    duplicate_ids.add(entry_id)
+                    logger.warning(
+                        "%sDuplicate id%s: %s (first: %s, again: %s)",
+                        ANSI_DUPLICATE,
+                        ANSI_RESET,
+                        entry_id,
+                        first_path,
+                        entry["path"],
+                    )
+
+                # Place entry in hierarchy
+                target_node = _ensure_hierarchy_path(dataset_root, hierarchy_keys)
+                _add_file_to_node(target_node, entry)
+                matched_entries += 1
 
             elif skip_reason == "basename":
                 skipped_basename += 1
