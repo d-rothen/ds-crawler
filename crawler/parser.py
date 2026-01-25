@@ -18,6 +18,7 @@ ANSI_DUPLICATE = "\033[31m"
 ANSI_RESET = "\033[0m"
 ID_MISS_PROMPT_RATIO = 0.2
 
+ID_REGEX_JOIN_CHAR = "+"
 
 class DatasetParser:
     """Parses datasets according to configuration."""
@@ -34,6 +35,8 @@ class DatasetParser:
             entries = self.parse_dataset(ds_config)
             output = {
                 "name": ds_config.name,
+                "id_regex": ds_config.id_regex,
+                "id_regex_join_char": ID_REGEX_JOIN_CHAR,
                 **ds_config.properties,
                 "dataset": entries,
             }
@@ -114,7 +117,7 @@ class DatasetParser:
                     prompted_for_id_miss,
                 )
                 logger.debug(f"Skipped (capture group was empty): {file_path}")
-            elif skip_reason == "path_regex":
+            elif skip_reason == "path_regex"id_regex:
                 skipped_path_regex += 1
                 logger.debug(f"Skipped (path regex): {file_path}")
 
@@ -178,12 +181,12 @@ class DatasetParser:
                 id_parts.append(f"{name}-{value}")
             if not id_parts:
                 return None, "no_id"
-            file_id = "+".join(id_parts)
+            file_id = ID_REGEX_JOIN_CHAR.join(id_parts)
         else:
             groups = id_match.groups()
             if not groups or any(value is None for value in groups):
                 return None, "no_id"
-            file_id = "+".join(groups)
+            file_id = ID_REGEX_JOIN_CHAR.join(groups)
 
         # Extract path properties if path_regex is defined
         path_properties = {}
@@ -270,6 +273,8 @@ class DatasetParser:
             entries = self.parse_dataset(ds_config)
             output = {
                 "name": ds_config.name,
+                "id_regex": ds_config.id_regex,
+                "id_regex_join_char": ID_REGEX_JOIN_CHAR,
                 **ds_config.properties,
                 "dataset": entries,
             }
