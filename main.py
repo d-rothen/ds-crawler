@@ -57,13 +57,20 @@ def main() -> int:
         action="store_true",
         help="Enable verbose output (show each skipped file)",
     )
+    parser.add_argument(
+        "-w",
+        "--workdir",
+        type=Path,
+        default=None,
+        help="Working directory to prepend to dataset paths. If specified, dataset.path values are treated as relative to this directory.",
+    )
 
     args = parser.parse_args()
 
     setup_logging(args.verbose)
 
     try:
-        config = Config.from_file(args.config)
+        config = Config.from_file(args.config, workdir=args.workdir)
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1

@@ -164,8 +164,14 @@ class Config:
     datasets: list[DatasetConfig]
 
     @classmethod
-    def from_file(cls, path: str | Path) -> "Config":
-        """Load configuration from a JSON file."""
+    def from_file(cls, path: str | Path, workdir: str | Path | None = None) -> "Config":
+        """Load configuration from a JSON file.
+
+        Args:
+            path: Path to the configuration JSON file.
+            workdir: Optional working directory. If provided, dataset paths
+                are treated as relative to this directory.
+        """
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {path}")
@@ -179,9 +185,14 @@ class Config:
         datasets = []
         for i, ds_data in enumerate(data["datasets"]):
             try:
+                # If workdir is provided, join it with the dataset path
+                ds_path = ds_data["path"]
+                if workdir is not None:
+                    ds_path = str(Path(workdir) / ds_path)
+
                 ds_config = DatasetConfig(
                     name=ds_data["name"],
-                    path=ds_data["path"],
+                    path=ds_path,
                     type=ds_data["type"],
                     basename_regex=ds_data["basename_regex"],
                     id_regex=ds_data["id_regex"],
