@@ -13,10 +13,25 @@ from crawler.parser import DatasetParser
 def setup_logging(verbose: bool) -> None:
     """Configure logging based on verbosity level."""
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(levelname)s: %(message)s",
-    )
+
+    # Use a StreamHandler with explicit flush to avoid buffering on cluster systems
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(level)
+    handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+
+    # Force immediate flush after each log message
+    class FlushingHandler(logging.StreamHandler):
+        def emit(self, record):
+            super().emit(record)
+            self.flush()
+
+    handler = FlushingHandler(sys.stderr)
+    handler.setLevel(level)
+    handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+
+    logging.root.handlers = []
+    logging.root.addHandler(handler)
+    logging.root.setLevel(level)
 
 
 def main() -> int:

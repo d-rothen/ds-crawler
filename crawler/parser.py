@@ -148,8 +148,9 @@ class DatasetParser:
             base_path,
         )
 
+        logger.info("Scanning directory for files...")
         files = list(handler.get_files())
-        logger.info(f"Found {len(files)} files")
+        logger.info(f"File scan complete. Found {len(files)} files")
 
         # Root of the hierarchical structure
         dataset_root: dict[str, Any] = {}
@@ -172,6 +173,8 @@ class DatasetParser:
         matched_entries = 0
 
         # Process intrinsics files
+        if ds_config.compiled_intrinsics_regex:
+            logger.debug("Scanning for intrinsics files...")
         intrinsics_count = self._process_camera_files(
             files, base_path, ds_config, dataset_root, "intrinsics"
         )
@@ -179,11 +182,15 @@ class DatasetParser:
             logger.info(f"Processed {intrinsics_count} intrinsics files")
 
         # Process extrinsics files
+        if ds_config.compiled_extrinsics_regex:
+            logger.debug("Scanning for extrinsics files...")
         extrinsics_count = self._process_camera_files(
             files, base_path, ds_config, dataset_root, "extrinsics"
         )
         if extrinsics_count:
             logger.info(f"Processed {extrinsics_count} extrinsics files")
+
+        logger.info("Processing files...")
 
         progress_desc = f"{ds_config.name} files"
         for file_path in self._iter_with_progress(files, progress_desc):
@@ -272,7 +279,7 @@ class DatasetParser:
                 skipped_path_regex += 1
                 logger.debug(f"Skipped (path regex): {file_path}")
 
-        logger.info(f"Matched {matched_entries} entries into hierarchy")
+        logger.info(f"Processing complete. Matched {matched_entries}/{len(files)} entries into hierarchy")
         if duplicate_occurrences:
             logger.warning(
                 "%sFound %d duplicate ids (%d extra entries)%s",
@@ -487,12 +494,16 @@ class DatasetParser:
         if total == 0:
             return iter(files)
 
-        log_every = max(total // 10, 1)
+        # Log more frequently in verbose/debug mode
+        if logger.isEnabledFor(logging.DEBUG):
+            log_every = max(total // 100, 100)  # Every 1% or every 100 files
+        else:
+            log_every = max(total // 10, 1)  # Every 10%
 
         def generator():
             for index, item in enumerate(files, 1):
                 if index == 1 or index == total or index % log_every == 0:
-                    logger.info("%s: %d/%d", desc, index, total)
+                    logger.info("%s: %d/%d (%.1f%%)", desc, index, total, 100 * index / total)
                 yield item
 
         return generator()
