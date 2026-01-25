@@ -384,8 +384,8 @@ class DatasetParser:
 
         path_str = str(relative_path)
 
-        # Extract id from full relative path
-        id_match = ds_config.compiled_id_regex.match(path_str)
+        # Extract id from relative path (search anywhere in the string)
+        id_match = ds_config.compiled_id_regex.search(path_str)
         if not id_match:
             return None, "id_regex"
 
