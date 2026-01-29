@@ -12,7 +12,7 @@ from .schema import DatasetDescriptor
 
 
 DatasetType = Literal["depth", "rgb", "segmentation"]
-CONFIG_FILENAME = "ds-crawler.config"
+CONFIG_FILENAME = "ds-crawler.json"
 
 DEFAULT_TYPE_EXTENSIONS: dict[str, set[str]] = {
     "rgb": {".png", ".jpg", ".jpeg"},
