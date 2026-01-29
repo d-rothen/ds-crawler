@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover - optional dependency
 logger = logging.getLogger(__name__)
 ANSI_DUPLICATE = "\033[31m"
 ANSI_RESET = "\033[0m"
-ID_MISS_PROMPT_RATIO = 0.2
+ID_MISS_WARN_RATIO = 0.2
 
 ID_REGEX_JOIN_CHAR = "+"
 
@@ -90,12 +90,20 @@ def _add_file_to_node(node: dict, entry: dict) -> None:
         node["files"] = []
     node["files"].append(entry)
 
+
 class DatasetParser:
     """Parses datasets according to configuration."""
 
-    def __init__(self, config: Config) -> None:
-        """Initialize parser with configuration."""
+    def __init__(self, config: Config, strict: bool = False) -> None:
+        """Initialize parser with configuration.
+
+        Args:
+            config: Loaded configuration.
+            strict: If True, abort on duplicate IDs or excessive regex
+                misses instead of warning and continuing.
+        """
         self.config = config
+        self.strict = strict
 
     def parse_all(self) -> list[dict[str, Any]]:
         """Parse all configured datasets and return list of dataset outputs."""
@@ -168,22 +176,17 @@ class DatasetParser:
         skipped_path_regex = 0
         skipped_hierarchy = 0
         id_misses = 0
-        prompted_for_id_miss = False
-        id_miss_threshold = self._id_miss_threshold(len(files))
+        warned_id_miss = False
+        id_miss_threshold = max(1, int(len(files) * ID_MISS_WARN_RATIO))
         matched_entries = 0
 
-        # Process intrinsics files
-        if ds_config.compiled_intrinsics_regex:
-            logger.debug("Scanning for intrinsics files...")
+        # Process intrinsics/extrinsics files (stores paths in hierarchy)
         intrinsics_count = self._process_camera_files(
             files, base_path, ds_config, dataset_root, "intrinsics"
         )
         if intrinsics_count:
             logger.info(f"Processed {intrinsics_count} intrinsics files")
 
-        # Process extrinsics files
-        if ds_config.compiled_extrinsics_regex:
-            logger.debug("Scanning for extrinsics files...")
         extrinsics_count = self._process_camera_files(
             files, base_path, ds_config, dataset_root, "extrinsics"
         )
@@ -236,6 +239,11 @@ class DatasetParser:
                         first_seen_paths_per_level[level_key][entry_id] = entry["path"]
 
                 if is_duplicate:
+                    if self.strict:
+                        raise RuntimeError(
+                            f"Duplicate id '{entry_id}' "
+                            f"(first: {first_path}, again: {entry['path']})"
+                        )
                     duplicate_occurrences += 1
                     duplicate_ids.add(entry_id)
                     logger.warning(
@@ -246,6 +254,7 @@ class DatasetParser:
                         first_path,
                         entry["path"],
                     )
+                    continue  # Always skip duplicates from output
 
                 # Place entry in hierarchy
                 target_node = _ensure_hierarchy_path(dataset_root, hierarchy_keys)
@@ -258,21 +267,15 @@ class DatasetParser:
             elif skip_reason == "id_regex":
                 skipped_id_regex += 1
                 id_misses += 1
-                prompted_for_id_miss = self._prompt_on_id_miss(
-                    id_misses,
-                    len(files),
-                    id_miss_threshold,
-                    prompted_for_id_miss,
+                warned_id_miss = self._check_id_miss_threshold(
+                    id_misses, len(files), id_miss_threshold, warned_id_miss
                 )
                 logger.debug(f"Skipped (id regex): {file_path}")
             elif skip_reason == "no_id":
                 skipped_no_id += 1
                 id_misses += 1
-                prompted_for_id_miss = self._prompt_on_id_miss(
-                    id_misses,
-                    len(files),
-                    id_miss_threshold,
-                    prompted_for_id_miss,
+                warned_id_miss = self._check_id_miss_threshold(
+                    id_misses, len(files), id_miss_threshold, warned_id_miss
                 )
                 logger.debug(f"Skipped (capture group was empty): {file_path}")
             elif skip_reason == "path_regex":
@@ -282,7 +285,7 @@ class DatasetParser:
         logger.info(f"Processing complete. Matched {matched_entries}/{len(files)} entries into hierarchy")
         if duplicate_occurrences:
             logger.warning(
-                "%sFound %d duplicate ids (%d extra entries)%s",
+                "%sFound %d duplicate ids (%d extra entries skipped)%s",
                 ANSI_DUPLICATE,
                 len(duplicate_ids),
                 duplicate_occurrences,
@@ -303,6 +306,33 @@ class DatasetParser:
             )
 
         return dataset_root
+
+    def _check_id_miss_threshold(
+        self,
+        id_misses: int,
+        total_files: int,
+        threshold: int,
+        already_warned: bool,
+    ) -> bool:
+        """Check if ID misses exceed threshold.
+
+        In strict mode, raises RuntimeError. Otherwise logs a warning once.
+        Returns updated warned state.
+        """
+        if already_warned or total_files == 0:
+            return already_warned
+        if id_misses <= threshold:
+            return already_warned
+
+        msg = (
+            f"{id_misses}/{total_files} files failed ID extraction "
+            f"(>{ID_MISS_WARN_RATIO * 100:.0f}% threshold). "
+            "Check your id_regex configuration."
+        )
+        if self.strict:
+            raise RuntimeError(msg)
+        logger.warning(msg)
+        return True
 
     def _get_entry_hierarchy_keys(
         self, path_str: str, ds_config: DatasetConfig
@@ -331,7 +361,12 @@ class DatasetParser:
         dataset_root: dict,
         camera_type: str,
     ) -> int:
-        """Process intrinsics or extrinsics files and place in hierarchy.
+        """Process intrinsics or extrinsics files and place paths in hierarchy.
+
+        Matches files against the intrinsics/extrinsics regex, extracts
+        hierarchy keys, and stores the relative file path at the appropriate
+        hierarchy level. The file content is NOT read — the consumer is
+        responsible for reading the file in whatever format it uses.
 
         Args:
             files: List of all files in the dataset
@@ -369,27 +404,12 @@ class DatasetParser:
                 match, ds_config.named_capture_group_value_separator
             )
 
-            # Read the camera data file
-            try:
-                camera_data = self._read_camera_file(file_path)
-            except Exception as e:
-                logger.error(f"Failed to read {camera_type} file {file_path}: {e}")
-                continue
-
-            # Place at the appropriate hierarchy level
+            # Place the relative path at the appropriate hierarchy level
             target_node = _ensure_hierarchy_path(dataset_root, hierarchy_keys)
-            target_node[key_name] = camera_data
+            target_node[key_name] = path_str
             count += 1
 
         return count
-
-    def _read_camera_file(self, file_path: Path) -> Any:
-        """Read camera intrinsics/extrinsics file.
-
-        Supports JSON files. Can be extended for other formats.
-        """
-        with open(file_path, "r") as f:
-            return json.load(f)
 
     def _process_file(
         self,
@@ -415,8 +435,8 @@ class DatasetParser:
 
         path_str = str(relative_path)
 
-        # Extract id from relative path (search anywhere in the string)
-        id_match = ds_config.compiled_id_regex.search(path_str)
+        # Extract id from relative path
+        id_match = ds_config.compiled_id_regex.match(path_str)
         if not id_match:
             return None, "id_regex"
 
@@ -452,33 +472,6 @@ class DatasetParser:
             "path_properties": path_properties,
             "basename_properties": entry_properties,
         }, None
-
-    def _id_miss_threshold(self, total_files: int) -> int:
-        return max(1, int(total_files * ID_MISS_PROMPT_RATIO))
-
-    def _prompt_on_id_miss(
-        self,
-        id_misses: int,
-        total_files: int,
-        threshold: int,
-        already_prompted: bool,
-    ) -> bool:
-        if already_prompted or total_files == 0:
-            return already_prompted
-        if id_misses <= threshold:
-            return already_prompted
-        if not self._confirm_continue(id_misses, total_files):
-            raise RuntimeError("Aborted due to repeated id parse failures.")
-        return True
-
-    def _confirm_continue(self, id_misses: int, total_files: int) -> bool:
-        try:
-            response = input(
-                f"Failed to parse {id_misses} out of {total_files} ids. Continue? (Y/N) "
-            )
-        except EOFError:
-            return False
-        return response.strip().lower() in {"y", "yes"}
 
     def _iter_with_progress(
         self,

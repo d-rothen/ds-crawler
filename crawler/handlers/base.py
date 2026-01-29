@@ -8,7 +8,12 @@ from ..config import DatasetConfig
 
 
 class BaseHandler(ABC):
-    """Base class for dataset handlers."""
+    """Base class for dataset handlers.
+
+    Subclass this for datasets that require custom file discovery logic
+    (e.g., reading from archives, databases, or non-standard layouts).
+    For standard filesystem datasets, GenericHandler is used automatically.
+    """
 
     def __init__(self, config: DatasetConfig) -> None:
         """Initialize handler with dataset config."""
@@ -23,15 +28,3 @@ class BaseHandler(ABC):
         are considered part of the dataset.
         """
         pass
-
-    def get_file_extensions(self) -> set[str]:
-        """Return valid file extensions for this dataset type.
-
-        Can be overridden by subclasses for custom behavior.
-        """
-        type_extensions = {
-            "rgb": {".png", ".jpg", ".jpeg"},
-            "depth": {".png", ".exr", ".npy", ".pfm"},
-            "segmentation": {".png"},
-        }
-        return type_extensions.get(self.config.type, {".png"})

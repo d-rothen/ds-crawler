@@ -11,6 +11,12 @@ from typing import Any, Literal
 
 DatasetType = Literal["depth", "rgb", "segmentation"]
 
+DEFAULT_TYPE_EXTENSIONS: dict[str, set[str]] = {
+    "rgb": {".png", ".jpg", ".jpeg"},
+    "depth": {".png", ".exr", ".npy", ".pfm"},
+    "segmentation": {".png"},
+}
+
 
 @dataclass
 class DatasetConfig:
@@ -18,7 +24,7 @@ class DatasetConfig:
 
     name: str
     path: str
-    type: DatasetType  # Used internally for file extension filtering
+    type: DatasetType  # Semantic label; also determines default file extensions
     basename_regex: str
     id_regex: str
     path_regex: str | None = None
@@ -29,133 +35,101 @@ class DatasetConfig:
     flat_ids_unique: bool = False
     properties: dict[str, Any] = field(default_factory=dict)
     output_json: str | None = None
+    file_extensions: list[str] | None = None
 
     def __post_init__(self) -> None:
-        """Validate the configuration."""
+        """Validate configuration and compile regex patterns."""
         self._validate_type()
-        self._validate_basename_regex()
-        self._validate_id_regex()
-        if self.path_regex:
-            self._validate_path_regex()
-        if self.hierarchy_regex:
-            self._validate_hierarchy_regex()
-        if self.intrinsics_regex:
-            self._validate_intrinsics_regex()
-        if self.extrinsics_regex:
-            self._validate_extrinsics_regex()
+        self._normalize_file_extensions()
+        self._compile_and_validate_regexes()
 
     def _validate_type(self) -> None:
-        """Validate dataset type."""
         valid_types = {"depth", "rgb", "segmentation"}
         if self.type not in valid_types:
             raise ValueError(f"Invalid type '{self.type}'. Must be one of: {valid_types}")
 
-    def _validate_basename_regex(self) -> None:
-        """Validate basename_regex is a valid regex."""
+    def _normalize_file_extensions(self) -> None:
+        """Ensure file extensions start with a dot."""
+        if self.file_extensions is not None:
+            self.file_extensions = [
+                ext if ext.startswith(".") else f".{ext}"
+                for ext in self.file_extensions
+            ]
+
+    def get_file_extensions(self) -> set[str]:
+        """Return the effective file extensions for this dataset.
+
+        Uses file_extensions from config if provided, otherwise
+        falls back to defaults based on dataset type.
+        """
+        if self.file_extensions is not None:
+            return set(self.file_extensions)
+        return DEFAULT_TYPE_EXTENSIONS.get(self.type, {".png"})
+
+    def _compile_and_validate_regexes(self) -> None:
+        """Compile all regex patterns once, validating as we go."""
+        # basename_regex (required)
         try:
-            re.compile(self.basename_regex)
+            self.compiled_basename_regex: re.Pattern = re.compile(self.basename_regex)
         except re.error as e:
             raise ValueError(f"Invalid basename_regex: {e}")
 
-    def _validate_id_regex(self) -> None:
-        """Validate id_regex has at least one capture group."""
+        # id_regex (required, needs capture groups)
         try:
-            pattern = re.compile(self.id_regex)
+            self.compiled_id_regex: re.Pattern = re.compile(self.id_regex)
         except re.error as e:
             raise ValueError(f"Invalid id_regex: {e}")
+        if self.compiled_id_regex.groups == 0:
+            raise ValueError("id_regex must contain at least one capture group.")
 
-        if pattern.groups == 0:
-            raise ValueError(
-                "id_regex must contain at least one capture group."
-            )
-
-    def _validate_path_regex(self) -> None:
-        """Validate path_regex is a valid regex."""
-        try:
-            re.compile(self.path_regex)
-        except re.error as e:
-            raise ValueError(f"Invalid path_regex: {e}")
-
-    def _validate_hierarchy_regex(self) -> None:
-        """Validate hierarchy_regex has at least one capture group."""
-        try:
-            pattern = re.compile(self.hierarchy_regex)
-        except re.error as e:
-            raise ValueError(f"Invalid hierarchy_regex: {e}")
-
-        if pattern.groups == 0:
-            raise ValueError(
-                "hierarchy_regex must contain at least one capture group."
-            )
-
-        # Check if named capture groups require separator
-        if pattern.groupindex and not self.named_capture_group_value_separator:
-            raise ValueError(
-                "hierarchy_regex has named capture groups but "
-                "named_capture_group_value_separator is not defined."
-            )
-
-    def _validate_intrinsics_regex(self) -> None:
-        """Validate intrinsics_regex is a valid regex with capture groups."""
-        try:
-            pattern = re.compile(self.intrinsics_regex)
-        except re.error as e:
-            raise ValueError(f"Invalid intrinsics_regex: {e}")
-
-        if pattern.groups == 0:
-            raise ValueError(
-                "intrinsics_regex must contain at least one capture group."
-            )
-
-    def _validate_extrinsics_regex(self) -> None:
-        """Validate extrinsics_regex is a valid regex with capture groups."""
-        try:
-            pattern = re.compile(self.extrinsics_regex)
-        except re.error as e:
-            raise ValueError(f"Invalid extrinsics_regex: {e}")
-
-        if pattern.groups == 0:
-            raise ValueError(
-                "extrinsics_regex must contain at least one capture group."
-            )
-
-    @property
-    def compiled_basename_regex(self) -> re.Pattern:
-        """Return compiled basename regex."""
-        return re.compile(self.basename_regex)
-
-    @property
-    def compiled_id_regex(self) -> re.Pattern:
-        """Return compiled id regex."""
-        return re.compile(self.id_regex)
-
-    @property
-    def compiled_path_regex(self) -> re.Pattern | None:
-        """Return compiled path regex or None."""
+        # path_regex (optional)
+        self.compiled_path_regex: re.Pattern | None = None
         if self.path_regex:
-            return re.compile(self.path_regex)
-        return None
+            try:
+                self.compiled_path_regex = re.compile(self.path_regex)
+            except re.error as e:
+                raise ValueError(f"Invalid path_regex: {e}")
 
-    @property
-    def compiled_hierarchy_regex(self) -> re.Pattern | None:
-        """Return compiled hierarchy regex or None."""
+        # hierarchy_regex (optional, needs capture groups)
+        self.compiled_hierarchy_regex: re.Pattern | None = None
         if self.hierarchy_regex:
-            return re.compile(self.hierarchy_regex)
-        return None
+            try:
+                self.compiled_hierarchy_regex = re.compile(self.hierarchy_regex)
+            except re.error as e:
+                raise ValueError(f"Invalid hierarchy_regex: {e}")
+            if self.compiled_hierarchy_regex.groups == 0:
+                raise ValueError(
+                    "hierarchy_regex must contain at least one capture group."
+                )
+            if self.compiled_hierarchy_regex.groupindex and not self.named_capture_group_value_separator:
+                raise ValueError(
+                    "hierarchy_regex has named capture groups but "
+                    "named_capture_group_value_separator is not defined."
+                )
 
-    @property
-    def compiled_intrinsics_regex(self) -> re.Pattern | None:
-        """Return compiled intrinsics regex or None."""
+        # intrinsics_regex (optional, needs capture groups)
+        self.compiled_intrinsics_regex: re.Pattern | None = None
         if self.intrinsics_regex:
-            return re.compile(self.intrinsics_regex)
-        return None
+            try:
+                self.compiled_intrinsics_regex = re.compile(self.intrinsics_regex)
+            except re.error as e:
+                raise ValueError(f"Invalid intrinsics_regex: {e}")
+            if self.compiled_intrinsics_regex.groups == 0:
+                raise ValueError(
+                    "intrinsics_regex must contain at least one capture group."
+                )
 
-    @property
-    def compiled_extrinsics_regex(self) -> re.Pattern | None:
-        """Return compiled extrinsics regex or None."""
+        # extrinsics_regex (optional, needs capture groups)
+        self.compiled_extrinsics_regex: re.Pattern | None = None
         if self.extrinsics_regex:
-            return re.compile(self.extrinsics_regex)
-        return None
+            try:
+                self.compiled_extrinsics_regex = re.compile(self.extrinsics_regex)
+            except re.error as e:
+                raise ValueError(f"Invalid extrinsics_regex: {e}")
+            if self.compiled_extrinsics_regex.groups == 0:
+                raise ValueError(
+                    "extrinsics_regex must contain at least one capture group."
+                )
 
 
 @dataclass
@@ -207,6 +181,7 @@ class Config:
                     flat_ids_unique=ds_data.get("flat_ids_unique", False),
                     properties=ds_data.get("properties", {}),
                     output_json=ds_data.get("output_json"),
+                    file_extensions=ds_data.get("file_extensions"),
                 )
                 datasets.append(ds_config)
             except KeyError as e:

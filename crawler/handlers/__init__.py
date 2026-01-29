@@ -1,18 +1,19 @@
 """Dataset handlers package."""
 
 from .base import BaseHandler
-from .vkitti2 import VKITTI2Handler
+from .generic import GenericHandler
 
-HANDLERS = {
-    "VKITTI2": VKITTI2Handler,
-}
+# Registry for dataset-specific handlers. Datasets without a registered
+# handler automatically use GenericHandler.
+HANDLERS: dict[str, type[BaseHandler]] = {}
 
 
 def get_handler(name: str) -> type[BaseHandler]:
-    """Get handler class by dataset name."""
-    if name not in HANDLERS:
-        raise ValueError(f"Unknown dataset name: {name}. Available: {list(HANDLERS.keys())}")
-    return HANDLERS[name]
+    """Get handler class by dataset name.
+
+    Returns GenericHandler for datasets without a registered handler.
+    """
+    return HANDLERS.get(name, GenericHandler)
 
 
-__all__ = ["BaseHandler", "VKITTI2Handler", "get_handler", "HANDLERS"]
+__all__ = ["BaseHandler", "GenericHandler", "get_handler", "HANDLERS"]

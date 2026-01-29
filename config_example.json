@@ -19,7 +19,7 @@
       }
     },
     {
-      "name": "VKITTI2",
+      "name": "VKITTI2_depth",
       "path": "/path/to/vkitti2/depth",
       "type": "depth",
       "path_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/depth/(?P<camera>Camera_\\d+)/",
@@ -33,9 +33,10 @@
       }
     },
     {
-      "name": "VKITTI2",
+      "name": "predicted_depth",
       "path": "/path/to/predicted_depth",
       "type": "depth",
+      "file_extensions": [".png", ".npy"],
       "basename_regex": "^(?P<frame>\\d+)_pred\\.(?P<ext>png|npy)$",
       "named_capture_group_value_separator": ":",
       "id_regex": "^(?P<frame>\\d+)_pred\\.png$",

@@ -11,20 +11,14 @@ from crawler.parser import DatasetParser
 
 
 def setup_logging(verbose: bool) -> None:
-    """Configure logging based on verbosity level."""
-    level = logging.DEBUG if verbose else logging.INFO
+    """Configure logging with immediate flushing for cluster compatibility."""
 
-    # Use a StreamHandler with explicit flush to avoid buffering on cluster systems
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setLevel(level)
-    handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-
-    # Force immediate flush after each log message
     class FlushingHandler(logging.StreamHandler):
         def emit(self, record):
             super().emit(record)
             self.flush()
 
+    level = logging.DEBUG if verbose else logging.INFO
     handler = FlushingHandler(sys.stderr)
     handler.setLevel(level)
     handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
@@ -62,7 +56,13 @@ def main() -> int:
         "--workdir",
         type=Path,
         default=None,
-        help="Working directory to prepend to dataset paths. If specified, dataset.path values are treated as relative to this directory.",
+        help="Working directory to prepend to dataset paths.",
+    )
+    parser.add_argument(
+        "-s",
+        "--strict",
+        action="store_true",
+        help="Strict mode: abort on duplicate IDs or excessive regex misses.",
     )
 
     args = parser.parse_args()
@@ -78,7 +78,7 @@ def main() -> int:
         print(f"Configuration error: {e}", file=sys.stderr)
         return 1
 
-    parser_instance = DatasetParser(config)
+    parser_instance = DatasetParser(config, strict=args.strict)
 
     logger = logging.getLogger(__name__)
 
