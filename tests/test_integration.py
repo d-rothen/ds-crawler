@@ -4,6 +4,7 @@ These tests verify that:
 1. The shipped example_output.json has correct structure.
 2. Parsing mock filesystems reproduces the expected output exactly.
 3. The full pipeline (config → parse → JSON) works end-to-end.
+4. The public API (index_dataset, index_dataset_from_path) works.
 """
 
 from __future__ import annotations
@@ -14,8 +15,8 @@ from typing import Any
 
 import pytest
 
-from crawler.config import Config, DatasetConfig
-from crawler.parser import DatasetParser
+from ds_crawler.config import Config, DatasetConfig, CONFIG_FILENAME, load_dataset_config
+from ds_crawler.parser import DatasetParser, index_dataset, index_dataset_from_path
 
 from .conftest import (
     create_ddad_tree,
@@ -643,3 +644,185 @@ class TestEdgeCases:
 
         files = collect_all_files(results[0]["dataset"])
         assert len(files) == 200
+
+
+# ===================================================================
+# Public API: index_dataset
+# ===================================================================
+
+
+class TestIndexDataset:
+    """Test the index_dataset() convenience function."""
+
+    def test_returns_output_dict(self, tmp_path: Path) -> None:
+        root = tmp_path / "data"
+        touch(root / "scene" / "001.png")
+
+        config_dict = {
+            "name": "test",
+            "path": str(root),
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
+            "id_regex": r"^(?P<dir>[^/]+)/(?P<frame>\d+)\.png$",
+        }
+        result = index_dataset(config_dict)
+
+        assert result["name"] == "test"
+        assert result["id_regex"] == config_dict["id_regex"]
+        assert "dataset" in result
+        files = collect_all_files(result["dataset"])
+        assert len(files) == 1
+        assert files[0]["id"] == "dir-scene+frame-001"
+
+    def test_with_hierarchy(self, vkitti2_root: Path) -> None:
+        config_dict = make_vkitti2_config(str(vkitti2_root))
+        result = index_dataset(config_dict)
+
+        assert result["name"] == "VKITTI2"
+        assert result["type"] == "rgb"
+        assert "hierarchy_regex" in result
+        files = collect_all_files(result["dataset"])
+        assert len(files) > 0
+
+    def test_strict_mode(self, tmp_path: Path) -> None:
+        root = tmp_path / "data"
+        touch(root / "a" / "001.png")
+        touch(root / "b" / "001.png")
+
+        config_dict = {
+            "name": "test",
+            "path": str(root),
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "basename_regex": r"^(?P<f>\d+)\.(?P<ext>png)$",
+            "id_regex": r"^[^/]+/(?P<frame>\d+)\.png$",
+            "hierarchy_regex": r"^([^/]+)/(\d+)\.png$",
+            "flat_ids_unique": True,
+        }
+        with pytest.raises(RuntimeError, match="Duplicate id"):
+            index_dataset(config_dict, strict=True)
+
+
+# ===================================================================
+# Public API: index_dataset_from_path with ds-crawler.config
+# ===================================================================
+
+
+class TestIndexDatasetFromPath:
+    """Test the index_dataset_from_path() function and ds-crawler.config loading."""
+
+    def _write_config_file(self, dataset_root: Path, config: dict) -> Path:
+        config_path = dataset_root / CONFIG_FILENAME
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+        return config_path
+
+    def test_basic_from_path(self, tmp_path: Path) -> None:
+        root = tmp_path / "my_dataset"
+        touch(root / "scene" / "001.png")
+
+        self._write_config_file(root, {
+            "name": "from_path_test",
+            "path": str(root),
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
+            "id_regex": r"^(?P<dir>[^/]+)/(?P<frame>\d+)\.png$",
+        })
+
+        result = index_dataset_from_path(root)
+        assert result["name"] == "from_path_test"
+        files = collect_all_files(result["dataset"])
+        assert len(files) == 1
+
+    def test_config_file_path_overridden(self, tmp_path: Path) -> None:
+        """The path passed to the function overrides any path in ds-crawler.config."""
+        root = tmp_path / "actual_data"
+        touch(root / "001.png")
+
+        # Config file has a different path, but caller's path should win
+        self._write_config_file(root, {
+            "name": "override_test",
+            "path": "/some/other/path",
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
+            "id_regex": r"^(?P<frame>\d+)\.png$",
+        })
+
+        result = index_dataset_from_path(root)
+        assert result["name"] == "override_test"
+        files = collect_all_files(result["dataset"])
+        assert len(files) == 1
+
+    def test_missing_config_file_raises(self, tmp_path: Path) -> None:
+        root = tmp_path / "no_config"
+        root.mkdir(parents=True)
+
+        with pytest.raises(FileNotFoundError, match=CONFIG_FILENAME):
+            index_dataset_from_path(root)
+
+    def test_config_from_file_path_only_entry(self, tmp_path: Path) -> None:
+        """Config.from_file with a path-only dataset entry resolves ds-crawler.config."""
+        root = tmp_path / "ds_root"
+        touch(root / "file.png")
+
+        self._write_config_file(root, {
+            "name": "cfg_file_test",
+            "path": str(root),
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "basename_regex": r"^(?P<f>.+)\.(?P<ext>png)$",
+            "id_regex": r"^(?P<f>.+)\.png$",
+        })
+
+        # Config JSON with only path
+        config_path = tmp_path / "config.json"
+        with open(config_path, "w") as f:
+            json.dump({"datasets": [{"path": str(root)}]}, f)
+
+        config = Config.from_file(config_path)
+        assert len(config.datasets) == 1
+        assert config.datasets[0].name == "cfg_file_test"
+
+        parser = DatasetParser(config)
+        results = parser.parse_all()
+        files = collect_all_files(results[0]["dataset"])
+        assert len(files) == 1
+
+    def test_load_dataset_config_full_inline(self, tmp_path: Path) -> None:
+        """load_dataset_config with all fields present does not look for config file."""
+        config_dict = {
+            "name": "inline",
+            "path": str(tmp_path),
+            "type": "rgb",
+            "basename_regex": r"^(?P<f>.+)\.png$",
+            "id_regex": r"^(?P<f>.+)\.png$",
+        }
+        ds_config = load_dataset_config(config_dict)
+        assert ds_config.name == "inline"
+
+    def test_path_only_with_workdir(self, tmp_path: Path) -> None:
+        """Path-only entry combined with workdir resolves correctly."""
+        workdir = tmp_path / "work"
+        root = workdir / "rel_ds"
+        touch(root / "frame.png")
+
+        self._write_config_file(root, {
+            "name": "workdir_test",
+            "path": "rel_ds",
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "basename_regex": r"^(?P<f>.+)\.(?P<ext>png)$",
+            "id_regex": r"^(?P<f>.+)\.png$",
+        })
+
+        config_path = tmp_path / "config.json"
+        with open(config_path, "w") as f:
+            json.dump({"datasets": [{"path": "rel_ds"}]}, f)
+
+        config = Config.from_file(config_path, workdir=str(workdir))
+        assert len(config.datasets) == 1
+        assert config.datasets[0].name == "workdir_test"

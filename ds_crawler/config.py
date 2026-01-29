@@ -12,6 +12,7 @@ from .schema import DatasetDescriptor
 
 
 DatasetType = Literal["depth", "rgb", "segmentation"]
+CONFIG_FILENAME = "ds-crawler.config"
 
 DEFAULT_TYPE_EXTENSIONS: dict[str, set[str]] = {
     "rgb": {".png", ".jpg", ".jpeg"},
@@ -64,6 +65,38 @@ class DatasetConfig(DatasetDescriptor):
         if self.file_extensions is not None:
             return set(self.file_extensions)
         return DEFAULT_TYPE_EXTENSIONS.get(self.type, {".png"})
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], workdir: str | Path | None = None) -> "DatasetConfig":
+        """Create a DatasetConfig from a dict (single dataset entry).
+
+        Args:
+            data: Dict with the same keys as a config.json dataset entry.
+            workdir: Optional working directory prepended to relative paths.
+        """
+        ds_path = data["path"]
+        if workdir is not None:
+            ds_path = str(Path(workdir) / ds_path)
+
+        return cls(
+            name=data["name"],
+            path=ds_path,
+            type=data["type"],
+            basename_regex=data["basename_regex"],
+            id_regex=data["id_regex"],
+            path_regex=data.get("path_regex"),
+            hierarchy_regex=data.get("hierarchy_regex"),
+            named_capture_group_value_separator=data.get(
+                "named_capture_group_value_separator"
+            ),
+            intrinsics_regex=data.get("intrinsics_regex"),
+            extrinsics_regex=data.get("extrinsics_regex"),
+            flat_ids_unique=data.get("flat_ids_unique", False),
+            id_regex_join_char=data.get("id_regex_join_char", "+"),
+            properties=data.get("properties", {}),
+            output_json=data.get("output_json"),
+            file_extensions=data.get("file_extensions"),
+        )
 
     def _compile_and_validate_regexes(self) -> None:
         """Compile all regex patterns once, validating as we go."""
@@ -131,6 +164,39 @@ class DatasetConfig(DatasetDescriptor):
                 )
 
 
+def load_dataset_config(
+    data: dict[str, Any], workdir: str | Path | None = None
+) -> DatasetConfig:
+    """Load a DatasetConfig, resolving from a ``ds-crawler.config`` file if needed.
+
+    If *data* contains all required fields (e.g. ``basename_regex``), it is
+    used directly.  Otherwise the function looks for a ``ds-crawler.config``
+    JSON file inside the dataset ``path`` and merges the two dicts (explicit
+    *data* keys take precedence).
+
+    Args:
+        data: Dataset entry dict — either a full config or just ``{"path": "..."}``.
+        workdir: Optional working directory prepended to relative paths.
+    """
+    resolved = data
+    if "basename_regex" not in data:
+        # Path-only entry — resolve the rest from ds-crawler.config
+        ds_path = data["path"]
+        if workdir is not None:
+            ds_path = str(Path(workdir) / ds_path)
+        config_file = Path(ds_path) / CONFIG_FILENAME
+        if not config_file.exists():
+            raise FileNotFoundError(
+                f"Dataset entry has no inline config and no {CONFIG_FILENAME} "
+                f"found at: {config_file}"
+            )
+        with open(config_file) as f:
+            file_config = json.load(f)
+        # Caller-supplied keys override file values
+        resolved = {**file_config, **data}
+    return DatasetConfig.from_dict(resolved, workdir=workdir)
+
+
 @dataclass
 class Config:
     """Main configuration containing multiple datasets."""
@@ -159,31 +225,10 @@ class Config:
         datasets = []
         for i, ds_data in enumerate(data["datasets"]):
             try:
-                # If workdir is provided, join it with the dataset path
-                ds_path = ds_data["path"]
-                if workdir is not None:
-                    ds_path = str(Path(workdir) / ds_path)
-
-                ds_config = DatasetConfig(
-                    name=ds_data["name"],
-                    path=ds_path,
-                    type=ds_data["type"],
-                    basename_regex=ds_data["basename_regex"],
-                    id_regex=ds_data["id_regex"],
-                    path_regex=ds_data.get("path_regex"),
-                    hierarchy_regex=ds_data.get("hierarchy_regex"),
-                    named_capture_group_value_separator=ds_data.get(
-                        "named_capture_group_value_separator"
-                    ),
-                    intrinsics_regex=ds_data.get("intrinsics_regex"),
-                    extrinsics_regex=ds_data.get("extrinsics_regex"),
-                    flat_ids_unique=ds_data.get("flat_ids_unique", False),
-                    id_regex_join_char=ds_data.get("id_regex_join_char", "+"),
-                    properties=ds_data.get("properties", {}),
-                    output_json=ds_data.get("output_json"),
-                    file_extensions=ds_data.get("file_extensions"),
-                )
+                ds_config = load_dataset_config(ds_data, workdir=workdir)
                 datasets.append(ds_config)
+            except FileNotFoundError:
+                raise
             except KeyError as e:
                 raise ValueError(f"Dataset {i} missing required field: {e}")
             except ValueError as e:

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from crawler.config import DatasetConfig
-from crawler.handlers import GenericHandler, get_handler, HANDLERS
+from ds_crawler.config import DatasetConfig
+from ds_crawler.handlers import GenericHandler, get_handler, HANDLERS
 from .conftest import touch
 
 

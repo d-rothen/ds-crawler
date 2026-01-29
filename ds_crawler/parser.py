@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .config import Config, DatasetConfig
+from .config import Config, DatasetConfig, load_dataset_config
 from .handlers import get_handler
 
 try:
@@ -528,3 +528,44 @@ class DatasetParser:
             output_paths.append(output_path)
 
         return output_paths
+
+
+def index_dataset(config: dict[str, Any], *, strict: bool = False) -> dict[str, Any]:
+    """Index a single dataset and return its output dict.
+
+    This is the main public API for programmatic use after installing the
+    package.  The *config* dict has the same shape as one entry in
+    ``config.json["datasets"]``.
+
+    Args:
+        config: A dataset configuration dict.
+        strict: Abort on duplicate IDs or excessive regex misses.
+
+    Returns:
+        The output object (same structure as one element of ``output.json``).
+    """
+    ds_config = DatasetConfig.from_dict(config)
+    parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
+    dataset_node = parser.parse_dataset(ds_config)
+    return parser._build_output(ds_config, dataset_node)
+
+
+def index_dataset_from_path(
+    path: str | Path, *, strict: bool = False
+) -> dict[str, Any]:
+    """Index a dataset by path, loading config from ``ds-crawler.config``.
+
+    Looks for a ``ds-crawler.config`` JSON file inside *path* and uses it
+    as the dataset configuration.
+
+    Args:
+        path: Root directory of the dataset (must contain ``ds-crawler.config``).
+        strict: Abort on duplicate IDs or excessive regex misses.
+
+    Returns:
+        The output object (same structure as one element of ``output.json``).
+    """
+    ds_config = load_dataset_config({"path": str(path)})
+    parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
+    dataset_node = parser.parse_dataset(ds_config)
+    return parser._build_output(ds_config, dataset_node)

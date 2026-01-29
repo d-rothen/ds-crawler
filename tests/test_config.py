@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from crawler.config import Config, DatasetConfig, DEFAULT_TYPE_EXTENSIONS
+from ds_crawler.config import Config, DatasetConfig, DEFAULT_TYPE_EXTENSIONS
 
 
 # ===================================================================

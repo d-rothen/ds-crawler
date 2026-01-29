@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from crawler.config import Config, DatasetConfig
+from ds_crawler.config import Config, DatasetConfig
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 EXAMPLE_CONFIG_PATH = EXAMPLES_DIR / "config.json"

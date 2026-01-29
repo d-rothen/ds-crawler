@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-from crawler.config import Config, DatasetConfig
-from crawler.parser import (
+from ds_crawler.config import Config, DatasetConfig
+from ds_crawler.parser import (
     DatasetParser,
     _add_file_to_node,
     _deep_merge,
