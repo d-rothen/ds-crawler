@@ -25,7 +25,7 @@ DEFAULT_TYPE_EXTENSIONS: dict[str, set[str]] = {
 class DatasetConfig(DatasetDescriptor):
     """Configuration for a single dataset."""
 
-    basename_regex: str
+    basename_regex: str | None = None
     id_regex: str
     path_regex: str | None = None
     hierarchy_regex: str | None = None
@@ -82,7 +82,7 @@ class DatasetConfig(DatasetDescriptor):
             name=data["name"],
             path=ds_path,
             type=data["type"],
-            basename_regex=data["basename_regex"],
+            basename_regex=data.get("basename_regex"),
             id_regex=data["id_regex"],
             path_regex=data.get("path_regex"),
             hierarchy_regex=data.get("hierarchy_regex"),
@@ -100,11 +100,13 @@ class DatasetConfig(DatasetDescriptor):
 
     def _compile_and_validate_regexes(self) -> None:
         """Compile all regex patterns once, validating as we go."""
-        # basename_regex (required)
-        try:
-            self.compiled_basename_regex: re.Pattern = re.compile(self.basename_regex)
-        except re.error as e:
-            raise ValueError(f"Invalid basename_regex: {e}")
+        # basename_regex (optional)
+        self.compiled_basename_regex: re.Pattern | None = None
+        if self.basename_regex:
+            try:
+                self.compiled_basename_regex = re.compile(self.basename_regex)
+            except re.error as e:
+                raise ValueError(f"Invalid basename_regex: {e}")
 
         # id_regex (required, needs capture groups)
         try:
@@ -179,7 +181,7 @@ def load_dataset_config(
         workdir: Optional working directory prepended to relative paths.
     """
     resolved = data
-    if "basename_regex" not in data:
+    if "id_regex" not in data:
         # Path-only entry — resolve the rest from ds-crawler.json
         ds_path = data["path"]
         if workdir is not None:

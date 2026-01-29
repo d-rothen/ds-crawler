@@ -12,7 +12,7 @@ IDs will match, giving you a ready-made mapping across modalities.
 ## Quick Start
 
 ```
-uv pip install "ds-crawler[progress] @ git+https://github.com/d-rothen/ds-crawler"
+uv pip install "ds-crawler[] @ git+https://github.com/d-rothen/ds-crawler"
 ```
 
 ### 1. Place a `ds-crawler.config` in each dataset root

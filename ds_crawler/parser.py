@@ -471,11 +471,12 @@ class DatasetParser:
         basename = file_path.name
 
         # Extract entry properties from basename
-        basename_match = ds_config.compiled_basename_regex.match(basename)
-        if not basename_match:
-            return None, "basename"
-
-        entry_properties = basename_match.groupdict()
+        entry_properties = {}
+        if ds_config.compiled_basename_regex:
+            basename_match = ds_config.compiled_basename_regex.match(basename)
+            if not basename_match:
+                return None, "basename"
+            entry_properties = basename_match.groupdict()
 
         path_str = str(relative_path)
 
