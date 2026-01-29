@@ -109,3 +109,94 @@ Each file entry carries additional properties extracted by the regexes:
 
 These can be used for filtering (e.g. only frames from a specific scene) or for
 additional matching logic beyond the ID.
+
+## Camera intrinsics and extrinsics
+
+When a config specifies `intrinsics_regex` and/or `extrinsics_regex`, the
+crawler matches calibration files against those patterns and places their
+**relative paths** into the hierarchy as `camera_intrinsics` /
+`camera_extrinsics` keys.  The node they land on is determined by the capture
+groups of the regex — specifically the node reached by following the hierarchy
+keys that the regex produces.  This means they can appear at **any level** of
+the hierarchy, depending on how the calibration regex is written:
+
+- If the regex captures `scene + camera`, the path lands on the camera node.
+- If it only captures `scene`, it lands on the scene node (shared by all
+  cameras/frames below).
+- If it captures all the way down to `frame`, it lands on the frame node
+  (per-frame calibration).
+
+### Example: per-camera calibration
+
+```json
+{
+  "intrinsics_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/intrinsics/(?P<camera>Camera_\\d+)_intrinsics\\.txt$",
+  "extrinsics_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/extrinsics/(?P<camera>Camera_\\d+)_extrinsics\\.txt$"
+}
+```
+
+Result — calibration sits on the camera node, shared by all frames:
+
+```json
+{
+  "children": {
+    "scene:Scene01": {
+      "children": {
+        "variation:clone": {
+          "children": {
+            "camera:Camera_0": {
+              "camera_intrinsics": "Scene01/clone/intrinsics/Camera_0_intrinsics.txt",
+              "camera_extrinsics": "Scene01/clone/extrinsics/Camera_0_extrinsics.txt",
+              "children": { "frame:00001": { "files": [...] } }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+### Example: per-scene calibration
+
+If calibration is shared across all cameras in a scene:
+
+```json
+{
+  "intrinsics_regex": "^(?P<scene>\\d+)/calibration\\.json$"
+}
+```
+
+Here `camera_intrinsics` would appear on the scene node itself.
+
+### Accessing calibration in a dataloader
+
+Because calibration can live at any hierarchy level, a recursive walk is the
+most robust approach:
+
+```python
+def walk_with_calibration(node, dataset_root, inherited_intr=None, inherited_extr=None):
+    """Yield (intrinsics_path, extrinsics_path, file) for every file entry,
+    inheriting calibration from ancestor nodes."""
+    intr = node.get("camera_intrinsics", inherited_intr)
+    extr = node.get("camera_extrinsics", inherited_extr)
+
+    for f in node.get("files", []):
+        yield (
+            f"{dataset_root}/{intr}" if intr else None,
+            f"{dataset_root}/{extr}" if extr else None,
+            f,
+        )
+
+    for child in node.get("children", {}).values():
+        yield from walk_with_calibration(child, dataset_root, intr, extr)
+
+for intr, extr, f in walk_with_calibration(rgb_index["dataset"], "/data/vkitti2/rgb"):
+    K = load_intrinsics(intr)    # your loader
+    img = load_image(f"{dataset_root}/{f['path']}")
+    # use K alongside img ...
+```
+
+By inheriting from ancestor nodes, files automatically pick up the nearest
+calibration in the hierarchy — whether it is per-camera, per-scene, or any
+other level.
