@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from .schema import DatasetDescriptor
+
 
 DatasetType = Literal["depth", "rgb", "segmentation"]
 
@@ -18,13 +20,10 @@ DEFAULT_TYPE_EXTENSIONS: dict[str, set[str]] = {
 }
 
 
-@dataclass
-class DatasetConfig:
+@dataclass(kw_only=True)
+class DatasetConfig(DatasetDescriptor):
     """Configuration for a single dataset."""
 
-    name: str
-    path: str
-    type: DatasetType  # Semantic label; also determines default file extensions
     basename_regex: str
     id_regex: str
     path_regex: str | None = None
@@ -34,7 +33,6 @@ class DatasetConfig:
     extrinsics_regex: str | None = None
     flat_ids_unique: bool = False
     id_regex_join_char: str = "+"
-    properties: dict[str, Any] = field(default_factory=dict)
     output_json: str | None = None
     file_extensions: list[str] | None = None
 
