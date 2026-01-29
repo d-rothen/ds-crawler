@@ -712,6 +712,35 @@ def _read_cached_output(
     return None
 
 
+def get_files(output_json: dict[str, Any] | list[dict[str, Any]]) -> list[str]:
+    """Return a flat list of file paths from an output JSON.
+
+    Accepts either a single dataset output dict (as returned by
+    ``index_dataset``) or a list of them (the full output JSON file).
+
+    Args:
+        output_json: A dataset output dict or a list of dataset output dicts.
+
+    Returns:
+        A flat list of every file path found in the output.
+    """
+    datasets = output_json if isinstance(output_json, list) else [output_json]
+    paths: list[str] = []
+    for dataset in datasets:
+        _collect_paths(dataset.get("dataset", {}), paths)
+    return paths
+
+
+def _collect_paths(node: dict[str, Any], paths: list[str]) -> None:
+    """Recursively collect file paths from a hierarchy node."""
+    for file_entry in node.get("files", []):
+        path = file_entry.get("path")
+        if path is not None:
+            paths.append(path)
+    for child in node.get("children", {}).values():
+        _collect_paths(child, paths)
+
+
 def _save_output(
     output: dict[str, Any],
     dataset_path: Path,
