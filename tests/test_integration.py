@@ -826,3 +826,71 @@ class TestIndexDatasetFromPath:
         config = Config.from_file(config_path, workdir=str(workdir))
         assert len(config.datasets) == 1
         assert config.datasets[0].name == "workdir_test"
+
+
+# ===================================================================
+# save_index option
+# ===================================================================
+
+
+class TestSaveIndex:
+    """Test the save_index parameter on index_dataset / index_dataset_from_path."""
+
+    def test_index_dataset_save_index(self, tmp_path: Path) -> None:
+        root = tmp_path / "data"
+        touch(root / "001.png")
+
+        config_dict = {
+            "name": "save_test",
+            "path": str(root),
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
+            "id_regex": r"^(?P<frame>\d+)\.png$",
+        }
+        result = index_dataset(config_dict, save_index=True)
+
+        output_path = root / "output.json"
+        assert output_path.exists()
+        with open(output_path) as f:
+            saved = json.load(f)
+        assert saved["name"] == result["name"]
+        assert saved["dataset"] == result["dataset"]
+
+    def test_index_dataset_no_save_by_default(self, tmp_path: Path) -> None:
+        root = tmp_path / "data"
+        touch(root / "001.png")
+
+        index_dataset({
+            "name": "no_save",
+            "path": str(root),
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
+            "id_regex": r"^(?P<frame>\d+)\.png$",
+        })
+        assert not (root / "output.json").exists()
+
+    def test_index_dataset_from_path_save_index(self, tmp_path: Path) -> None:
+        root = tmp_path / "ds"
+        touch(root / "001.png")
+
+        config_file = root / CONFIG_FILENAME
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_file, "w") as f:
+            json.dump({
+                "name": "save_from_path",
+                "path": str(root),
+                "type": "rgb",
+                "file_extensions": [".png"],
+                "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
+                "id_regex": r"^(?P<frame>\d+)\.png$",
+            }, f)
+
+        result = index_dataset_from_path(root, save_index=True)
+
+        output_path = root / "output.json"
+        assert output_path.exists()
+        with open(output_path) as f:
+            saved = json.load(f)
+        assert saved["name"] == result["name"]

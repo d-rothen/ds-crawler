@@ -530,7 +530,9 @@ class DatasetParser:
         return output_paths
 
 
-def index_dataset(config: dict[str, Any], *, strict: bool = False) -> dict[str, Any]:
+def index_dataset(
+    config: dict[str, Any], *, strict: bool = False, save_index: bool = False
+) -> dict[str, Any]:
     """Index a single dataset and return its output dict.
 
     This is the main public API for programmatic use after installing the
@@ -540,6 +542,8 @@ def index_dataset(config: dict[str, Any], *, strict: bool = False) -> dict[str, 
     Args:
         config: A dataset configuration dict.
         strict: Abort on duplicate IDs or excessive regex misses.
+        save_index: If True, persist the output as ``output.json`` in the
+            dataset's root directory.
 
     Returns:
         The output object (same structure as one element of ``output.json``).
@@ -547,11 +551,14 @@ def index_dataset(config: dict[str, Any], *, strict: bool = False) -> dict[str, 
     ds_config = DatasetConfig.from_dict(config)
     parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
     dataset_node = parser.parse_dataset(ds_config)
-    return parser._build_output(ds_config, dataset_node)
+    output = parser._build_output(ds_config, dataset_node)
+    if save_index:
+        _save_output(output, Path(ds_config.path))
+    return output
 
 
 def index_dataset_from_path(
-    path: str | Path, *, strict: bool = False
+    path: str | Path, *, strict: bool = False, save_index: bool = False
 ) -> dict[str, Any]:
     """Index a dataset by path, loading config from ``ds-crawler.config``.
 
@@ -561,6 +568,8 @@ def index_dataset_from_path(
     Args:
         path: Root directory of the dataset (must contain ``ds-crawler.config``).
         strict: Abort on duplicate IDs or excessive regex misses.
+        save_index: If True, persist the output as ``output.json`` in the
+            dataset's root directory.
 
     Returns:
         The output object (same structure as one element of ``output.json``).
@@ -568,4 +577,14 @@ def index_dataset_from_path(
     ds_config = load_dataset_config({"path": str(path)})
     parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
     dataset_node = parser.parse_dataset(ds_config)
-    return parser._build_output(ds_config, dataset_node)
+    output = parser._build_output(ds_config, dataset_node)
+    if save_index:
+        _save_output(output, Path(ds_config.path))
+    return output
+
+
+def _save_output(output: dict[str, Any], dataset_path: Path) -> None:
+    """Write an output dict as ``output.json`` inside *dataset_path*."""
+    output_path = dataset_path / "output.json"
+    with open(output_path, "w") as f:
+        json.dump(output, f, indent=2)
