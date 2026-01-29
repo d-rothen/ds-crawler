@@ -558,7 +558,11 @@ def index_dataset(
 
 
 def index_dataset_from_path(
-    path: str | Path, *, strict: bool = False, save_index: bool = False
+    path: str | Path,
+    *,
+    strict: bool = False,
+    save_index: bool = False,
+    force_reindex: bool = False,
 ) -> dict[str, Any]:
     """Index a dataset by path, loading config from ``ds-crawler.config``.
 
@@ -570,10 +574,20 @@ def index_dataset_from_path(
         strict: Abort on duplicate IDs or excessive regex misses.
         save_index: If True, persist the output as ``output.json`` in the
             dataset's root directory.
+        force_reindex: If False (default) and ``output.json`` already exists
+            in the dataset root, read and return it without re-indexing.
 
     Returns:
         The output object (same structure as one element of ``output.json``).
     """
+    dataset_path = Path(path)
+    output_path = dataset_path / "output.json"
+
+    if not force_reindex and output_path.is_file():
+        logger.info("Found existing output.json at %s, skipping reindex", output_path)
+        with open(output_path) as f:
+            return json.load(f)
+
     ds_config = load_dataset_config({"path": str(path)})
     parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
     dataset_node = parser.parse_dataset(ds_config)

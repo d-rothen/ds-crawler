@@ -12,7 +12,7 @@ IDs will match, giving you a ready-made mapping across modalities.
 ## Quick Start
 
 ```
-pip install ds_crawler
+uv pip install "euler-train[images,gpu] @ git+https://github.com/d-rothen/ds-crawler"
 ```
 
 ### 1. Place a `ds-crawler.config` in each dataset root
