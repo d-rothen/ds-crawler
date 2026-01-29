@@ -1,0 +1,59 @@
+{
+  "datasets": [
+    {
+      "name": "VKITTI2",
+      "path": "/data/vkitti2",
+      "type": "rgb",
+      "basename_regex": "^rgb_(?P<frame>\\d+)\\.(?P<ext>jpg|png)$",
+      "id_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/rgb/(?P<camera>Camera_\\d+)/rgb_(?P<frame>\\d+)\\.(?:jpg|png)$",
+      "id_regex_join_char": "+",
+      "path_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/rgb/(?P<camera>Camera_\\d+)/",
+      "hierarchy_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/rgb/(?P<camera>Camera_\\d+)/rgb_(?P<frame>\\d+)\\.(?:jpg|png)$",
+      "named_capture_group_value_separator": ":",
+      "intrinsics_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/intrinsics/(?P<camera>Camera_\\d+)_intrinsics\\.txt$",
+      "extrinsics_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/extrinsics/(?P<camera>Camera_\\d+)_extrinsics\\.txt$",
+      "flat_ids_unique": true,
+      "properties": {
+        "type": "rgb",
+        "gt": true,
+        "baseline": true,
+        "dataset": {
+          "license": "CC BY-NC-SA 4.0",
+          "source": "https://europe.naverlabs.com/research/computer-vision/proxy-virtual-worlds-vkitti-2/"
+        }
+      }
+    },
+    {
+      "name": "DDAD",
+      "path": "/data/ddad",
+      "type": "rgb",
+      "file_extensions": [".png"],
+      "basename_regex": "^(?P<frame>\\d+)\\.(?P<ext>png)$",
+      "id_regex": "^(?P<scene>\\d+)/rgb/(?P<camera>CAMERA_\\d+)/(?P<frame>\\d+)\\.png$",
+      "path_regex": "^(?P<scene>\\d+)/rgb/(?P<camera>CAMERA_\\d+)/",
+      "hierarchy_regex": "^(?P<scene>\\d+)/rgb/(?P<camera>CAMERA_\\d+)/(?P<frame>\\d+)\\.png$",
+      "named_capture_group_value_separator": ":",
+      "intrinsics_regex": "^(?P<scene>\\d+)/calibration/(?P<camera>CAMERA_\\d+)\\.json$",
+      "properties": {
+        "type": "rgb",
+        "gt": true
+      }
+    },
+    {
+      "name": "depth_predictions",
+      "path": "/data/predictions/depth",
+      "type": "depth",
+      "file_extensions": [".png", ".npy"],
+      "basename_regex": "^(?P<frame>\\d+)_pred\\.(?P<ext>png|npy)$",
+      "id_regex": "^(?P<scene>[^/]+)/(?P<frame>\\d+)_pred\\.(?P<ext>png|npy)$",
+      "hierarchy_regex": "^(?P<scene>[^/]+)/(?P<frame>\\d+)_pred\\.(?:png|npy)$",
+      "named_capture_group_value_separator": ":",
+      "output_json": "/data/predictions/depth_index.json",
+      "properties": {
+        "type": "depth",
+        "gt": false,
+        "model": "DepthAnythingV2"
+      }
+    }
+  ]
+}

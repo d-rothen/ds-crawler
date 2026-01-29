@@ -21,8 +21,6 @@ ANSI_DUPLICATE = "\033[31m"
 ANSI_RESET = "\033[0m"
 ID_MISS_WARN_RATIO = 0.2
 
-ID_REGEX_JOIN_CHAR = "+"
-
 
 def _deep_merge(base: dict, override: dict) -> dict:
     """Deep merge override into base, returning a new dict.
@@ -131,7 +129,7 @@ class DatasetParser:
         output = {
             "name": ds_config.name,
             "id_regex": ds_config.id_regex,
-            "id_regex_join_char": ID_REGEX_JOIN_CHAR,
+            "id_regex_join_char": ds_config.id_regex_join_char,
             **properties,
             "dataset": dataset_node,
         }
@@ -451,12 +449,12 @@ class DatasetParser:
                 id_parts.append(f"{name}-{value}")
             if not id_parts:
                 return None, "no_id"
-            file_id = ID_REGEX_JOIN_CHAR.join(id_parts)
+            file_id = ds_config.id_regex_join_char.join(id_parts)
         else:
             groups = id_match.groups()
             if not groups or any(value is None for value in groups):
                 return None, "no_id"
-            file_id = ID_REGEX_JOIN_CHAR.join(groups)
+            file_id = ds_config.id_regex_join_char.join(groups)
 
         # Extract path properties if path_regex is defined
         path_properties = {}

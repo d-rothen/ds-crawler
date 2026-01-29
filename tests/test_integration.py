@@ -1,0 +1,645 @@
+"""End-to-end integration tests and example output validation.
+
+These tests verify that:
+1. The shipped example_output.json has correct structure.
+2. Parsing mock filesystems reproduces the expected output exactly.
+3. The full pipeline (config → parse → JSON) works end-to-end.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from crawler.config import Config, DatasetConfig
+from crawler.parser import DatasetParser
+
+from .conftest import (
+    create_ddad_tree,
+    create_depth_predictions_tree,
+    create_vkitti2_tree,
+    make_ddad_config,
+    make_depth_predictions_config,
+    make_vkitti2_config,
+    touch,
+    write_config_json,
+)
+
+
+# ===================================================================
+# Helpers
+# ===================================================================
+
+
+def collect_all_files(node: dict) -> list[dict]:
+    """Recursively collect all file entries from a hierarchy node."""
+    files = list(node.get("files", []))
+    for child in node.get("children", {}).values():
+        files.extend(collect_all_files(child))
+    return files
+
+
+def get_node_at_path(root: dict, keys: list[str]) -> dict:
+    """Navigate a hierarchy by a list of children keys."""
+    current = root
+    for key in keys:
+        current = current["children"][key]
+    return current
+
+
+# ===================================================================
+# Example output.json structural validation
+# ===================================================================
+
+
+class TestExampleOutputStructure:
+    """Validate the shipped example_output.json is well-formed."""
+
+    def test_is_list_of_datasets(self, example_output_data: list[dict]) -> None:
+        assert isinstance(example_output_data, list)
+        assert len(example_output_data) == 3
+
+    def test_each_dataset_has_required_keys(
+        self, example_output_data: list[dict]
+    ) -> None:
+        for ds in example_output_data:
+            assert "name" in ds
+            assert "id_regex" in ds
+            assert "id_regex_join_char" in ds
+            assert "dataset" in ds
+
+    def test_dataset_names(self, example_output_data: list[dict]) -> None:
+        names = [ds["name"] for ds in example_output_data]
+        assert names == ["VKITTI2", "DDAD", "depth_predictions"]
+
+    def test_vkitti2_top_level_properties(
+        self, example_output_data: list[dict]
+    ) -> None:
+        vk = example_output_data[0]
+        assert vk["type"] == "rgb"
+        assert vk["gt"] is True
+        assert vk["baseline"] is True
+        assert vk["id_regex_join_char"] == "+"
+        assert "hierarchy_regex" in vk
+        assert vk["named_capture_group_value_separator"] == ":"
+
+    def test_vkitti2_dataset_metadata(
+        self, example_output_data: list[dict]
+    ) -> None:
+        vk_ds = example_output_data[0]["dataset"]
+        assert vk_ds["license"] == "CC BY-NC-SA 4.0"
+        assert "source" in vk_ds
+
+    def test_vkitti2_hierarchy_depth(
+        self, example_output_data: list[dict]
+    ) -> None:
+        """VKITTI2 should have scene → variation → camera → frame hierarchy."""
+        vk_ds = example_output_data[0]["dataset"]
+        assert "children" in vk_ds
+
+        # Scene01 exists
+        assert "scene:Scene01" in vk_ds["children"]
+        scene01 = vk_ds["children"]["scene:Scene01"]
+
+        # variation:clone exists
+        assert "variation:clone" in scene01["children"]
+        clone = scene01["children"]["variation:clone"]
+
+        # camera:Camera_0 exists
+        assert "camera:Camera_0" in clone["children"]
+        cam0 = clone["children"]["camera:Camera_0"]
+
+        # frame:00001 exists with files
+        assert "frame:00001" in cam0["children"]
+        frame = cam0["children"]["frame:00001"]
+        assert "files" in frame
+        assert len(frame["files"]) == 1
+
+    def test_vkitti2_file_entry_structure(
+        self, example_output_data: list[dict]
+    ) -> None:
+        """Each file entry should have path, id, path_properties, basename_properties."""
+        vk_ds = example_output_data[0]["dataset"]
+        frame = get_node_at_path(
+            vk_ds,
+            ["scene:Scene01", "variation:clone", "camera:Camera_0", "frame:00001"],
+        )
+        entry = frame["files"][0]
+
+        assert entry["path"] == "Scene01/clone/frames/rgb/Camera_0/rgb_00001.jpg"
+        assert entry["id"] == "scene-Scene01+variation-clone+camera-Camera_0+frame-00001"
+        assert entry["path_properties"] == {
+            "scene": "Scene01",
+            "variation": "clone",
+            "camera": "Camera_0",
+        }
+        assert entry["basename_properties"] == {"frame": "00001", "ext": "jpg"}
+
+    def test_vkitti2_camera_files(
+        self, example_output_data: list[dict]
+    ) -> None:
+        vk_ds = example_output_data[0]["dataset"]
+        cam0 = get_node_at_path(
+            vk_ds,
+            ["scene:Scene01", "variation:clone", "camera:Camera_0"],
+        )
+        assert cam0["camera_intrinsics"] == "Scene01/clone/intrinsics/Camera_0_intrinsics.txt"
+        assert cam0["camera_extrinsics"] == "Scene01/clone/extrinsics/Camera_0_extrinsics.txt"
+
+    def test_vkitti2_scene02(
+        self, example_output_data: list[dict]
+    ) -> None:
+        vk_ds = example_output_data[0]["dataset"]
+        assert "scene:Scene02" in vk_ds["children"]
+        fog_cam0 = get_node_at_path(
+            vk_ds, ["scene:Scene02", "variation:fog", "camera:Camera_0"]
+        )
+        assert fog_cam0["camera_intrinsics"] == "Scene02/fog/intrinsics/Camera_0_intrinsics.txt"
+        assert fog_cam0["camera_extrinsics"] == "Scene02/fog/extrinsics/Camera_0_extrinsics.txt"
+
+    def test_ddad_structure(self, example_output_data: list[dict]) -> None:
+        ddad = example_output_data[1]
+        assert ddad["type"] == "rgb"
+        assert ddad["gt"] is True
+
+        ddad_ds = ddad["dataset"]
+        cam01 = get_node_at_path(
+            ddad_ds, ["scene:000150", "camera:CAMERA_01"]
+        )
+        assert cam01["camera_intrinsics"] == "000150/calibration/CAMERA_01.json"
+
+        # Two frames
+        assert "frame:0000000050" in cam01["children"]
+        assert "frame:0000000051" in cam01["children"]
+
+    def test_ddad_file_ids(self, example_output_data: list[dict]) -> None:
+        ddad_ds = example_output_data[1]["dataset"]
+        frame = get_node_at_path(
+            ddad_ds,
+            ["scene:000150", "camera:CAMERA_01", "frame:0000000050"],
+        )
+        entry = frame["files"][0]
+        assert entry["id"] == "scene-000150+camera-CAMERA_01+frame-0000000050"
+
+    def test_depth_predictions_structure(
+        self, example_output_data: list[dict]
+    ) -> None:
+        dp = example_output_data[2]
+        assert dp["type"] == "depth"
+        assert dp["gt"] is False
+        assert dp["model"] == "DepthAnythingV2"
+
+        dp_ds = dp["dataset"]
+        frame01 = get_node_at_path(dp_ds, ["scene:Scene01", "frame:00001"])
+        assert len(frame01["files"]) == 2
+
+    def test_depth_predictions_dual_extensions(
+        self, example_output_data: list[dict]
+    ) -> None:
+        dp_ds = example_output_data[2]["dataset"]
+        frame01 = get_node_at_path(dp_ds, ["scene:Scene01", "frame:00001"])
+        exts = {f["basename_properties"]["ext"] for f in frame01["files"]}
+        assert exts == {"png", "npy"}
+
+        ids = {f["id"] for f in frame01["files"]}
+        assert "scene-Scene01+frame-00001+ext-png" in ids
+        assert "scene-Scene01+frame-00001+ext-npy" in ids
+
+    def test_all_file_ids_unique_per_dataset(
+        self, example_output_data: list[dict]
+    ) -> None:
+        """Every file ID within a dataset should be unique."""
+        for ds in example_output_data:
+            files = collect_all_files(ds["dataset"])
+            ids = [f["id"] for f in files]
+            assert len(ids) == len(set(ids)), (
+                f"Duplicate IDs in dataset '{ds['name']}': "
+                f"{[x for x in ids if ids.count(x) > 1]}"
+            )
+
+    def test_all_file_paths_are_relative(
+        self, example_output_data: list[dict]
+    ) -> None:
+        """File paths should be relative (no leading /)."""
+        for ds in example_output_data:
+            files = collect_all_files(ds["dataset"])
+            for f in files:
+                assert not f["path"].startswith("/"), (
+                    f"Path should be relative: {f['path']}"
+                )
+
+
+# ===================================================================
+# End-to-end: reproduce example output from mock filesystem
+# ===================================================================
+
+
+class TestReproduceExampleOutput:
+    """Create mock filesystem matching the example and verify parsed output
+    matches the expected example_output.json."""
+
+    def _strip_ordering(self, obj: Any) -> Any:
+        """Normalize file lists by sorting them by path for stable comparison."""
+        if isinstance(obj, dict):
+            result = {}
+            for key, value in obj.items():
+                if key == "files" and isinstance(value, list):
+                    result[key] = sorted(
+                        [self._strip_ordering(v) for v in value],
+                        key=lambda f: f["path"],
+                    )
+                else:
+                    result[key] = self._strip_ordering(value)
+            return result
+        if isinstance(obj, list):
+            return [self._strip_ordering(item) for item in obj]
+        return obj
+
+    def test_vkitti2_matches_example(
+        self, vkitti2_root: Path, example_output_data: list[dict]
+    ) -> None:
+        cfg = make_vkitti2_config(str(vkitti2_root))
+        ds_config = DatasetConfig(**cfg)
+        config = Config(datasets=[ds_config])
+        parser = DatasetParser(config)
+        results = parser.parse_all()
+
+        actual = self._strip_ordering(results[0])
+        expected = self._strip_ordering(example_output_data[0])
+
+        # Compare hierarchical structure
+        assert actual["name"] == expected["name"]
+        assert actual["id_regex_join_char"] == expected["id_regex_join_char"]
+        assert actual["type"] == expected["type"]
+        assert actual["gt"] == expected["gt"]
+        assert actual["baseline"] == expected["baseline"]
+        assert actual["hierarchy_regex"] == expected["hierarchy_regex"]
+        assert (
+            actual["named_capture_group_value_separator"]
+            == expected["named_capture_group_value_separator"]
+        )
+
+        # Compare the dataset hierarchy
+        actual_ds = actual["dataset"]
+        expected_ds = expected["dataset"]
+
+        # Check metadata properties are merged
+        assert actual_ds["license"] == expected_ds["license"]
+        assert actual_ds["source"] == expected_ds["source"]
+
+        # Compare children structure
+        assert set(actual_ds["children"].keys()) == set(expected_ds["children"].keys())
+
+        # Deep comparison of Scene01/clone/Camera_0
+        actual_cam0 = get_node_at_path(
+            actual_ds,
+            ["scene:Scene01", "variation:clone", "camera:Camera_0"],
+        )
+        expected_cam0 = get_node_at_path(
+            expected_ds,
+            ["scene:Scene01", "variation:clone", "camera:Camera_0"],
+        )
+        assert actual_cam0["camera_intrinsics"] == expected_cam0["camera_intrinsics"]
+        assert actual_cam0["camera_extrinsics"] == expected_cam0["camera_extrinsics"]
+
+        # Compare frame files
+        for frame_key in ["frame:00001", "frame:00002"]:
+            if frame_key in expected_cam0.get("children", {}):
+                actual_frame = actual_cam0["children"][frame_key]
+                expected_frame = expected_cam0["children"][frame_key]
+                assert actual_frame["files"] == expected_frame["files"], (
+                    f"Mismatch in {frame_key}"
+                )
+
+    def test_ddad_matches_example(
+        self, ddad_root: Path, example_output_data: list[dict]
+    ) -> None:
+        cfg = make_ddad_config(str(ddad_root))
+        ds_config = DatasetConfig(**cfg)
+        config = Config(datasets=[ds_config])
+        parser = DatasetParser(config)
+        results = parser.parse_all()
+
+        actual = self._strip_ordering(results[0])
+        expected = self._strip_ordering(example_output_data[1])
+
+        assert actual["name"] == expected["name"]
+        assert actual["type"] == expected["type"]
+
+        # DDAD Camera_01 intrinsics
+        actual_cam = get_node_at_path(
+            actual["dataset"],
+            ["scene:000150", "camera:CAMERA_01"],
+        )
+        expected_cam = get_node_at_path(
+            expected["dataset"],
+            ["scene:000150", "camera:CAMERA_01"],
+        )
+        assert actual_cam["camera_intrinsics"] == expected_cam["camera_intrinsics"]
+
+        # Compare frame files
+        for frame_key in ["frame:0000000050", "frame:0000000051"]:
+            actual_frame = actual_cam["children"][frame_key]
+            expected_frame = expected_cam["children"][frame_key]
+            assert actual_frame["files"] == expected_frame["files"]
+
+    def test_depth_predictions_matches_example(
+        self, depth_predictions_root: Path, example_output_data: list[dict]
+    ) -> None:
+        cfg = make_depth_predictions_config(str(depth_predictions_root))
+        ds_config = DatasetConfig(**cfg)
+        config = Config(datasets=[ds_config])
+        parser = DatasetParser(config)
+        results = parser.parse_all()
+
+        actual = self._strip_ordering(results[0])
+        expected = self._strip_ordering(example_output_data[2])
+
+        assert actual["name"] == expected["name"]
+        assert actual["type"] == expected["type"]
+        assert actual["gt"] == expected["gt"]
+        assert actual["model"] == expected["model"]
+
+        # Compare frame:00001 files (should have .png and .npy)
+        actual_frame = get_node_at_path(
+            actual["dataset"],
+            ["scene:Scene01", "frame:00001"],
+        )
+        expected_frame = get_node_at_path(
+            expected["dataset"],
+            ["scene:Scene01", "frame:00001"],
+        )
+        assert actual_frame["files"] == expected_frame["files"]
+
+
+# ===================================================================
+# Full pipeline: config file → parse → JSON output
+# ===================================================================
+
+
+class TestFullPipeline:
+    def test_config_to_json_roundtrip(self, tmp_path: Path) -> None:
+        """Config → mock filesystem → parse → write JSON → read JSON."""
+        data_root = tmp_path / "datasets"
+
+        vk_root = data_root / "vkitti2"
+        create_vkitti2_tree(vk_root)
+        ddad_root = data_root / "ddad"
+        create_ddad_tree(ddad_root)
+        dp_root = data_root / "depth_preds"
+        create_depth_predictions_tree(dp_root)
+
+        datasets = [
+            make_vkitti2_config(str(vk_root)),
+            make_ddad_config(str(ddad_root)),
+            make_depth_predictions_config(str(dp_root)),
+        ]
+        config_path = write_config_json(tmp_path / "config.json", datasets)
+
+        config = Config.from_file(config_path)
+        parser = DatasetParser(config)
+
+        output_path = tmp_path / "output.json"
+        parser.write_output(output_path)
+
+        with open(output_path) as f:
+            output = json.load(f)
+
+        assert isinstance(output, list)
+        assert len(output) == 3
+        assert output[0]["name"] == "VKITTI2"
+        assert output[1]["name"] == "DDAD"
+        assert output[2]["name"] == "depth_predictions"
+
+        # Verify files are present
+        for ds_output in output:
+            files = collect_all_files(ds_output["dataset"])
+            assert len(files) > 0, f"No files in dataset '{ds_output['name']}'"
+
+    def test_per_dataset_output(self, tmp_path: Path) -> None:
+        """Each dataset writes its own output JSON."""
+        root = tmp_path / "data"
+        create_depth_predictions_tree(root)
+
+        cfg_data = make_depth_predictions_config(str(root))
+        config_path = write_config_json(tmp_path / "config.json", [cfg_data])
+        config = Config.from_file(config_path)
+        parser = DatasetParser(config)
+
+        paths = parser.write_outputs_per_dataset()
+        assert len(paths) == 1
+        assert paths[0].exists()
+
+        with open(paths[0]) as f:
+            ds_output = json.load(f)
+        assert ds_output["name"] == "depth_predictions"
+
+    def test_strict_mode_pipeline(self, tmp_path: Path) -> None:
+        """Strict mode should work fine when there are no issues."""
+        root = tmp_path / "data"
+        create_depth_predictions_tree(root)
+
+        cfg_data = make_depth_predictions_config(str(root))
+        config_path = write_config_json(tmp_path / "config.json", [cfg_data])
+        config = Config.from_file(config_path)
+        parser = DatasetParser(config, strict=True)
+
+        results = parser.parse_all()
+        assert len(results) == 1
+
+        files = collect_all_files(results[0]["dataset"])
+        assert len(files) == 4  # 2 frames × 2 extensions
+
+    def test_workdir_pipeline(self, tmp_path: Path) -> None:
+        """Test workdir parameter in end-to-end pipeline."""
+        workdir = tmp_path / "work"
+        data_root = workdir / "rel_data"
+        create_depth_predictions_tree(data_root)
+
+        cfg_data = {
+            "name": "test",
+            "path": "rel_data",
+            "type": "depth",
+            "file_extensions": [".png", ".npy"],
+            "basename_regex": r"^(?P<frame>\d+)_pred\.(?P<ext>png|npy)$",
+            "id_regex": r"^(?P<scene>[^/]+)/(?P<frame>\d+)_pred\.(?P<ext>png|npy)$",
+            "hierarchy_regex": r"^(?P<scene>[^/]+)/(?P<frame>\d+)_pred\.(?:png|npy)$",
+            "named_capture_group_value_separator": ":",
+            "properties": {"type": "depth"},
+        }
+        config_path = write_config_json(tmp_path / "config.json", [cfg_data])
+        config = Config.from_file(config_path, workdir=str(workdir))
+        parser = DatasetParser(config)
+        results = parser.parse_all()
+
+        assert len(results) == 1
+        files = collect_all_files(results[0]["dataset"])
+        assert len(files) == 4
+
+
+# ===================================================================
+# Edge cases for the full pipeline
+# ===================================================================
+
+
+class TestEdgeCases:
+    def test_single_file_dataset(self, tmp_path: Path) -> None:
+        root = tmp_path / "single"
+        touch(root / "only_file.png")
+
+        ds = DatasetConfig(
+            name="single",
+            path=str(root),
+            type="rgb",
+            file_extensions=[".png"],
+            basename_regex=r"^(?P<name>.+)\.(?P<ext>png)$",
+            id_regex=r"^(?P<name>.+)\.png$",
+        )
+        config = Config(datasets=[ds])
+        parser = DatasetParser(config)
+        results = parser.parse_all()
+
+        files = collect_all_files(results[0]["dataset"])
+        assert len(files) == 1
+        assert files[0]["id"] == "name-only_file"
+
+    def test_deeply_nested_hierarchy(self, tmp_path: Path) -> None:
+        root = tmp_path / "deep"
+        touch(root / "a" / "b" / "c" / "001.png")
+
+        ds = DatasetConfig(
+            name="deep",
+            path=str(root),
+            type="rgb",
+            file_extensions=[".png"],
+            basename_regex=r"^(?P<frame>\d+)\.(?P<ext>png)$",
+            id_regex=r"^(?P<l1>[^/]+)/(?P<l2>[^/]+)/(?P<l3>[^/]+)/(?P<frame>\d+)\.png$",
+            hierarchy_regex=r"^(?P<l1>[^/]+)/(?P<l2>[^/]+)/(?P<l3>[^/]+)/(?P<frame>\d+)\.png$",
+            named_capture_group_value_separator=":",
+        )
+        config = Config(datasets=[ds])
+        parser = DatasetParser(config)
+        results = parser.parse_all()
+
+        ds_data = results[0]["dataset"]
+        node = get_node_at_path(
+            ds_data, ["l1:a", "l2:b", "l3:c", "frame:001"]
+        )
+        assert len(node["files"]) == 1
+
+    def test_multiple_files_same_hierarchy_level(self, tmp_path: Path) -> None:
+        """Multiple files at the same hierarchy level with different IDs."""
+        root = tmp_path / "multi"
+        touch(root / "scene" / "001.png")
+        touch(root / "scene" / "002.png")
+        touch(root / "scene" / "003.png")
+
+        ds = DatasetConfig(
+            name="multi",
+            path=str(root),
+            type="rgb",
+            file_extensions=[".png"],
+            basename_regex=r"^(?P<frame>\d+)\.(?P<ext>png)$",
+            id_regex=r"^(?P<dir>[^/]+)/(?P<frame>\d+)\.png$",
+            hierarchy_regex=r"^(?P<dir>[^/]+)/(?P<frame>\d+)\.png$",
+            named_capture_group_value_separator=":",
+        )
+        config = Config(datasets=[ds])
+        parser = DatasetParser(config)
+        results = parser.parse_all()
+
+        files = collect_all_files(results[0]["dataset"])
+        assert len(files) == 3
+        ids = {f["id"] for f in files}
+        assert len(ids) == 3
+
+    def test_mixed_matching_and_nonmatching_files(self, tmp_path: Path) -> None:
+        """Some files match regexes, some don't – only matching ones in output."""
+        root = tmp_path / "mixed"
+        touch(root / "valid" / "001.png")
+        touch(root / "valid" / "002.png")
+        touch(root / "stray_file.png")  # basename matches but id_regex won't
+
+        ds = DatasetConfig(
+            name="mixed",
+            path=str(root),
+            type="rgb",
+            file_extensions=[".png"],
+            basename_regex=r"^(?P<frame>\d+)\.(?P<ext>png)$",
+            id_regex=r"^valid/(?P<frame>\d+)\.png$",
+        )
+        config = Config(datasets=[ds])
+        parser = DatasetParser(config)
+        results = parser.parse_all()
+
+        files = collect_all_files(results[0]["dataset"])
+        # stray_file.png fails basename_regex (name doesn't match \d+),
+        # so it's skipped
+        assert len(files) == 2
+
+    def test_custom_id_join_char(self, tmp_path: Path) -> None:
+        root = tmp_path / "data"
+        touch(root / "a" / "001.png")
+
+        ds = DatasetConfig(
+            name="test",
+            path=str(root),
+            type="rgb",
+            file_extensions=[".png"],
+            basename_regex=r"^(?P<frame>\d+)\.(?P<ext>png)$",
+            id_regex=r"^(?P<dir>[^/]+)/(?P<frame>\d+)\.png$",
+            id_regex_join_char="/",
+        )
+        config = Config(datasets=[ds])
+        parser = DatasetParser(config)
+        results = parser.parse_all()
+
+        files = collect_all_files(results[0]["dataset"])
+        assert files[0]["id"] == "dir-a/frame-001"
+
+    def test_no_path_regex_gives_empty_path_properties(
+        self, tmp_path: Path
+    ) -> None:
+        root = tmp_path / "data"
+        touch(root / "001.png")
+
+        ds = DatasetConfig(
+            name="test",
+            path=str(root),
+            type="rgb",
+            file_extensions=[".png"],
+            basename_regex=r"^(?P<frame>\d+)\.(?P<ext>png)$",
+            id_regex=r"^(?P<frame>\d+)\.png$",
+        )
+        config = Config(datasets=[ds])
+        parser = DatasetParser(config)
+        results = parser.parse_all()
+
+        files = collect_all_files(results[0]["dataset"])
+        assert files[0]["path_properties"] == {}
+
+    def test_large_dataset_no_crash(self, tmp_path: Path) -> None:
+        """Stress test with many files – parser shouldn't crash."""
+        root = tmp_path / "large"
+        for i in range(200):
+            touch(root / f"scene_{i:03d}" / "frame.png")
+
+        ds = DatasetConfig(
+            name="large",
+            path=str(root),
+            type="rgb",
+            file_extensions=[".png"],
+            basename_regex=r"^(?P<name>.+)\.(?P<ext>png)$",
+            id_regex=r"^(?P<scene>[^/]+)/(?P<name>.+)\.png$",
+            hierarchy_regex=r"^(?P<scene>[^/]+)/(?P<name>.+)\.png$",
+            named_capture_group_value_separator=":",
+        )
+        config = Config(datasets=[ds])
+        parser = DatasetParser(config)
+        results = parser.parse_all()
+
+        files = collect_all_files(results[0]["dataset"])
+        assert len(files) == 200

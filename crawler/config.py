@@ -33,6 +33,7 @@ class DatasetConfig:
     intrinsics_regex: str | None = None
     extrinsics_regex: str | None = None
     flat_ids_unique: bool = False
+    id_regex_join_char: str = "+"
     properties: dict[str, Any] = field(default_factory=dict)
     output_json: str | None = None
     file_extensions: list[str] | None = None
@@ -179,6 +180,7 @@ class Config:
                     intrinsics_regex=ds_data.get("intrinsics_regex"),
                     extrinsics_regex=ds_data.get("extrinsics_regex"),
                     flat_ids_unique=ds_data.get("flat_ids_unique", False),
+                    id_regex_join_char=ds_data.get("id_regex_join_char", "+"),
                     properties=ds_data.get("properties", {}),
                     output_json=ds_data.get("output_json"),
                     file_extensions=ds_data.get("file_extensions"),

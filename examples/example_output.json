@@ -1,0 +1,257 @@
+[
+  {
+    "name": "VKITTI2",
+    "id_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/rgb/(?P<camera>Camera_\\d+)/rgb_(?P<frame>\\d+)\\.(?:jpg|png)$",
+    "id_regex_join_char": "+",
+    "type": "rgb",
+    "gt": true,
+    "baseline": true,
+    "dataset": {
+      "license": "CC BY-NC-SA 4.0",
+      "source": "https://europe.naverlabs.com/research/computer-vision/proxy-virtual-worlds-vkitti-2/",
+      "children": {
+        "scene:Scene01": {
+          "children": {
+            "variation:clone": {
+              "children": {
+                "camera:Camera_0": {
+                  "camera_intrinsics": "Scene01/clone/intrinsics/Camera_0_intrinsics.txt",
+                  "camera_extrinsics": "Scene01/clone/extrinsics/Camera_0_extrinsics.txt",
+                  "children": {
+                    "frame:00001": {
+                      "files": [
+                        {
+                          "path": "Scene01/clone/frames/rgb/Camera_0/rgb_00001.jpg",
+                          "id": "scene-Scene01+variation-clone+camera-Camera_0+frame-00001",
+                          "path_properties": {
+                            "scene": "Scene01",
+                            "variation": "clone",
+                            "camera": "Camera_0"
+                          },
+                          "basename_properties": {
+                            "frame": "00001",
+                            "ext": "jpg"
+                          }
+                        }
+                      ]
+                    },
+                    "frame:00002": {
+                      "files": [
+                        {
+                          "path": "Scene01/clone/frames/rgb/Camera_0/rgb_00002.jpg",
+                          "id": "scene-Scene01+variation-clone+camera-Camera_0+frame-00002",
+                          "path_properties": {
+                            "scene": "Scene01",
+                            "variation": "clone",
+                            "camera": "Camera_0"
+                          },
+                          "basename_properties": {
+                            "frame": "00002",
+                            "ext": "jpg"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                "camera:Camera_1": {
+                  "camera_intrinsics": "Scene01/clone/intrinsics/Camera_1_intrinsics.txt",
+                  "camera_extrinsics": "Scene01/clone/extrinsics/Camera_1_extrinsics.txt",
+                  "children": {
+                    "frame:00001": {
+                      "files": [
+                        {
+                          "path": "Scene01/clone/frames/rgb/Camera_1/rgb_00001.jpg",
+                          "id": "scene-Scene01+variation-clone+camera-Camera_1+frame-00001",
+                          "path_properties": {
+                            "scene": "Scene01",
+                            "variation": "clone",
+                            "camera": "Camera_1"
+                          },
+                          "basename_properties": {
+                            "frame": "00001",
+                            "ext": "jpg"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "scene:Scene02": {
+          "children": {
+            "variation:fog": {
+              "children": {
+                "camera:Camera_0": {
+                  "camera_intrinsics": "Scene02/fog/intrinsics/Camera_0_intrinsics.txt",
+                  "camera_extrinsics": "Scene02/fog/extrinsics/Camera_0_extrinsics.txt",
+                  "children": {
+                    "frame:00001": {
+                      "files": [
+                        {
+                          "path": "Scene02/fog/frames/rgb/Camera_0/rgb_00001.jpg",
+                          "id": "scene-Scene02+variation-fog+camera-Camera_0+frame-00001",
+                          "path_properties": {
+                            "scene": "Scene02",
+                            "variation": "fog",
+                            "camera": "Camera_0"
+                          },
+                          "basename_properties": {
+                            "frame": "00001",
+                            "ext": "jpg"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "hierarchy_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/rgb/(?P<camera>Camera_\\d+)/rgb_(?P<frame>\\d+)\\.(?:jpg|png)$",
+    "named_capture_group_value_separator": ":"
+  },
+  {
+    "name": "DDAD",
+    "id_regex": "^(?P<scene>\\d+)/rgb/(?P<camera>CAMERA_\\d+)/(?P<frame>\\d+)\\.png$",
+    "id_regex_join_char": "+",
+    "type": "rgb",
+    "gt": true,
+    "dataset": {
+      "children": {
+        "scene:000150": {
+          "children": {
+            "camera:CAMERA_01": {
+              "camera_intrinsics": "000150/calibration/CAMERA_01.json",
+              "children": {
+                "frame:0000000050": {
+                  "files": [
+                    {
+                      "path": "000150/rgb/CAMERA_01/0000000050.png",
+                      "id": "scene-000150+camera-CAMERA_01+frame-0000000050",
+                      "path_properties": {
+                        "scene": "000150",
+                        "camera": "CAMERA_01"
+                      },
+                      "basename_properties": {
+                        "frame": "0000000050",
+                        "ext": "png"
+                      }
+                    }
+                  ]
+                },
+                "frame:0000000051": {
+                  "files": [
+                    {
+                      "path": "000150/rgb/CAMERA_01/0000000051.png",
+                      "id": "scene-000150+camera-CAMERA_01+frame-0000000051",
+                      "path_properties": {
+                        "scene": "000150",
+                        "camera": "CAMERA_01"
+                      },
+                      "basename_properties": {
+                        "frame": "0000000051",
+                        "ext": "png"
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "camera:CAMERA_05": {
+              "camera_intrinsics": "000150/calibration/CAMERA_05.json",
+              "children": {
+                "frame:0000000050": {
+                  "files": [
+                    {
+                      "path": "000150/rgb/CAMERA_05/0000000050.png",
+                      "id": "scene-000150+camera-CAMERA_05+frame-0000000050",
+                      "path_properties": {
+                        "scene": "000150",
+                        "camera": "CAMERA_05"
+                      },
+                      "basename_properties": {
+                        "frame": "0000000050",
+                        "ext": "png"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "hierarchy_regex": "^(?P<scene>\\d+)/rgb/(?P<camera>CAMERA_\\d+)/(?P<frame>\\d+)\\.png$",
+    "named_capture_group_value_separator": ":"
+  },
+  {
+    "name": "depth_predictions",
+    "id_regex": "^(?P<scene>[^/]+)/(?P<frame>\\d+)_pred\\.(?P<ext>png|npy)$",
+    "id_regex_join_char": "+",
+    "type": "depth",
+    "gt": false,
+    "model": "DepthAnythingV2",
+    "dataset": {
+      "children": {
+        "scene:Scene01": {
+          "children": {
+            "frame:00001": {
+              "files": [
+                {
+                  "path": "Scene01/00001_pred.png",
+                  "id": "scene-Scene01+frame-00001+ext-png",
+                  "path_properties": {},
+                  "basename_properties": {
+                    "frame": "00001",
+                    "ext": "png"
+                  }
+                },
+                {
+                  "path": "Scene01/00001_pred.npy",
+                  "id": "scene-Scene01+frame-00001+ext-npy",
+                  "path_properties": {},
+                  "basename_properties": {
+                    "frame": "00001",
+                    "ext": "npy"
+                  }
+                }
+              ]
+            },
+            "frame:00002": {
+              "files": [
+                {
+                  "path": "Scene01/00002_pred.png",
+                  "id": "scene-Scene01+frame-00002+ext-png",
+                  "path_properties": {},
+                  "basename_properties": {
+                    "frame": "00002",
+                    "ext": "png"
+                  }
+                },
+                {
+                  "path": "Scene01/00002_pred.npy",
+                  "id": "scene-Scene01+frame-00002+ext-npy",
+                  "path_properties": {},
+                  "basename_properties": {
+                    "frame": "00002",
+                    "ext": "npy"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "hierarchy_regex": "^(?P<scene>[^/]+)/(?P<frame>\\d+)_pred\\.(?:png|npy)$",
+    "named_capture_group_value_separator": ":"
+  }
+]
