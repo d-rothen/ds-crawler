@@ -11,6 +11,8 @@ import pytest
 from ds_crawler.config import Config, DatasetConfig
 from ds_crawler.parser import (
     DatasetParser,
+    index_dataset,
+    index_dataset_from_files,
     _add_file_to_node,
     _deep_merge,
     _ensure_hierarchy_path,
@@ -18,6 +20,8 @@ from ds_crawler.parser import (
 )
 
 from .conftest import (
+    create_vkitti2_tree,
+    create_depth_predictions_tree,
     make_vkitti2_config,
     make_ddad_config,
     make_depth_predictions_config,
@@ -932,3 +936,151 @@ class TestWriteOutput:
         assert len(paths) == 1
         assert paths[0] == custom_output
         assert custom_output.exists()
+
+
+# ===================================================================
+# parse_dataset_from_files / index_dataset_from_files
+# ===================================================================
+
+
+class TestParseDatasetFromFiles:
+    """Verify that passing pre-collected file paths produces the same output
+    as letting the handler discover them."""
+
+    def test_matches_handler_output(self, tmp_path: Path) -> None:
+        """index_dataset_from_files matches index_dataset for the same files."""
+        root = tmp_path / "dp"
+        create_depth_predictions_tree(root)
+        cfg = make_depth_predictions_config(str(root))
+
+        # Standard handler-based result
+        expected = index_dataset(cfg)
+
+        # Collect the same files manually and use the new API
+        from ds_crawler.handlers.generic import GenericHandler
+
+        ds_config = DatasetConfig(**cfg)
+        handler = GenericHandler(ds_config)
+        files = list(handler.get_files())
+
+        result = index_dataset_from_files(cfg, files)
+        assert result == expected
+
+    def test_accepts_string_paths(self, tmp_path: Path) -> None:
+        """Files can be passed as strings instead of Path objects."""
+        root = tmp_path / "dp"
+        create_depth_predictions_tree(root)
+        cfg = make_depth_predictions_config(str(root))
+
+        expected = index_dataset(cfg)
+
+        from ds_crawler.handlers.generic import GenericHandler
+
+        ds_config = DatasetConfig(**cfg)
+        handler = GenericHandler(ds_config)
+        string_files = [str(f) for f in handler.get_files()]
+
+        result = index_dataset_from_files(cfg, string_files)
+        assert result == expected
+
+    def test_accepts_iterator(self, tmp_path: Path) -> None:
+        """Files can be passed as a lazy iterator."""
+        root = tmp_path / "dp"
+        create_depth_predictions_tree(root)
+        cfg = make_depth_predictions_config(str(root))
+
+        expected = index_dataset(cfg)
+
+        from ds_crawler.handlers.generic import GenericHandler
+
+        ds_config = DatasetConfig(**cfg)
+        handler = GenericHandler(ds_config)
+        files = list(handler.get_files())
+
+        result = index_dataset_from_files(cfg, iter(files))
+        assert result == expected
+
+    def test_custom_base_path(self, tmp_path: Path) -> None:
+        """A custom base_path overrides ds_config.path for relative path
+        computation."""
+        root = tmp_path / "dp"
+        create_depth_predictions_tree(root)
+        cfg = make_depth_predictions_config(str(root))
+
+        expected = index_dataset(cfg)
+
+        from ds_crawler.handlers.generic import GenericHandler
+
+        ds_config = DatasetConfig(**cfg)
+        handler = GenericHandler(ds_config)
+        files = list(handler.get_files())
+
+        # Passing the same base_path explicitly should yield the same result
+        result = index_dataset_from_files(cfg, files, base_path=str(root))
+        assert result == expected
+
+    def test_strict_raises_on_duplicate(self, tmp_path: Path) -> None:
+        """strict=True raises RuntimeError on duplicate IDs."""
+        root = tmp_path / "data"
+        files = [
+            touch(root / "a" / "001.png"),
+            touch(root / "b" / "001.png"),
+        ]
+        cfg = {
+            "name": "test",
+            "path": str(root),
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "basename_regex": r"^(?P<f>\d+)\.(?P<ext>png)$",
+            "id_regex": r"^[^/]+/(?P<frame>\d+)\.png$",
+            "hierarchy_regex": r"^([^/]+)/(\d+)\.png$",
+            "flat_ids_unique": True,
+        }
+
+        with pytest.raises(RuntimeError, match="Duplicate id"):
+            index_dataset_from_files(cfg, files, strict=True)
+
+    def test_vkitti2_matches_handler(self, tmp_path: Path) -> None:
+        """Full VKITTI2 dataset with camera files matches handler output."""
+        root = tmp_path / "vkitti2"
+        create_vkitti2_tree(root)
+        cfg = make_vkitti2_config(str(root))
+
+        expected = index_dataset(cfg)
+
+        from ds_crawler.handlers.generic import GenericHandler
+
+        ds_config = DatasetConfig(**cfg)
+        handler = GenericHandler(ds_config)
+        files = list(handler.get_files())
+
+        result = index_dataset_from_files(cfg, files)
+        assert result == expected
+
+    def test_empty_file_list(self, tmp_path: Path) -> None:
+        """An empty file list produces an empty dataset node."""
+        root = tmp_path / "empty"
+        root.mkdir()
+        cfg = make_depth_predictions_config(str(root))
+
+        result = index_dataset_from_files(cfg, [])
+        assert result["dataset"] == {}
+
+    def test_parse_dataset_from_files_method(self, tmp_path: Path) -> None:
+        """DatasetParser.parse_dataset_from_files works directly."""
+        root = tmp_path / "dp"
+        create_depth_predictions_tree(root)
+        cfg = make_depth_predictions_config(str(root))
+        ds_config = DatasetConfig(**cfg)
+        config = Config(datasets=[ds_config])
+
+        parser = DatasetParser(config)
+        handler_node = parser.parse_dataset(ds_config)
+
+        from ds_crawler.handlers.generic import GenericHandler
+
+        handler = GenericHandler(ds_config)
+        files = list(handler.get_files())
+
+        files_node = parser.parse_dataset_from_files(ds_config, files)
+        assert files_node == handler_node

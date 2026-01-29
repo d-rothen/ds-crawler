@@ -6,7 +6,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from .config import Config, DatasetConfig, load_dataset_config
 from .handlers import get_handler
@@ -159,6 +159,51 @@ class DatasetParser:
         files = list(handler.get_files())
         logger.info(f"File scan complete. Found {len(files)} files")
 
+        return self._parse_files(ds_config, files, base_path)
+
+    def parse_dataset_from_files(
+        self,
+        ds_config: DatasetConfig,
+        files: Iterable[str | Path],
+        base_path: str | Path | None = None,
+    ) -> dict[str, Any]:
+        """Parse pre-collected files without handler-based file discovery.
+
+        This bypasses the handler's ``get_files()`` step and processes the
+        supplied *files* directly.  Useful when the caller already has a
+        list of file paths (e.g. from an external source or a virtual
+        dataset).
+
+        Args:
+            ds_config: Dataset configuration (regex patterns, properties, …).
+            files: File paths to process.  Can be a list, generator, or any
+                iterable of ``str`` or ``Path`` objects.
+            base_path: Root path used to compute relative paths for regex
+                matching.  Defaults to ``ds_config.path`` when *None*.
+
+        Returns:
+            Hierarchical dataset node (same structure as ``parse_dataset``).
+        """
+        resolved_base = Path(base_path) if base_path is not None else Path(ds_config.path)
+        file_list = [Path(f) for f in files]
+
+        logger.info(
+            "Parsing dataset '%s' (%s) from %d pre-collected files (base: %s)",
+            ds_config.name,
+            ds_config.type,
+            len(file_list),
+            resolved_base,
+        )
+
+        return self._parse_files(ds_config, file_list, resolved_base)
+
+    def _parse_files(
+        self,
+        ds_config: DatasetConfig,
+        files: list[Path],
+        base_path: Path,
+    ) -> dict[str, Any]:
+        """Core file-processing loop shared by all parse entry-points."""
         # Root of the hierarchical structure
         dataset_root: dict[str, Any] = {}
 
@@ -568,6 +613,39 @@ def index_dataset(
     if save_index:
         _save_output(output, Path(ds_config.path))
     return output
+
+
+def index_dataset_from_files(
+    config: dict[str, Any],
+    files: Iterable[str | Path],
+    *,
+    base_path: str | Path | None = None,
+    strict: bool = False,
+) -> dict[str, Any]:
+    """Index a dataset from pre-collected file paths.
+
+    Bypasses handler-based file discovery and processes the supplied
+    *files* directly.  This is useful when the caller already has a
+    complete list of paths (e.g. from an external file listing, a
+    database, or a virtual dataset that does not exist on disk).
+
+    Args:
+        config: A dataset configuration dict (same shape as one entry in
+            ``config.json["datasets"]``).
+        files: File paths to process.  Can be a list, generator, or any
+            iterable of ``str`` or ``Path`` objects.
+        base_path: Root path used to compute relative paths for regex
+            matching.  Defaults to the ``path`` key in *config* when
+            *None*.
+        strict: Abort on duplicate IDs or excessive regex misses.
+
+    Returns:
+        The output object (same structure as one element of ``output.json``).
+    """
+    ds_config = DatasetConfig.from_dict(config)
+    parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
+    dataset_node = parser.parse_dataset_from_files(ds_config, files, base_path=base_path)
+    return parser._build_output(ds_config, dataset_node)
 
 
 def index_dataset_from_path(
