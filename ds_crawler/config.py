@@ -167,12 +167,12 @@ class DatasetConfig(DatasetDescriptor):
 def load_dataset_config(
     data: dict[str, Any], workdir: str | Path | None = None
 ) -> DatasetConfig:
-    """Load a DatasetConfig, resolving from a ``ds-crawler.config`` file if needed.
+    """Load a DatasetConfig, resolving from a ``ds-crawler.json`` file if needed.
 
     If *data* contains all required fields (e.g. ``basename_regex``), it is
-    used directly.  Otherwise the function looks for a ``ds-crawler.config``
-    JSON file inside the dataset ``path`` and merges the two dicts (explicit
-    *data* keys take precedence).
+    used directly.  Otherwise the function looks for a ``ds-crawler.json``
+    file inside the dataset ``path`` (or inside a ``.zip`` archive at that
+    path) and merges the two dicts (explicit *data* keys take precedence).
 
     Args:
         data: Dataset entry dict — either a full config or just ``{"path": "..."}``.
@@ -180,18 +180,30 @@ def load_dataset_config(
     """
     resolved = data
     if "basename_regex" not in data:
-        # Path-only entry — resolve the rest from ds-crawler.config
+        # Path-only entry — resolve the rest from ds-crawler.json
         ds_path = data["path"]
         if workdir is not None:
             ds_path = str(Path(workdir) / ds_path)
-        config_file = Path(ds_path) / CONFIG_FILENAME
-        if not config_file.exists():
-            raise FileNotFoundError(
-                f"Dataset entry has no inline config and no {CONFIG_FILENAME} "
-                f"found at: {config_file}"
-            )
-        with open(config_file) as f:
-            file_config = json.load(f)
+
+        ds_path_obj = Path(ds_path)
+        from .zip_utils import is_zip_path, read_json_from_zip
+
+        if is_zip_path(ds_path_obj):
+            file_config = read_json_from_zip(ds_path_obj, CONFIG_FILENAME)
+            if file_config is None:
+                raise FileNotFoundError(
+                    f"Dataset entry has no inline config and no {CONFIG_FILENAME} "
+                    f"found inside: {ds_path_obj}"
+                )
+        else:
+            config_file = ds_path_obj / CONFIG_FILENAME
+            if not config_file.exists():
+                raise FileNotFoundError(
+                    f"Dataset entry has no inline config and no {CONFIG_FILENAME} "
+                    f"found at: {config_file}"
+                )
+            with open(config_file) as f:
+                file_config = json.load(f)
         # Caller-supplied keys override file values
         resolved = {**file_config, **data}
     return DatasetConfig.from_dict(resolved, workdir=workdir)

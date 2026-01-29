@@ -10,6 +10,7 @@ from typing import Any
 
 from .config import Config, DatasetConfig, load_dataset_config
 from .handlers import get_handler
+from .zip_utils import is_zip_path, read_json_from_zip, write_json_to_zip
 
 try:
     from tqdm import tqdm
@@ -143,7 +144,7 @@ class DatasetParser:
 
     def parse_dataset(self, ds_config: DatasetConfig) -> dict[str, Any]:
         """Parse a single dataset and return hierarchical DatasetNode."""
-        handler_class = get_handler(ds_config.name)
+        handler_class = get_handler(ds_config.name, path=ds_config.path)
         handler = handler_class(ds_config)
 
         base_path = Path(ds_config.path)
@@ -510,7 +511,12 @@ class DatasetParser:
     def write_outputs_per_dataset(self, filename: str = "output.json") -> list[Path]:
         """Parse each dataset and write output to its root folder.
 
-        Returns list of output file paths that were written.
+        When the dataset path is a ``.zip`` file the output is written
+        *inside* the archive (unless ``output_json`` overrides the
+        destination).
+
+        Returns list of output file paths that were written.  For ZIP
+        datasets the returned path is the ZIP file itself.
         """
         output_paths = []
 
@@ -518,12 +524,19 @@ class DatasetParser:
             dataset_node = self.parse_dataset(ds_config)
             output = self._build_output(ds_config, dataset_node)
 
+            ds_path = Path(ds_config.path)
+
             if ds_config.output_json:
                 output_path = Path(ds_config.output_json)
+                with open(output_path, "w") as f:
+                    json.dump(output, f, indent=2)
+            elif is_zip_path(ds_path):
+                write_json_to_zip(ds_path, filename, output)
+                output_path = ds_path
             else:
-                output_path = Path(ds_config.path) / filename
-            with open(output_path, "w") as f:
-                json.dump(output, f, indent=2)
+                output_path = ds_path / filename
+                with open(output_path, "w") as f:
+                    json.dump(output, f, indent=2)
 
             output_paths.append(output_path)
 
@@ -564,29 +577,29 @@ def index_dataset_from_path(
     save_index: bool = False,
     force_reindex: bool = False,
 ) -> dict[str, Any]:
-    """Index a dataset by path, loading config from ``ds-crawler.config``.
+    """Index a dataset by path, loading config from ``ds-crawler.json``.
 
-    Looks for a ``ds-crawler.config`` JSON file inside *path* and uses it
-    as the dataset configuration.
+    Looks for a ``ds-crawler.json`` file inside *path* (or inside the
+    ``.zip`` archive at *path*) and uses it as the dataset configuration.
 
     Args:
-        path: Root directory of the dataset (must contain ``ds-crawler.config``).
+        path: Root directory (or ``.zip`` file) of the dataset.
         strict: Abort on duplicate IDs or excessive regex misses.
         save_index: If True, persist the output as ``output.json`` in the
-            dataset's root directory.
+            dataset's root directory (or inside the ZIP archive).
         force_reindex: If False (default) and ``output.json`` already exists
-            in the dataset root, read and return it without re-indexing.
+            in the dataset root (or inside the ZIP), read and return it
+            without re-indexing.
 
     Returns:
         The output object (same structure as one element of ``output.json``).
     """
     dataset_path = Path(path)
-    output_path = dataset_path / "output.json"
 
-    if not force_reindex and output_path.is_file():
-        logger.info("Found existing output.json at %s, skipping reindex", output_path)
-        with open(output_path) as f:
-            return json.load(f)
+    if not force_reindex:
+        cached = _read_cached_output(dataset_path)
+        if cached is not None:
+            return cached
 
     ds_config = load_dataset_config({"path": str(path)})
     parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
@@ -597,8 +610,43 @@ def index_dataset_from_path(
     return output
 
 
-def _save_output(output: dict[str, Any], dataset_path: Path) -> None:
-    """Write an output dict as ``output.json`` inside *dataset_path*."""
-    output_path = dataset_path / "output.json"
-    with open(output_path, "w") as f:
-        json.dump(output, f, indent=2)
+def _read_cached_output(
+    dataset_path: Path, filename: str = "output.json"
+) -> dict[str, Any] | None:
+    """Return a previously written output dict, or ``None``."""
+    if is_zip_path(dataset_path):
+        cached = read_json_from_zip(dataset_path, filename)
+        if cached is not None:
+            logger.info(
+                "Found existing %s inside %s, skipping reindex",
+                filename,
+                dataset_path,
+            )
+        return cached
+
+    output_path = dataset_path / filename
+    if output_path.is_file():
+        logger.info(
+            "Found existing %s at %s, skipping reindex", filename, output_path
+        )
+        with open(output_path) as f:
+            return json.load(f)
+    return None
+
+
+def _save_output(
+    output: dict[str, Any],
+    dataset_path: Path,
+    filename: str = "output.json",
+) -> None:
+    """Write an output dict as ``output.json`` inside *dataset_path*.
+
+    When *dataset_path* is a ``.zip`` file the entry is written inside
+    the archive.
+    """
+    if is_zip_path(dataset_path):
+        write_json_to_zip(dataset_path, filename, output)
+    else:
+        output_path = dataset_path / filename
+        with open(output_path, "w") as f:
+            json.dump(output, f, indent=2)

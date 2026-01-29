@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -258,3 +259,51 @@ def full_config(
     ]
     config_path = write_config_json(tmp_path / "config.json", datasets_data)
     return Config.from_file(config_path)
+
+
+# ---------------------------------------------------------------------------
+# ZIP helpers and fixtures
+# ---------------------------------------------------------------------------
+
+
+def create_zip_from_tree(root: Path, zip_path: Path) -> Path:
+    """Create a ZIP archive containing every file under *root*.
+
+    Directory entries are omitted; only files are stored with paths
+    relative to *root*.
+    """
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file in sorted(root.rglob("*")):
+            if file.is_file():
+                zf.write(file, file.relative_to(root))
+    return zip_path
+
+
+def create_zip_from_tree_with_config(
+    root: Path, zip_path: Path, config: dict[str, Any]
+) -> Path:
+    """Create a ZIP with dataset files *and* a ``ds-crawler.json`` inside."""
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file in sorted(root.rglob("*")):
+            if file.is_file():
+                zf.write(file, file.relative_to(root))
+        zf.writestr("ds-crawler.json", json.dumps(config))
+    return zip_path
+
+
+@pytest.fixture
+def vkitti2_zip(tmp_path: Path) -> Path:
+    """ZIP archive containing the mock VKITTI2 dataset."""
+    root = tmp_path / "_vkitti2_tree"
+    create_vkitti2_tree(root)
+    return create_zip_from_tree(root, tmp_path / "vkitti2.zip")
+
+
+@pytest.fixture
+def depth_predictions_zip(tmp_path: Path) -> Path:
+    """ZIP archive containing the mock depth_predictions dataset."""
+    root = tmp_path / "_dp_tree"
+    create_depth_predictions_tree(root)
+    return create_zip_from_tree(root, tmp_path / "depth_predictions.zip")
