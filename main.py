@@ -6,8 +6,8 @@ import logging
 import sys
 from pathlib import Path
 
-from crawler.config import Config
-from crawler.parser import DatasetParser
+from ds_crawler.config import Config
+from ds_crawler.parser import DatasetParser
 
 
 def setup_logging(verbose: bool) -> None:

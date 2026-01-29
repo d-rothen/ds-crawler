@@ -1,5 +1,5 @@
 [project]
-name = "ds-crawler"
+name = "ds_crawler"
 version = "0.1.0"
 description = "Regex-based dataset metadata crawler and indexer"
 requires-python = ">=3.10"
