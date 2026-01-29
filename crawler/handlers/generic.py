@@ -1,5 +1,6 @@
 """Generic handler for filesystem-based datasets."""
 
+import os
 from pathlib import Path
 from typing import Iterator
 
@@ -21,6 +22,7 @@ class GenericHandler(BaseHandler):
 
         extensions = self.config.get_file_extensions()
 
-        for file_path in self.base_path.rglob("*"):
-            if file_path.is_file() and file_path.suffix.lower() in extensions:
-                yield file_path
+        for root, _dirs, files in os.walk(self.base_path):
+            for filename in files:
+                if Path(filename).suffix.lower() in extensions:
+                    yield Path(root) / filename
