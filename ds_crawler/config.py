@@ -21,12 +21,12 @@ DEFAULT_TYPE_EXTENSIONS: dict[str, set[str]] = {
 }
 
 
-@dataclass(kw_only=True)
+@dataclass
 class DatasetConfig(DatasetDescriptor):
     """Configuration for a single dataset."""
 
     basename_regex: str | None = None
-    id_regex: str
+    id_regex: str = ""
     path_regex: str | None = None
     hierarchy_regex: str | None = None
     named_capture_group_value_separator: str | None = None
@@ -39,6 +39,8 @@ class DatasetConfig(DatasetDescriptor):
 
     def __post_init__(self) -> None:
         """Validate configuration and compile regex patterns."""
+        if not self.id_regex:
+            raise ValueError("id_regex is required")
         self._validate_type()
         self._normalize_file_extensions()
         self._compile_and_validate_regexes()
