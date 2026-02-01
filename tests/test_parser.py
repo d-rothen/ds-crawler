@@ -1275,6 +1275,40 @@ class TestSampling:
         result = index_dataset_from_files(cfg, files, sample=2)
         assert len(get_files(result)) == 3
 
+    def test_sampled_property_in_output(self, tmp_path: Path) -> None:
+        """Output includes a 'sampled' key when sample is used."""
+        root = tmp_path / "data"
+        for i in range(6):
+            touch(root / f"frame_{i:03d}.png")
+        cfg = self._make_flat_config(str(root))
+        result = index_dataset(cfg, sample=3)
+        assert result["sampled"] == 3
+
+    def test_no_sampled_property_without_sampling(self, tmp_path: Path) -> None:
+        """Output does NOT include 'sampled' when sample is None."""
+        root = tmp_path / "data"
+        for i in range(4):
+            touch(root / f"frame_{i:03d}.png")
+        cfg = self._make_flat_config(str(root))
+        result = index_dataset(cfg)
+        assert "sampled" not in result
+
+    def test_sampled_property_via_from_files(self, tmp_path: Path) -> None:
+        """index_dataset_from_files also sets 'sampled'."""
+        root = tmp_path / "data"
+        for i in range(6):
+            touch(root / f"frame_{i:03d}.png")
+        cfg = self._make_flat_config(str(root))
+        ds_config = DatasetConfig(**cfg)
+
+        from ds_crawler.handlers.generic import GenericHandler
+
+        handler = GenericHandler(ds_config)
+        files = list(handler.get_files())
+
+        result = index_dataset_from_files(cfg, files, sample=2)
+        assert result["sampled"] == 2
+
 
 # ===================================================================
 # Match index

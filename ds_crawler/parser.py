@@ -709,6 +709,8 @@ def index_dataset(
         ds_config, sample=sample, match_index=match_index,
     )
     output = parser._build_output(ds_config, dataset_node)
+    if sample is not None:
+        output["sampled"] = sample
     if save_index:
         _save_output(output, Path(ds_config.path))
     return output
@@ -754,7 +756,10 @@ def index_dataset_from_files(
         ds_config, files, base_path=base_path,
         sample=sample, match_index=match_index,
     )
-    return parser._build_output(ds_config, dataset_node)
+    output = parser._build_output(ds_config, dataset_node)
+    if sample is not None:
+        output["sampled"] = sample
+    return output
 
 
 def index_dataset_from_path(
@@ -790,7 +795,7 @@ def index_dataset_from_path(
     """
     dataset_path = Path(path)
 
-    if not force_reindex:
+    if not force_reindex and sample is None and match_index is None:
         cached = _read_cached_output(dataset_path)
         if cached is not None:
             return cached
@@ -801,6 +806,8 @@ def index_dataset_from_path(
         ds_config, sample=sample, match_index=match_index,
     )
     output = parser._build_output(ds_config, dataset_node)
+    if sample is not None:
+        output["sampled"] = sample
     if save_index:
         _save_output(output, Path(ds_config.path))
     return output

@@ -16,7 +16,12 @@ from typing import Any
 import pytest
 
 from ds_crawler.config import Config, DatasetConfig, CONFIG_FILENAME, load_dataset_config
-from ds_crawler.parser import DatasetParser, index_dataset, index_dataset_from_path
+from ds_crawler.parser import (
+    DatasetParser,
+    get_files,
+    index_dataset,
+    index_dataset_from_path,
+)
 
 from .conftest import (
     create_ddad_tree,
@@ -894,3 +899,97 @@ class TestSaveIndex:
         with open(output_path) as f:
             saved = json.load(f)
         assert saved["name"] == result["name"]
+
+
+# ===================================================================
+# Cache bypass with sample / match_index
+# ===================================================================
+
+
+class TestFromPathCacheBypass:
+    """index_dataset_from_path must re-compute when sample or match_index is set."""
+
+    def _setup_dataset(self, tmp_path: Path, n_files: int = 6) -> Path:
+        root = tmp_path / "ds"
+        for i in range(n_files):
+            touch(root / f"frame_{i:03d}.png")
+
+        config_path = root / CONFIG_FILENAME
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w") as f:
+            json.dump({
+                "name": "cache_bypass_test",
+                "path": str(root),
+                "type": "rgb",
+                "file_extensions": [".png"],
+                "basename_regex": r"^(?P<f>.+)\.(?P<ext>png)$",
+                "id_regex": r"^(?P<name>.+)\.png$",
+            }, f)
+
+        return root
+
+    def test_sample_bypasses_cache(self, tmp_path: Path) -> None:
+        root = self._setup_dataset(tmp_path, n_files=6)
+
+        # First call without sampling, saving index
+        full = index_dataset_from_path(root, save_index=True)
+        assert (root / "output.json").exists()
+        assert len(get_files(full)) == 6
+
+        # Second call with sample — must NOT return the cached full index
+        sampled = index_dataset_from_path(root, sample=2)
+        assert len(get_files(sampled)) == 3
+        assert sampled["sampled"] == 2
+
+    def test_match_index_bypasses_cache(self, tmp_path: Path) -> None:
+        root = self._setup_dataset(tmp_path, n_files=6)
+
+        # First call: index and save
+        full = index_dataset_from_path(root, save_index=True)
+        assert len(get_files(full)) == 6
+
+        # Build a match index with only 3 IDs
+        match = index_dataset_from_path(root, sample=2)
+        assert len(get_files(match)) == 3
+
+        # Re-index with match_index — must NOT return the cached full index
+        filtered = index_dataset_from_path(root, match_index=match)
+        assert len(get_files(filtered)) == 3
+
+    def test_sample_and_match_index_bypass_cache(self, tmp_path: Path) -> None:
+        root = self._setup_dataset(tmp_path, n_files=10)
+
+        full = index_dataset_from_path(root, save_index=True)
+        assert len(get_files(full)) == 10
+
+        # match_index with 5 IDs, then sample every 2nd → 3
+        match = index_dataset_from_path(root, sample=2)
+        result = index_dataset_from_path(root, match_index=match, sample=2)
+        assert len(get_files(result)) == 3
+        assert result["sampled"] == 2
+
+    def test_no_sample_still_uses_cache(self, tmp_path: Path) -> None:
+        """Without sample or match_index, caching still works normally."""
+        root = self._setup_dataset(tmp_path, n_files=4)
+
+        index_dataset_from_path(root, save_index=True)
+        # Plant a stale marker to confirm cache is read
+        output_path = root / "output.json"
+        with open(output_path) as f:
+            cached = json.load(f)
+        cached["_stale_marker"] = True
+        with open(output_path, "w") as f:
+            json.dump(cached, f)
+
+        second = index_dataset_from_path(root)
+        assert second.get("_stale_marker") is True
+
+    def test_sampled_property_persisted_in_saved_index(self, tmp_path: Path) -> None:
+        """When save_index is True and sample is set, output.json has 'sampled'."""
+        root = self._setup_dataset(tmp_path, n_files=6)
+
+        index_dataset_from_path(root, sample=3, save_index=True)
+
+        with open(root / "output.json") as f:
+            saved = json.load(f)
+        assert saved["sampled"] == 3
