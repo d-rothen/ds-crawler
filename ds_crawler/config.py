@@ -16,7 +16,7 @@ CONFIG_FILENAME = "ds-crawler.json"
 
 DEFAULT_TYPE_EXTENSIONS: dict[str, set[str]] = {
     "rgb": {".png", ".jpg", ".jpeg"},
-    "depth": {".png", ".exr", ".npy", ".pfm"},
+    "depth": {".png", ".exr", ".npy", ".pfm", ".npz"},
     "segmentation": {".png"},
 }
 
