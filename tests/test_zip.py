@@ -12,7 +12,13 @@ import pytest
 from ds_crawler.config import CONFIG_FILENAME, Config, DatasetConfig, load_dataset_config
 from ds_crawler.handlers import ZipHandler, get_handler
 from ds_crawler.parser import DatasetParser, index_dataset, index_dataset_from_path
-from ds_crawler.zip_utils import is_zip_path, read_json_from_zip, write_json_to_zip
+from ds_crawler.zip_utils import (
+    _detect_root_prefix,
+    get_zip_root_prefix,
+    is_zip_path,
+    read_json_from_zip,
+    write_json_to_zip,
+)
 
 from .conftest import (
     create_depth_predictions_tree,
@@ -581,3 +587,328 @@ class TestZipMatchesDirectory:
 
         assert actual["name"] == expected["name"]
         assert actual["dataset"] == expected["dataset"]
+
+
+# ===================================================================
+# Root-prefix detection
+# ===================================================================
+
+
+class TestDetectRootPrefix:
+    def test_no_entries(self) -> None:
+        assert _detect_root_prefix([]) == ""
+
+    def test_flat_entries(self) -> None:
+        assert _detect_root_prefix(["a.png", "b.png"]) == ""
+
+    def test_single_root_dir(self) -> None:
+        namelist = ["mydata/", "mydata/a.png", "mydata/sub/b.png"]
+        assert _detect_root_prefix(namelist) == "mydata/"
+
+    def test_multiple_root_dirs(self) -> None:
+        namelist = ["dir_a/file.png", "dir_b/file.png"]
+        assert _detect_root_prefix(namelist) == ""
+
+    def test_ignores_macosx(self) -> None:
+        namelist = [
+            "mydata/a.png",
+            "mydata/sub/b.png",
+            "__MACOSX/mydata/._a.png",
+            "__MACOSX/._mydata",
+        ]
+        assert _detect_root_prefix(namelist) == "mydata/"
+
+    def test_only_macosx_entries(self) -> None:
+        namelist = ["__MACOSX/._something"]
+        assert _detect_root_prefix(namelist) == ""
+
+    def test_single_file_no_prefix(self) -> None:
+        assert _detect_root_prefix(["file.png"]) == ""
+
+    def test_directory_entry_only(self) -> None:
+        assert _detect_root_prefix(["folder/"]) == ""
+
+    def test_get_zip_root_prefix_function(self, tmp_path: Path) -> None:
+        zp = tmp_path / "test.zip"
+        with zipfile.ZipFile(zp, "w") as zf:
+            zf.writestr("root/a.png", b"")
+            zf.writestr("root/sub/b.png", b"")
+        assert get_zip_root_prefix(zp) == "root/"
+
+
+# ===================================================================
+# Root-prefix: read/write JSON
+# ===================================================================
+
+
+class TestReadWriteJsonWithPrefix:
+    def test_read_json_with_prefix(self, tmp_path: Path) -> None:
+        # Zip name matches prefix → prefix is detected
+        zp = tmp_path / "mydata.zip"
+        payload = {"key": "value"}
+        with zipfile.ZipFile(zp, "w") as zf:
+            zf.writestr("mydata/config.json", json.dumps(payload))
+            zf.writestr("mydata/file.png", b"")
+        assert read_json_from_zip(zp, "config.json") == payload
+
+    def test_read_json_no_prefix_when_stem_mismatch(self, tmp_path: Path) -> None:
+        """Prefix is not applied when zip stem differs from the prefix dir."""
+        zp = tmp_path / "data.zip"
+        payload = {"key": "value"}
+        with zipfile.ZipFile(zp, "w") as zf:
+            zf.writestr("mydata/config.json", json.dumps(payload))
+            zf.writestr("mydata/file.png", b"")
+        # Stem is "data", prefix is "mydata/" → no match
+        assert read_json_from_zip(zp, "config.json") is None
+
+    def test_read_json_prefers_exact_match(self, tmp_path: Path) -> None:
+        """If both bare and prefixed entries exist, exact match wins."""
+        zp = tmp_path / "mydata.zip"
+        with zipfile.ZipFile(zp, "w") as zf:
+            zf.writestr("config.json", json.dumps({"exact": True}))
+            zf.writestr("mydata/config.json", json.dumps({"prefixed": True}))
+            zf.writestr("mydata/file.png", b"")
+        assert read_json_from_zip(zp, "config.json") == {"exact": True}
+
+    def test_write_json_into_prefixed_zip(self, tmp_path: Path) -> None:
+        zp = tmp_path / "mydata.zip"
+        with zipfile.ZipFile(zp, "w") as zf:
+            zf.writestr("mydata/file.png", b"")
+        write_json_to_zip(zp, "output.json", {"written": True})
+        # Should be stored with prefix
+        with zipfile.ZipFile(zp, "r") as zf:
+            assert "mydata/output.json" in zf.namelist()
+        assert read_json_from_zip(zp, "output.json") == {"written": True}
+
+    def test_write_no_prefix_when_stem_mismatch(self, tmp_path: Path) -> None:
+        """Write without prefix when zip stem differs from detected prefix."""
+        zp = tmp_path / "data.zip"
+        with zipfile.ZipFile(zp, "w") as zf:
+            zf.writestr("mydata/file.png", b"")
+        write_json_to_zip(zp, "output.json", {"written": True})
+        # Stem is "data", prefix is "mydata/" → no match, written bare
+        with zipfile.ZipFile(zp, "r") as zf:
+            assert "output.json" in zf.namelist()
+            assert "mydata/output.json" not in zf.namelist()
+
+    def test_write_replaces_prefixed_entry(self, tmp_path: Path) -> None:
+        zp = tmp_path / "mydata.zip"
+        with zipfile.ZipFile(zp, "w") as zf:
+            zf.writestr("mydata/output.json", json.dumps({"v": 1}))
+            zf.writestr("mydata/file.png", b"")
+        write_json_to_zip(zp, "output.json", {"v": 2})
+        assert read_json_from_zip(zp, "output.json") == {"v": 2}
+        with zipfile.ZipFile(zp, "r") as zf:
+            assert zf.namelist().count("mydata/output.json") == 1
+
+
+# ===================================================================
+# Root-prefix: ZipHandler
+# ===================================================================
+
+
+class TestZipHandlerWithPrefix:
+    def _make_config(self, path: str, **overrides) -> DatasetConfig:
+        defaults = {
+            "name": "test",
+            "path": path,
+            "type": "rgb",
+            "basename_regex": r"^(?P<f>.+)\.(?P<ext>png|jpg)$",
+            "id_regex": r"^(?P<f>.+)\.\w+$",
+        }
+        defaults.update(overrides)
+        return DatasetConfig(**defaults)
+
+    def test_strips_root_prefix(self, tmp_path: Path) -> None:
+        # Zip name matches prefix dir → stripping happens
+        zp = tmp_path / "mydata.zip"
+        with zipfile.ZipFile(zp, "w") as zf:
+            zf.writestr("mydata/sub/img1.png", b"")
+            zf.writestr("mydata/img2.png", b"")
+        config = self._make_config(str(zp))
+        handler = ZipHandler(config)
+        files = list(handler.get_files())
+
+        relatives = sorted(str(f.relative_to(handler.base_path)) for f in files)
+        assert relatives == ["img2.png", "sub/img1.png"]
+
+    def test_no_strip_when_stem_mismatch(self, tmp_path: Path) -> None:
+        """Prefix is NOT stripped when zip stem differs from prefix dir."""
+        zp = tmp_path / "test.zip"
+        with zipfile.ZipFile(zp, "w") as zf:
+            zf.writestr("mydata/sub/img1.png", b"")
+            zf.writestr("mydata/img2.png", b"")
+        config = self._make_config(str(zp))
+        handler = ZipHandler(config)
+        files = list(handler.get_files())
+
+        relatives = sorted(str(f.relative_to(handler.base_path)) for f in files)
+        assert relatives == ["mydata/img2.png", "mydata/sub/img1.png"]
+
+    def test_skips_macosx_entries(self, tmp_path: Path) -> None:
+        zp = tmp_path / "mydata.zip"
+        with zipfile.ZipFile(zp, "w") as zf:
+            zf.writestr("mydata/img.png", b"")
+            zf.writestr("__MACOSX/mydata/._img.png", b"")
+            zf.writestr("__MACOSX/._mydata", b"")
+        config = self._make_config(str(zp))
+        handler = ZipHandler(config)
+        files = list(handler.get_files())
+
+        assert len(files) == 1
+        assert files[0].name == "img.png"
+
+    def test_no_prefix_still_works(self, tmp_path: Path) -> None:
+        zp = tmp_path / "test.zip"
+        with zipfile.ZipFile(zp, "w") as zf:
+            zf.writestr("sub/img.png", b"")
+            zf.writestr("other/img2.png", b"")
+        config = self._make_config(str(zp))
+        handler = ZipHandler(config)
+        files = list(handler.get_files())
+
+        relatives = sorted(str(f.relative_to(handler.base_path)) for f in files)
+        assert relatives == ["other/img2.png", "sub/img.png"]
+
+
+# ===================================================================
+# Root-prefix: end-to-end parsing
+# ===================================================================
+
+
+class TestPrefixedZipMatchesDirectory:
+    """Prefixed zips should produce the same output as flat zips / dirs."""
+
+    def _strip_ordering(self, obj: Any) -> Any:
+        if isinstance(obj, dict):
+            result = {}
+            for key, value in obj.items():
+                if key == "files" and isinstance(value, list):
+                    result[key] = sorted(
+                        [self._strip_ordering(v) for v in value],
+                        key=lambda f: f["path"],
+                    )
+                else:
+                    result[key] = self._strip_ordering(value)
+            return result
+        if isinstance(obj, list):
+            return [self._strip_ordering(item) for item in obj]
+        return obj
+
+    def test_depth_predictions_prefixed_zip_matches_dir(
+        self, tmp_path: Path
+    ) -> None:
+        # Directory version
+        dir_root = tmp_path / "dir_ds"
+        create_depth_predictions_tree(dir_root)
+        dir_cfg = make_depth_predictions_config(str(dir_root))
+        dir_ds = DatasetConfig(**dir_cfg)
+        dir_parser = DatasetParser(Config(datasets=[dir_ds]))
+        dir_results = dir_parser.parse_all()
+
+        # Prefixed zip: name "dp" matches prefix "dp/"
+        zip_path = tmp_path / "dp.zip"
+        create_zip_from_tree(dir_root, zip_path, root_prefix="dp/")
+        zip_cfg = make_depth_predictions_config(str(zip_path))
+        zip_ds = DatasetConfig(**zip_cfg)
+        zip_parser = DatasetParser(Config(datasets=[zip_ds]))
+        zip_results = zip_parser.parse_all()
+
+        actual = self._strip_ordering(zip_results[0])
+        expected = self._strip_ordering(dir_results[0])
+
+        assert actual["name"] == expected["name"]
+        assert actual["dataset"] == expected["dataset"]
+
+    def test_vkitti2_prefixed_zip_matches_dir(self, tmp_path: Path) -> None:
+        # Directory version
+        dir_root = tmp_path / "dir_vk"
+        create_vkitti2_tree(dir_root)
+        dir_cfg = make_vkitti2_config(str(dir_root))
+        dir_ds = DatasetConfig(**dir_cfg)
+        dir_parser = DatasetParser(Config(datasets=[dir_ds]))
+        dir_results = dir_parser.parse_all()
+
+        # Prefixed zip: name "vkitti2" matches prefix "vkitti2/"
+        zip_path = tmp_path / "vkitti2.zip"
+        create_zip_from_tree(dir_root, zip_path, root_prefix="vkitti2/")
+        zip_cfg = make_vkitti2_config(str(zip_path))
+        zip_ds = DatasetConfig(**zip_cfg)
+        zip_parser = DatasetParser(Config(datasets=[zip_ds]))
+        zip_results = zip_parser.parse_all()
+
+        actual = self._strip_ordering(zip_results[0])
+        expected = self._strip_ordering(dir_results[0])
+
+        assert actual["name"] == expected["name"]
+        assert actual["dataset"] == expected["dataset"]
+
+    def test_index_from_path_with_prefixed_config(self, tmp_path: Path) -> None:
+        """index_dataset_from_path loads ds-crawler.json from a prefixed zip."""
+        root = tmp_path / "_tree"
+        touch(root / "scene" / "001.png")
+
+        config_dict = {
+            "name": "prefixed_test",
+            "path": "PLACEHOLDER",
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
+            "id_regex": r"^(?P<dir>[^/]+)/(?P<frame>\d+)\.png$",
+        }
+        # Zip name "mydata" matches prefix "mydata/"
+        zp = create_zip_from_tree_with_config(
+            root, tmp_path / "mydata.zip", config_dict, root_prefix="mydata/"
+        )
+
+        result = index_dataset_from_path(zp)
+        assert result["name"] == "prefixed_test"
+        files = collect_all_files(result["dataset"])
+        assert len(files) == 1
+
+    def test_save_index_into_prefixed_zip(self, tmp_path: Path) -> None:
+        root = tmp_path / "_tree"
+        touch(root / "001.png")
+
+        config_dict = {
+            "name": "save_prefix_test",
+            "path": "PLACEHOLDER",
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
+            "id_regex": r"^(?P<frame>\d+)\.png$",
+        }
+        zp = create_zip_from_tree_with_config(
+            root, tmp_path / "mydata.zip", config_dict, root_prefix="mydata/"
+        )
+
+        result = index_dataset_from_path(zp, save_index=True)
+
+        # output.json should be readable (via prefix detection)
+        saved = read_json_from_zip(zp, "output.json")
+        assert saved is not None
+        assert saved["name"] == result["name"]
+
+        # Verify it was stored under the prefix
+        with zipfile.ZipFile(zp, "r") as zf:
+            assert "mydata/output.json" in zf.namelist()
+
+    def test_cached_output_in_prefixed_zip(self, tmp_path: Path) -> None:
+        root = tmp_path / "_tree"
+        touch(root / "001.png")
+
+        config_dict = {
+            "name": "cache_prefix_test",
+            "path": "PLACEHOLDER",
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
+            "id_regex": r"^(?P<frame>\d+)\.png$",
+        }
+        zp = create_zip_from_tree_with_config(
+            root, tmp_path / "mydata.zip", config_dict, root_prefix="mydata/"
+        )
+
+        first = index_dataset_from_path(zp, save_index=True)
+        second = index_dataset_from_path(zp)
+        assert second == first

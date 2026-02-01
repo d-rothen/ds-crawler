@@ -266,30 +266,36 @@ def full_config(
 # ---------------------------------------------------------------------------
 
 
-def create_zip_from_tree(root: Path, zip_path: Path) -> Path:
+def create_zip_from_tree(
+    root: Path, zip_path: Path, *, root_prefix: str = ""
+) -> Path:
     """Create a ZIP archive containing every file under *root*.
 
     Directory entries are omitted; only files are stored with paths
     relative to *root*.
+
+    When *root_prefix* is set (e.g. ``"mydata/"``), every entry is
+    stored under that prefix — mimicking what macOS Compress does when
+    you zip a folder.
     """
     zip_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for file in sorted(root.rglob("*")):
             if file.is_file():
-                zf.write(file, file.relative_to(root))
+                zf.write(file, root_prefix + str(file.relative_to(root)))
     return zip_path
 
 
 def create_zip_from_tree_with_config(
-    root: Path, zip_path: Path, config: dict[str, Any]
+    root: Path, zip_path: Path, config: dict[str, Any], *, root_prefix: str = ""
 ) -> Path:
     """Create a ZIP with dataset files *and* a ``ds-crawler.json`` inside."""
     zip_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for file in sorted(root.rglob("*")):
             if file.is_file():
-                zf.write(file, file.relative_to(root))
-        zf.writestr("ds-crawler.json", json.dumps(config))
+                zf.write(file, root_prefix + str(file.relative_to(root)))
+        zf.writestr(root_prefix + "ds-crawler.json", json.dumps(config))
     return zip_path
 
 
@@ -307,3 +313,31 @@ def depth_predictions_zip(tmp_path: Path) -> Path:
     root = tmp_path / "_dp_tree"
     create_depth_predictions_tree(root)
     return create_zip_from_tree(root, tmp_path / "depth_predictions.zip")
+
+
+@pytest.fixture
+def vkitti2_prefixed_zip(tmp_path: Path) -> Path:
+    """ZIP archive with a root directory prefix (macOS-style).
+
+    The zip is named ``vkitti2.zip`` and entries live under ``vkitti2/``,
+    matching how macOS Compress creates archives.
+    """
+    root = tmp_path / "_vkitti2_tree"
+    create_vkitti2_tree(root)
+    return create_zip_from_tree(
+        root, tmp_path / "vkitti2.zip", root_prefix="vkitti2/"
+    )
+
+
+@pytest.fixture
+def depth_predictions_prefixed_zip(tmp_path: Path) -> Path:
+    """ZIP archive with a root directory prefix (macOS-style).
+
+    The zip is named ``depth_predictions.zip`` and entries live under
+    ``depth_predictions/``.
+    """
+    root = tmp_path / "_dp_tree"
+    create_depth_predictions_tree(root)
+    return create_zip_from_tree(
+        root, tmp_path / "depth_predictions.zip", root_prefix="depth_predictions/"
+    )

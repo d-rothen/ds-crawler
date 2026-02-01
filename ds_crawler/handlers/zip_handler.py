@@ -5,6 +5,7 @@ from pathlib import Path, PurePosixPath
 from typing import Iterator
 
 from .base import BaseHandler
+from ..zip_utils import _detect_root_prefix, _matches_zip_stem
 
 
 class ZipHandler(BaseHandler):
@@ -15,6 +16,11 @@ class ZipHandler(BaseHandler):
     ``file_path.relative_to(base_path)`` and ``file_path.name`` produce
     the correct relative path and filename – identical to what
     ``GenericHandler`` returns for a real directory tree.
+
+    When the archive contains a single root directory prefix whose name
+    matches the zip filename (e.g. ``test_kitti.zip`` with entries under
+    ``test_kitti/``), that prefix is stripped so the yielded paths match
+    what the user expects.
     """
 
     def get_files(self) -> Iterator[Path]:
@@ -25,9 +31,23 @@ class ZipHandler(BaseHandler):
         extensions = self.config.get_file_extensions()
 
         with zipfile.ZipFile(self.base_path, "r") as zf:
-            for entry in zf.namelist():
+            namelist = zf.namelist()
+            prefix = _detect_root_prefix(namelist)
+            # Only strip prefix when it matches the zip filename stem.
+            if not _matches_zip_stem(prefix, self.base_path):
+                prefix = ""
+            prefix_len = len(prefix)
+
+            for entry in namelist:
+                # Skip __MACOSX resource-fork entries
+                if entry.startswith("__MACOSX"):
+                    continue
                 # Skip directory entries
                 if entry.endswith("/"):
                     continue
-                if PurePosixPath(entry).suffix.lower() in extensions:
-                    yield self.base_path / entry
+                # Strip root prefix if present
+                stripped = entry[prefix_len:] if prefix else entry
+                if not stripped:
+                    continue
+                if PurePosixPath(stripped).suffix.lower() in extensions:
+                    yield self.base_path / stripped
