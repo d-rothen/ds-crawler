@@ -49,5 +49,5 @@ class ZipHandler(BaseHandler):
                 stripped = entry[prefix_len:] if prefix else entry
                 if not stripped:
                     continue
-                if PurePosixPath(stripped).suffix.lower() in extensions:
+                if extensions is None or PurePosixPath(stripped).suffix.lower() in extensions:
                     yield self.base_path / stripped

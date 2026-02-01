@@ -59,7 +59,7 @@ class TestGenericHandler:
         touch(root / "data.csv")
         touch(root / "readme.txt")
 
-        config = self._make_config(str(root))
+        config = self._make_config(str(root), file_extensions=[".png"])
         handler = GenericHandler(config)
         files = list(handler.get_files())
 
@@ -115,14 +115,14 @@ class TestGenericHandler:
         touch(root / "image.PNG")
         touch(root / "image.Jpg")
 
-        config = self._make_config(str(root))
+        config = self._make_config(str(root), file_extensions=[".png", ".jpg"])
         handler = GenericHandler(config)
         files = list(handler.get_files())
 
         # GenericHandler compares suffix.lower() against extensions
         assert len(files) == 2
 
-    def test_default_rgb_extensions(self, tmp_path: Path) -> None:
+    def test_no_extensions_yields_all_files(self, tmp_path: Path) -> None:
         root = tmp_path / "data"
         touch(root / "a.png")
         touch(root / "b.jpg")
@@ -134,9 +134,9 @@ class TestGenericHandler:
         files = list(handler.get_files())
 
         names = sorted(f.name for f in files)
-        assert names == ["a.png", "b.jpg", "c.jpeg"]
+        assert names == ["a.png", "b.jpg", "c.jpeg", "d.tiff"]
 
-    def test_default_depth_extensions(self, tmp_path: Path) -> None:
+    def test_no_extensions_yields_all_files_mixed(self, tmp_path: Path) -> None:
         root = tmp_path / "data"
         touch(root / "a.png")
         touch(root / "b.exr")
@@ -149,7 +149,7 @@ class TestGenericHandler:
         files = list(handler.get_files())
 
         names = sorted(f.name for f in files)
-        assert names == ["a.png", "b.exr", "c.npy", "d.pfm"]
+        assert names == ["a.png", "b.exr", "c.npy", "d.pfm", "e.jpg"]
 
     def test_returns_absolute_paths(self, tmp_path: Path) -> None:
         root = tmp_path / "data"

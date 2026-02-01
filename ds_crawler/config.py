@@ -14,13 +14,6 @@ from .schema import DatasetDescriptor
 DatasetType = Literal["depth", "rgb", "segmentation"]
 CONFIG_FILENAME = "ds-crawler.json"
 
-DEFAULT_TYPE_EXTENSIONS: dict[str, set[str]] = {
-    "rgb": {".png", ".jpg", ".jpeg"},
-    "depth": {".png", ".exr", ".npy", ".pfm", ".npz"},
-    "segmentation": {".png"},
-}
-
-
 @dataclass
 class DatasetConfig(DatasetDescriptor):
     """Configuration for a single dataset."""
@@ -58,15 +51,16 @@ class DatasetConfig(DatasetDescriptor):
                 for ext in self.file_extensions
             ]
 
-    def get_file_extensions(self) -> set[str]:
-        """Return the effective file extensions for this dataset.
+    def get_file_extensions(self) -> set[str] | None:
+        """Return the file extensions to filter by, or ``None`` to skip filtering.
 
-        Uses file_extensions from config if provided, otherwise
-        falls back to defaults based on dataset type.
+        Returns ``None`` when no ``file_extensions`` are explicitly configured,
+        meaning the handlers should yield all files and let the regex chain
+        handle inclusion/exclusion.
         """
         if self.file_extensions is not None:
             return set(self.file_extensions)
-        return DEFAULT_TYPE_EXTENSIONS.get(self.type, {".png"})
+        return None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], workdir: str | Path | None = None) -> "DatasetConfig":

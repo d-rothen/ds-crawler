@@ -166,7 +166,7 @@ class TestZipHandler:
         defaults.update(overrides)
         return DatasetConfig(**defaults)
 
-    def test_finds_matching_files(self, tmp_path: Path) -> None:
+    def test_finds_all_files_without_extension_filter(self, tmp_path: Path) -> None:
         zp = _make_simple_zip(tmp_path, [
             "img1.png", "img2.jpg", "data.csv",
         ])
@@ -175,13 +175,13 @@ class TestZipHandler:
         files = list(handler.get_files())
 
         names = sorted(f.name for f in files)
-        assert names == ["img1.png", "img2.jpg"]
+        assert names == ["data.csv", "img1.png", "img2.jpg"]
 
     def test_ignores_non_matching_extensions(self, tmp_path: Path) -> None:
         zp = _make_simple_zip(tmp_path, [
             "img.png", "data.csv", "readme.txt",
         ])
-        config = self._make_config(str(zp))
+        config = self._make_config(str(zp), file_extensions=[".png"])
         handler = ZipHandler(config)
         files = list(handler.get_files())
 

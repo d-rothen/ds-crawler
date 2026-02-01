@@ -16,7 +16,7 @@ class GenericHandler(BaseHandler):
     """
 
     def get_files(self) -> Iterator[Path]:
-        """Yield all files with valid extensions under the dataset path."""
+        """Yield all files (optionally filtered by extension) under the dataset path."""
         if not self.base_path.exists():
             return
 
@@ -24,5 +24,5 @@ class GenericHandler(BaseHandler):
 
         for root, _dirs, files in os.walk(self.base_path):
             for filename in files:
-                if Path(filename).suffix.lower() in extensions:
+                if extensions is None or Path(filename).suffix.lower() in extensions:
                     yield Path(root) / filename

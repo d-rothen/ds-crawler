@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from ds_crawler.config import Config, DatasetConfig, DEFAULT_TYPE_EXTENSIONS
+from ds_crawler.config import Config, DatasetConfig
 
 
 # ===================================================================
@@ -204,17 +204,17 @@ class TestFileExtensions:
         defaults.update(overrides)
         return defaults
 
-    def test_default_rgb_extensions(self) -> None:
+    def test_no_extensions_returns_none(self) -> None:
         ds = DatasetConfig(**self._minimal_kwargs(type="rgb"))
-        assert ds.get_file_extensions() == {".png", ".jpg", ".jpeg"}
+        assert ds.get_file_extensions() is None
 
-    def test_default_depth_extensions(self) -> None:
+    def test_no_extensions_returns_none_depth(self) -> None:
         ds = DatasetConfig(**self._minimal_kwargs(type="depth"))
-        assert ds.get_file_extensions() == {".png", ".exr", ".npy", ".pfm"}
+        assert ds.get_file_extensions() is None
 
-    def test_default_segmentation_extensions(self) -> None:
+    def test_no_extensions_returns_none_segmentation(self) -> None:
         ds = DatasetConfig(**self._minimal_kwargs(type="segmentation"))
-        assert ds.get_file_extensions() == {".png"}
+        assert ds.get_file_extensions() is None
 
     def test_custom_extensions_override_defaults(self) -> None:
         ds = DatasetConfig(
