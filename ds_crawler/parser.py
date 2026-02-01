@@ -983,9 +983,12 @@ def copy_dataset(
     is self-contained.
 
     Args:
-        input_path: Root directory of the source dataset.
-        output_path: Root directory of the destination.  Created if it
-            does not exist.
+        input_path: Root directory or ``.zip`` archive of the source
+            dataset.
+        output_path: Root directory or ``.zip`` archive for the
+            destination.  Created if it does not exist.  When the path
+            ends with ``.zip`` the copied files are written into a ZIP
+            archive instead of to the filesystem.
         index: A dataset output dict (as returned by ``index_dataset``).
             When ``None``, ``output.json`` is read from *input_path*.
         sample: When set, keep only every *sample*-th data file
@@ -997,11 +1000,15 @@ def copy_dataset(
         and ``missing_files`` (list of relative paths that were not
         found in the source).
     """
+    import contextlib
     import zipfile
+
+    from .zip_utils import _detect_root_prefix, _matches_zip_stem
 
     input_path = Path(input_path)
     output_path = Path(output_path)
     zip_input = is_zip_path(input_path)
+    zip_output = output_path.suffix.lower() == ".zip"
 
     if index is None:
         if zip_input:
@@ -1040,26 +1047,37 @@ def copy_dataset(
     missing = 0
     missing_files: list[str] = []
 
-    if zip_input:
-        from .zip_utils import _detect_root_prefix, _matches_zip_stem
+    # Prepare source zip context (if applicable)
+    src_prefix = ""
+    src_name_set: set[str] = set()
 
-        with zipfile.ZipFile(input_path, "r") as zf:
-            namelist = zf.namelist()
-            prefix = _detect_root_prefix(namelist)
-            if not _matches_zip_stem(prefix, input_path):
-                prefix = ""
-            name_set = set(namelist)
+    with contextlib.ExitStack() as stack:
+        src_zf: zipfile.ZipFile | None = None
+        if zip_input:
+            src_zf = stack.enter_context(zipfile.ZipFile(input_path, "r"))
+            namelist = src_zf.namelist()
+            src_prefix = _detect_root_prefix(namelist)
+            if not _matches_zip_stem(src_prefix, input_path):
+                src_prefix = ""
+            src_name_set = set(namelist)
 
-            for rel_path_str in unique_paths:
-                # Try the entry with and without the root prefix
-                entry = prefix + rel_path_str if prefix else rel_path_str
-                # Normalize separators for zip (always forward slash)
+        dst_zf: zipfile.ZipFile | None = None
+        if zip_output:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            dst_zf = stack.enter_context(
+                zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED)
+            )
+
+        for rel_path_str in unique_paths:
+            # --- read source ---
+            if src_zf is not None:
+                entry = (
+                    src_prefix + rel_path_str if src_prefix else rel_path_str
+                )
                 entry = entry.replace("\\", "/")
-                if entry not in name_set:
-                    # Also try without prefix in case the index uses the
-                    # prefixed form or vice-versa
+                if entry not in src_name_set:
                     alt = rel_path_str.replace("\\", "/")
-                    if alt in name_set:
+                    if alt in src_name_set:
                         entry = alt
                     else:
                         logger.warning(
@@ -1069,31 +1087,43 @@ def copy_dataset(
                         missing += 1
                         missing_files.append(rel_path_str)
                         continue
+                src_data = src_zf.read(entry)
+            else:
+                src = input_path / rel_path_str
+                if not src.is_file():
+                    logger.warning(
+                        "Source file not found, skipping: %s", src
+                    )
+                    missing += 1
+                    missing_files.append(rel_path_str)
+                    continue
+                src_data = None  # defer read; use shutil.copy2 when possible
 
+            # --- write destination ---
+            if dst_zf is not None:
+                if src_data is None:
+                    src_data = (input_path / rel_path_str).read_bytes()
+                dst_zf.writestr(
+                    rel_path_str.replace("\\", "/"), src_data
+                )
+            else:
                 dst = output_path / rel_path_str
                 dst.parent.mkdir(parents=True, exist_ok=True)
-                with zf.open(entry) as src_f, open(dst, "wb") as dst_f:
-                    shutil.copyfileobj(src_f, dst_f)
-                copied += 1
-    else:
-        for rel_path_str in unique_paths:
-            src = input_path / rel_path_str
-            dst = output_path / rel_path_str
-
-            if not src.is_file():
-                logger.warning("Source file not found, skipping: %s", src)
-                missing += 1
-                missing_files.append(rel_path_str)
-                continue
-
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+                if src_data is not None:
+                    dst.write_bytes(src_data)
+                else:
+                    shutil.copy2(input_path / rel_path_str, dst)
             copied += 1
 
-    # Write the (possibly filtered) index into the output directory
-    output_path.mkdir(parents=True, exist_ok=True)
-    with open(output_path / "output.json", "w") as f:
-        json.dump(index, f, indent=2)
+        # Write the (possibly filtered) index
+        if dst_zf is not None:
+            dst_zf.writestr(
+                "output.json", json.dumps(index, indent=2)
+            )
+        else:
+            output_path.mkdir(parents=True, exist_ok=True)
+            with open(output_path / "output.json", "w") as f:
+                json.dump(index, f, indent=2)
 
     logger.info(
         "copy_dataset complete: %d files copied, %d missing", copied, missing
