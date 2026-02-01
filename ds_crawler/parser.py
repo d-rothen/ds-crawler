@@ -262,11 +262,11 @@ class DatasetParser:
         # Sort files for deterministic ordering (important for sampling)
         files = sorted(files)
 
-        # Pre-compute match IDs from match_index
-        match_ids: set[str] | None = None
+        # Pre-compute match IDs from match_index (hierarchy-qualified)
+        match_ids: set[tuple[str, ...]] | None = None
         if match_index is not None:
-            match_ids = _collect_ids(match_index)
-            logger.info("match_index filter active: %d IDs to match against", len(match_ids))
+            match_ids = _collect_qualified_ids(match_index)
+            logger.info("match_index filter active: %d qualified IDs to match against", len(match_ids))
 
         if sample is not None:
             logger.info("Sampling active: keeping every %d-th matched file", sample)
@@ -315,19 +315,8 @@ class DatasetParser:
             if entry:
                 entry_id = entry["id"]
 
-                # match_index filter (applied first)
-                if match_ids is not None and entry_id not in match_ids:
-                    skipped_match_index += 1
-                    continue
-
-                # Sampling filter (applied after match_index)
-                if sample is not None:
-                    sample_counter += 1
-                    if (sample_counter - 1) % sample != 0:
-                        skipped_sample += 1
-                        continue
-
-                # Get hierarchy keys first (needed for per-level duplicate check)
+                # Get hierarchy keys first (needed for qualified match
+                # and per-level duplicate check)
                 hierarchy_keys = self._get_entry_hierarchy_keys(
                     entry["path"], ds_config
                 )
@@ -338,6 +327,20 @@ class DatasetParser:
                         entry["path"],
                     )
                     continue
+
+                # match_index filter (hierarchy-qualified)
+                if match_ids is not None:
+                    qualified_id = tuple(hierarchy_keys) + (entry_id,)
+                    if qualified_id not in match_ids:
+                        skipped_match_index += 1
+                        continue
+
+                # Sampling filter (applied after match_index)
+                if sample is not None:
+                    sample_counter += 1
+                    if (sample_counter - 1) % sample != 0:
+                        skipped_sample += 1
+                        continue
 
                 # Duplicate check - either global or per-hierarchy-level
                 is_duplicate = False
@@ -892,6 +895,39 @@ def _collect_ids_from_node(node: dict[str, Any], ids: set[str]) -> None:
             ids.add(file_id)
     for child in node.get("children", {}).values():
         _collect_ids_from_node(child, ids)
+
+
+def _collect_qualified_ids(output_json: dict[str, Any]) -> set[tuple[str, ...]]:
+    """Extract hierarchy-qualified file IDs from an output JSON dict.
+
+    Each ID is a tuple of ``(*hierarchy_keys, file_id)`` so that files
+    with identical IDs under different hierarchy levels are distinguished.
+
+    Args:
+        output_json: A single dataset output dict (as returned by
+            ``index_dataset``).
+
+    Returns:
+        A set of tuples, each containing the hierarchy path keys
+        followed by the file ID.
+    """
+    ids: set[tuple[str, ...]] = set()
+    _collect_qualified_ids_from_node(output_json.get("dataset", {}), (), ids)
+    return ids
+
+
+def _collect_qualified_ids_from_node(
+    node: dict[str, Any],
+    path: tuple[str, ...],
+    ids: set[tuple[str, ...]],
+) -> None:
+    """Recursively collect hierarchy-qualified IDs from a node."""
+    for file_entry in node.get("files", []):
+        file_id = file_entry.get("id")
+        if file_id is not None:
+            ids.add(path + (file_id,))
+    for name, child in node.get("children", {}).items():
+        _collect_qualified_ids_from_node(child, path + (name,), ids)
 
 
 def _collect_all_referenced_paths(output_json: dict[str, Any]) -> list[str]:

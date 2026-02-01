@@ -1416,3 +1416,52 @@ class TestMatchIndex:
         match = index_dataset(cfg, sample=2)
         result = index_dataset_from_files(cfg, files, match_index=match)
         assert len(get_files(result)) == 2
+
+    def test_match_index_hierarchy_qualified(self, tmp_path: Path) -> None:
+        """match_index must respect hierarchy — same IDs under different levels
+        should NOT cross-match.
+
+        Reproduces a real-world bug where id_regex captures only the frame
+        number (e.g. ``000001``) which repeats across scenes/cameras.  A flat
+        set of IDs would collapse them and cause over-matching.
+        """
+        # Two datasets (e.g. rgb + segmentation) with same structure:
+        #   scene_A/cam_0/frame_{0..3}.png
+        #   scene_B/cam_0/frame_{0..3}.png
+        # IDs are bare frame numbers → 4 unique, but 8 files total.
+        root_rgb = tmp_path / "rgb"
+        root_seg = tmp_path / "seg"
+        for scene in ["scene_A", "scene_B"]:
+            for frame in range(4):
+                touch(root_rgb / scene / "cam_0" / f"{frame:03d}.png")
+                touch(root_seg / scene / "cam_0" / f"{frame:03d}.png")
+
+        cfg_base = {
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "basename_regex": r"^(?P<f>.+)\.(?P<ext>png)$",
+            # id_regex captures only the bare frame number (NOT globally unique)
+            "id_regex": r"^.+/(?P<frame>\d+)\.png$",
+            "hierarchy_regex": r"^(?P<scene>[^/]+)/(?P<cam>[^/]+)/",
+            "named_capture_group_value_separator": "_",
+        }
+
+        cfg_rgb = {**cfg_base, "name": "rgb", "path": str(root_rgb)}
+        cfg_seg = {**cfg_base, "name": "seg", "path": str(root_seg)}
+
+        # Index RGB with sample=2 → keeps 4 of 8 files
+        rgb_index = index_dataset(cfg_rgb, sample=2)
+        rgb_files = get_files(rgb_index)
+        assert len(rgb_files) == 4
+
+        # Only 4 unique bare frame IDs exist, so flat _collect_ids would
+        # return at most 4.  But we have 4 *files*, spread across 2 scenes.
+        # The qualified approach should give exactly those 4 (scene, cam, id)
+        # tuples.
+
+        # Index segmentation matched against RGB
+        seg_index = index_dataset(cfg_seg, match_index=rgb_index)
+        seg_files = get_files(seg_index)
+
+        # Must match exactly the same 4 files — NOT all 8
+        assert len(seg_files) == len(rgb_files)
