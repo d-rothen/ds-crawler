@@ -23,6 +23,13 @@ ANSI_DUPLICATE = "\033[31m"
 ANSI_RESET = "\033[0m"
 ID_MISS_WARN_RATIO = 0.2
 
+# File extensions whose contents are already compressed.  Writing these
+# with ZIP_STORED instead of ZIP_DEFLATED avoids a costly recompression
+# pass that yields virtually no size reduction.
+_COMPRESSED_EXTENSIONS: frozenset[str] = frozenset({
+    ".png", ".jpg", ".jpeg", ".exr", ".webp",
+})
+
 
 def _deep_merge(base: dict, override: dict) -> dict:
     """Deep merge override into base, returning a new dict.
@@ -1065,7 +1072,7 @@ def copy_dataset(
         if zip_output:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             dst_zf = stack.enter_context(
-                zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED)
+                zipfile.ZipFile(output_path, "w", zipfile.ZIP_STORED)
             )
 
         for rel_path_str in unique_paths:
@@ -1103,8 +1110,16 @@ def copy_dataset(
             if dst_zf is not None:
                 if src_data is None:
                     src_data = (input_path / rel_path_str).read_bytes()
+                suffix = Path(rel_path_str).suffix.lower()
+                compress = (
+                    zipfile.ZIP_STORED
+                    if suffix in _COMPRESSED_EXTENSIONS
+                    else zipfile.ZIP_DEFLATED
+                )
                 dst_zf.writestr(
-                    rel_path_str.replace("\\", "/"), src_data
+                    rel_path_str.replace("\\", "/"),
+                    src_data,
+                    compress_type=compress,
                 )
             else:
                 dst = output_path / rel_path_str
@@ -1118,7 +1133,9 @@ def copy_dataset(
         # Write the (possibly filtered) index
         if dst_zf is not None:
             dst_zf.writestr(
-                "output.json", json.dumps(index, indent=2)
+                "output.json",
+                json.dumps(index, indent=2),
+                compress_type=zipfile.ZIP_DEFLATED,
             )
         else:
             output_path.mkdir(parents=True, exist_ok=True)

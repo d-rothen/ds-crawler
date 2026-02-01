@@ -9,6 +9,8 @@ pip install ds-crawler
 
 # with optional progress bars
 pip install ds-crawler[progress]
+
+uv pip install "ds-crawler @ git+https://github.com/d-rothen/ds-crawler"
 ```
 
 Requires Python >= 3.9. No runtime dependencies (only the standard library). `tqdm` is optional for progress bars.
