@@ -918,6 +918,38 @@ def _collect_all_paths_from_node(
         _collect_all_paths_from_node(child, paths)
 
 
+def _filter_index_by_paths(
+    output_json: dict[str, Any], keep_paths: set[str]
+) -> dict[str, Any]:
+    """Return a shallow copy of *output_json* with file entries filtered.
+
+    Only file entries whose ``path`` is in *keep_paths* are retained.
+    Camera intrinsics/extrinsics and all other metadata are preserved.
+    """
+    result = dict(output_json)
+    if "dataset" in result:
+        result["dataset"] = _filter_node_by_paths(result["dataset"], keep_paths)
+    return result
+
+
+def _filter_node_by_paths(
+    node: dict[str, Any], keep_paths: set[str]
+) -> dict[str, Any]:
+    """Recursively filter file entries in a hierarchy node."""
+    filtered: dict[str, Any] = {}
+    for key, value in node.items():
+        if key == "files":
+            filtered[key] = [f for f in value if f.get("path") in keep_paths]
+        elif key == "children":
+            filtered[key] = {
+                name: _filter_node_by_paths(child, keep_paths)
+                for name, child in value.items()
+            }
+        else:
+            filtered[key] = value
+    return filtered
+
+
 def _save_output(
     output: dict[str, Any],
     dataset_path: Path,
@@ -941,6 +973,7 @@ def copy_dataset(
     output_path: str | Path,
     *,
     index: dict[str, Any] | None = None,
+    sample: int | None = None,
 ) -> dict[str, Any]:
     """Copy files referenced in a dataset index to a new location.
 
@@ -955,6 +988,9 @@ def copy_dataset(
             does not exist.
         index: A dataset output dict (as returned by ``index_dataset``).
             When ``None``, ``output.json`` is read from *input_path*.
+        sample: When set, keep only every *sample*-th data file
+            (deterministic subsampling on sorted paths).  Camera files
+            (intrinsics / extrinsics) are always copied.
 
     Returns:
         A summary dict with keys ``copied`` (int), ``missing`` (int),
@@ -975,6 +1011,18 @@ def copy_dataset(
 
     assert index is not None  # ensured by the branch above
     all_paths = _collect_all_referenced_paths(index)
+
+    if sample is not None and sample > 1:
+        # Separate data-file paths from camera/auxiliary paths so that
+        # sampling is applied only to data files.
+        file_path_set = set(get_files(index))
+        camera_paths = [p for p in all_paths if p not in file_path_set]
+        file_paths = sorted(file_path_set)
+        sampled_files = file_paths[::sample]
+        all_paths = sampled_files + camera_paths
+        # Filter the index to only contain the sampled file entries
+        index = _filter_index_by_paths(index, set(sampled_files))
+
     # Deduplicate while preserving order
     unique_paths = list(dict.fromkeys(all_paths))
 
@@ -996,7 +1044,7 @@ def copy_dataset(
         shutil.copy2(src, dst)
         copied += 1
 
-    # Write the index into the output directory
+    # Write the (possibly filtered) index into the output directory
     output_path.mkdir(parents=True, exist_ok=True)
     with open(output_path / "output.json", "w") as f:
         json.dump(index, f, indent=2)

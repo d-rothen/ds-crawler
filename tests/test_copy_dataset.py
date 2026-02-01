@@ -192,6 +192,104 @@ class TestCopyDataset:
         assert summary["copied"] == len(sampled_files)
         assert summary["missing"] == 0
 
+    def test_sample_parameter(self, tmp_path: Path) -> None:
+        """copy_dataset(sample=N) copies every Nth data file."""
+        root = tmp_path / "src"
+        create_depth_predictions_tree(root)
+        cfg = make_depth_predictions_config(str(root))
+        idx = index_dataset(cfg)
+
+        all_files = get_files(idx)
+        assert len(all_files) >= 4, "need enough files to test sampling"
+
+        dst = tmp_path / "dst"
+        summary = copy_dataset(root, dst, index=idx, sample=2)
+
+        # Every 2nd file from sorted list → roughly half
+        expected_count = len(sorted(set(all_files))[::2])
+        assert summary["copied"] == expected_count
+        assert summary["missing"] == 0
+
+    def test_sample_preserves_camera_files(self, tmp_path: Path) -> None:
+        """sample on copy_dataset still copies camera intrinsics/extrinsics."""
+        root = tmp_path / "src"
+        create_vkitti2_tree(root)
+        cfg = make_vkitti2_config(str(root))
+        idx = index_dataset(cfg)
+
+        dst = tmp_path / "dst"
+        summary = copy_dataset(root, dst, index=idx, sample=100)
+
+        # With sample=100 most data files are dropped, but camera files remain
+        assert summary["missing"] == 0
+        assert (dst / "Scene01/clone/intrinsics/Camera_0_intrinsics.txt").is_file()
+        assert (dst / "Scene01/clone/extrinsics/Camera_0_extrinsics.txt").is_file()
+
+    def test_sample_one_copies_all(self, tmp_path: Path) -> None:
+        """sample=1 should copy every file (no subsampling)."""
+        root = tmp_path / "src"
+        create_depth_predictions_tree(root)
+        cfg = make_depth_predictions_config(str(root))
+        idx = index_dataset(cfg)
+
+        dst_all = tmp_path / "dst_all"
+        summary_all = copy_dataset(root, dst_all, index=idx)
+
+        dst_s1 = tmp_path / "dst_s1"
+        summary_s1 = copy_dataset(root, dst_s1, index=idx, sample=1)
+
+        assert summary_s1["copied"] == summary_all["copied"]
+
+    def test_sample_filters_output_json(self, tmp_path: Path) -> None:
+        """output.json written by copy_dataset(sample=N) only has sampled files."""
+        root = tmp_path / "src"
+        create_depth_predictions_tree(root)
+        cfg = make_depth_predictions_config(str(root))
+        idx = index_dataset(cfg)
+
+        all_files = get_files(idx)
+        assert len(all_files) >= 4
+
+        dst = tmp_path / "dst"
+        copy_dataset(root, dst, index=idx, sample=2)
+
+        with open(dst / "output.json") as f:
+            written_idx = json.load(f)
+
+        written_files = get_files(written_idx)
+        expected_count = len(sorted(set(all_files))[::2])
+        assert len(written_files) == expected_count
+        # Every written file path must actually exist on disk
+        for rel_path in written_files:
+            assert (dst / rel_path).is_file()
+
+    def test_sample_filters_output_json_with_cameras(self, tmp_path: Path) -> None:
+        """Sampled output.json preserves camera paths but filters data files."""
+        root = tmp_path / "src"
+        create_vkitti2_tree(root)
+        cfg = make_vkitti2_config(str(root))
+        idx = index_dataset(cfg)
+
+        full_files = get_files(idx)
+
+        dst = tmp_path / "dst"
+        copy_dataset(root, dst, index=idx, sample=100)
+
+        with open(dst / "output.json") as f:
+            written_idx = json.load(f)
+
+        written_files = get_files(written_idx)
+        # With sample=100, most data files are dropped
+        assert len(written_files) < len(full_files)
+        # But camera info is still present in the hierarchy
+        # (hierarchy keys use "key:value" naming)
+        dataset = written_idx.get("dataset", {})
+        scene = dataset["children"]["scene:Scene01"]
+        variation = scene["children"]["variation:clone"]
+        camera = variation["children"]["camera:Camera_0"]
+        assert "camera_intrinsics" in camera
+        assert "camera_extrinsics" in camera
+
     def test_deduplicates_camera_paths(self, tmp_path: Path) -> None:
         """Same camera file referenced at multiple levels is copied once."""
         root = tmp_path / "src"
