@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from .conftest import (
     make_vkitti2_config,
     make_depth_predictions_config,
     create_depth_predictions_tree,
+    create_zip_from_tree,
     touch,
 )
 
@@ -319,3 +321,129 @@ class TestCopyDataset:
         # Should be copied exactly once
         assert summary["copied"] == 1
         assert (dst / "intrinsics.txt").is_file()
+
+
+class TestCopyDatasetFromZip:
+    """Tests for copy_dataset when the input is a .zip archive."""
+
+    @staticmethod
+    def _make_zip_with_output_json(
+        tmp_path: Path, *, root_prefix: str = ""
+    ) -> tuple[Path, dict[str, Any]]:
+        """Build a zip containing dataset files and an embedded output.json."""
+        root = tmp_path / "_tree"
+        create_depth_predictions_tree(root)
+        cfg = make_depth_predictions_config(str(root))
+        idx = index_dataset(cfg)
+
+        zip_path = tmp_path / "depth_predictions.zip"
+        zip_path.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for file in sorted(root.rglob("*")):
+                if file.is_file():
+                    zf.write(file, root_prefix + str(file.relative_to(root)))
+            zf.writestr(
+                root_prefix + "output.json", json.dumps(idx, indent=2)
+            )
+        return zip_path, idx
+
+    def test_copies_all_files_from_zip(self, tmp_path: Path) -> None:
+        """copy_dataset can copy files out of a zip with an explicit index."""
+        root = tmp_path / "_tree"
+        create_depth_predictions_tree(root)
+        zip_path = create_zip_from_tree(root, tmp_path / "ds.zip")
+        cfg = make_depth_predictions_config(str(root))
+        idx = index_dataset(cfg)
+
+        dst = tmp_path / "dst"
+        summary = copy_dataset(zip_path, dst, index=idx)
+
+        expected_files = get_files(idx)
+        assert summary["copied"] == len(expected_files)
+        assert summary["missing"] == 0
+        for rel_path in expected_files:
+            assert (dst / rel_path).is_file()
+
+    def test_loads_output_json_from_zip(self, tmp_path: Path) -> None:
+        """copy_dataset(index=None) reads output.json from inside the zip."""
+        zip_path, idx = self._make_zip_with_output_json(tmp_path)
+
+        dst = tmp_path / "dst"
+        summary = copy_dataset(zip_path, dst)
+
+        assert summary["copied"] > 0
+        assert summary["missing"] == 0
+
+    def test_loads_output_json_from_prefixed_zip(self, tmp_path: Path) -> None:
+        """output.json is found even when the zip has a root prefix."""
+        zip_path, idx = self._make_zip_with_output_json(
+            tmp_path, root_prefix="depth_predictions/"
+        )
+
+        dst = tmp_path / "dst"
+        summary = copy_dataset(zip_path, dst)
+
+        assert summary["copied"] > 0
+        assert summary["missing"] == 0
+
+    def test_raises_when_no_index_in_zip(self, tmp_path: Path) -> None:
+        """FileNotFoundError when zip has no output.json and index=None."""
+        root = tmp_path / "_tree"
+        create_depth_predictions_tree(root)
+        zip_path = create_zip_from_tree(root, tmp_path / "ds.zip")
+
+        dst = tmp_path / "dst"
+        with pytest.raises(FileNotFoundError, match="No output.json found"):
+            copy_dataset(zip_path, dst)
+
+    def test_writes_index_to_output_dir(self, tmp_path: Path) -> None:
+        zip_path, idx = self._make_zip_with_output_json(tmp_path)
+
+        dst = tmp_path / "dst"
+        copy_dataset(zip_path, dst)
+
+        assert (dst / "output.json").is_file()
+        with open(dst / "output.json") as f:
+            written = json.load(f)
+        assert written == idx
+
+    def test_copies_from_prefixed_zip_with_explicit_index(
+        self, tmp_path: Path
+    ) -> None:
+        """Files are extracted correctly from a zip with a root prefix."""
+        root = tmp_path / "_tree"
+        create_depth_predictions_tree(root)
+        zip_path = create_zip_from_tree(
+            root,
+            tmp_path / "depth_predictions.zip",
+            root_prefix="depth_predictions/",
+        )
+        cfg = make_depth_predictions_config(str(root))
+        idx = index_dataset(cfg)
+
+        dst = tmp_path / "dst"
+        summary = copy_dataset(zip_path, dst, index=idx)
+
+        expected_files = get_files(idx)
+        assert summary["copied"] == len(expected_files)
+        assert summary["missing"] == 0
+        for rel_path in expected_files:
+            assert (dst / rel_path).is_file()
+
+    def test_sample_parameter_with_zip(self, tmp_path: Path) -> None:
+        """copy_dataset(sample=N) works with zip input."""
+        root = tmp_path / "_tree"
+        create_depth_predictions_tree(root)
+        zip_path = create_zip_from_tree(root, tmp_path / "ds.zip")
+        cfg = make_depth_predictions_config(str(root))
+        idx = index_dataset(cfg)
+
+        all_files = get_files(idx)
+        assert len(all_files) >= 4
+
+        dst = tmp_path / "dst"
+        summary = copy_dataset(zip_path, dst, index=idx, sample=2)
+
+        expected_count = len(sorted(set(all_files))[::2])
+        assert summary["copied"] == expected_count
+        assert summary["missing"] == 0

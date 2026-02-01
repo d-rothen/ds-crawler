@@ -997,17 +997,27 @@ def copy_dataset(
         and ``missing_files`` (list of relative paths that were not
         found in the source).
     """
+    import zipfile
+
     input_path = Path(input_path)
     output_path = Path(output_path)
+    zip_input = is_zip_path(input_path)
 
     if index is None:
-        index_file = input_path / "output.json"
-        if not index_file.is_file():
-            raise FileNotFoundError(
-                f"No output.json found at {index_file} and no index was provided"
-            )
-        with open(index_file) as f:
-            index = json.load(f)
+        if zip_input:
+            index = read_json_from_zip(input_path, "output.json")
+            if index is None:
+                raise FileNotFoundError(
+                    f"No output.json found inside {input_path} and no index was provided"
+                )
+        else:
+            index_file = input_path / "output.json"
+            if not index_file.is_file():
+                raise FileNotFoundError(
+                    f"No output.json found at {index_file} and no index was provided"
+                )
+            with open(index_file) as f:
+                index = json.load(f)
 
     assert index is not None  # ensured by the branch above
     all_paths = _collect_all_referenced_paths(index)
@@ -1030,19 +1040,55 @@ def copy_dataset(
     missing = 0
     missing_files: list[str] = []
 
-    for rel_path_str in unique_paths:
-        src = input_path / rel_path_str
-        dst = output_path / rel_path_str
+    if zip_input:
+        from .zip_utils import _detect_root_prefix, _matches_zip_stem
 
-        if not src.is_file():
-            logger.warning("Source file not found, skipping: %s", src)
-            missing += 1
-            missing_files.append(rel_path_str)
-            continue
+        with zipfile.ZipFile(input_path, "r") as zf:
+            namelist = zf.namelist()
+            prefix = _detect_root_prefix(namelist)
+            if not _matches_zip_stem(prefix, input_path):
+                prefix = ""
+            name_set = set(namelist)
 
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
-        copied += 1
+            for rel_path_str in unique_paths:
+                # Try the entry with and without the root prefix
+                entry = prefix + rel_path_str if prefix else rel_path_str
+                # Normalize separators for zip (always forward slash)
+                entry = entry.replace("\\", "/")
+                if entry not in name_set:
+                    # Also try without prefix in case the index uses the
+                    # prefixed form or vice-versa
+                    alt = rel_path_str.replace("\\", "/")
+                    if alt in name_set:
+                        entry = alt
+                    else:
+                        logger.warning(
+                            "Source file not found in zip, skipping: %s",
+                            rel_path_str,
+                        )
+                        missing += 1
+                        missing_files.append(rel_path_str)
+                        continue
+
+                dst = output_path / rel_path_str
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(entry) as src_f, open(dst, "wb") as dst_f:
+                    shutil.copyfileobj(src_f, dst_f)
+                copied += 1
+    else:
+        for rel_path_str in unique_paths:
+            src = input_path / rel_path_str
+            dst = output_path / rel_path_str
+
+            if not src.is_file():
+                logger.warning("Source file not found, skipping: %s", src)
+                missing += 1
+                missing_files.append(rel_path_str)
+                continue
+
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            copied += 1
 
     # Write the (possibly filtered) index into the output directory
     output_path.mkdir(parents=True, exist_ok=True)
