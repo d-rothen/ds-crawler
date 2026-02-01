@@ -11,9 +11,12 @@ import pytest
 from ds_crawler.config import Config, DatasetConfig
 from ds_crawler.parser import (
     DatasetParser,
+    get_files,
     index_dataset,
     index_dataset_from_files,
     _add_file_to_node,
+    _collect_all_referenced_paths,
+    _collect_ids,
     _deep_merge,
     _ensure_hierarchy_path,
     _get_hierarchy_keys,
@@ -1084,3 +1087,298 @@ class TestParseDatasetFromFiles:
 
         files_node = parser.parse_dataset_from_files(ds_config, files)
         assert files_node == handler_node
+
+
+# ===================================================================
+# _collect_ids
+# ===================================================================
+
+
+class TestCollectIds:
+    def test_collects_from_flat_structure(self) -> None:
+        output: dict[str, Any] = {
+            "dataset": {
+                "files": [
+                    {"id": "a", "path": "a.png"},
+                    {"id": "b", "path": "b.png"},
+                ]
+            }
+        }
+        assert _collect_ids(output) == {"a", "b"}
+
+    def test_collects_from_nested_hierarchy(self) -> None:
+        output: dict[str, Any] = {
+            "dataset": {
+                "children": {
+                    "level1": {
+                        "children": {
+                            "level2": {
+                                "files": [{"id": "deep", "path": "deep.png"}]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert _collect_ids(output) == {"deep"}
+
+    def test_empty_dataset(self) -> None:
+        assert _collect_ids({"dataset": {}}) == set()
+
+    def test_no_dataset_key(self) -> None:
+        assert _collect_ids({}) == set()
+
+    def test_multiple_levels(self) -> None:
+        output: dict[str, Any] = {
+            "dataset": {
+                "files": [{"id": "root", "path": "root.png"}],
+                "children": {
+                    "child": {
+                        "files": [{"id": "nested", "path": "nested.png"}]
+                    }
+                },
+            }
+        }
+        assert _collect_ids(output) == {"root", "nested"}
+
+
+# ===================================================================
+# _collect_all_referenced_paths
+# ===================================================================
+
+
+class TestCollectAllReferencedPaths:
+    def test_collects_file_paths(self) -> None:
+        output: dict[str, Any] = {
+            "dataset": {
+                "files": [
+                    {"path": "a.png", "id": "a"},
+                    {"path": "b.png", "id": "b"},
+                ]
+            }
+        }
+        paths = _collect_all_referenced_paths(output)
+        assert "a.png" in paths
+        assert "b.png" in paths
+
+    def test_collects_camera_paths(self) -> None:
+        output: dict[str, Any] = {
+            "dataset": {
+                "children": {
+                    "level1": {
+                        "camera_intrinsics": "intrinsics.txt",
+                        "camera_extrinsics": "extrinsics.txt",
+                        "files": [{"path": "frame.png", "id": "f"}],
+                    }
+                }
+            }
+        }
+        paths = _collect_all_referenced_paths(output)
+        assert "intrinsics.txt" in paths
+        assert "extrinsics.txt" in paths
+        assert "frame.png" in paths
+
+    def test_empty_dataset(self) -> None:
+        assert _collect_all_referenced_paths({"dataset": {}}) == []
+
+    def test_no_dataset_key(self) -> None:
+        assert _collect_all_referenced_paths({}) == []
+
+
+# ===================================================================
+# Sampling
+# ===================================================================
+
+
+class TestSampling:
+    def _make_flat_config(self, path: str) -> dict[str, Any]:
+        return {
+            "name": "test",
+            "path": path,
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "basename_regex": r"^(?P<f>.+)\.(?P<ext>png)$",
+            "id_regex": r"^(?P<name>.+)\.png$",
+        }
+
+    def test_sample_every_2nd(self, tmp_path: Path) -> None:
+        root = tmp_path / "data"
+        for i in range(6):
+            touch(root / f"frame_{i:03d}.png")
+        cfg = self._make_flat_config(str(root))
+        result = index_dataset(cfg, sample=2)
+        files = get_files(result)
+        assert len(files) == 3
+
+    def test_sample_every_3rd(self, tmp_path: Path) -> None:
+        root = tmp_path / "data"
+        for i in range(9):
+            touch(root / f"frame_{i:03d}.png")
+        cfg = self._make_flat_config(str(root))
+        result = index_dataset(cfg, sample=3)
+        files = get_files(result)
+        assert len(files) == 3
+
+    def test_sample_1_keeps_all(self, tmp_path: Path) -> None:
+        root = tmp_path / "data"
+        for i in range(4):
+            touch(root / f"frame_{i:03d}.png")
+        cfg = self._make_flat_config(str(root))
+        result_sampled = index_dataset(cfg, sample=1)
+        result_normal = index_dataset(cfg)
+        assert get_files(result_sampled) == get_files(result_normal)
+
+    def test_sample_none_keeps_all(self, tmp_path: Path) -> None:
+        root = tmp_path / "data"
+        for i in range(4):
+            touch(root / f"frame_{i:03d}.png")
+        cfg = self._make_flat_config(str(root))
+        result = index_dataset(cfg, sample=None)
+        files = get_files(result)
+        assert len(files) == 4
+
+    def test_sample_deterministic_ordering(self, tmp_path: Path) -> None:
+        """Sorted order ensures deterministic sampling."""
+        root = tmp_path / "data"
+        for i in range(6):
+            touch(root / f"frame_{i:03d}.png")
+        cfg = self._make_flat_config(str(root))
+        result1 = index_dataset(cfg, sample=2)
+        result2 = index_dataset(cfg, sample=2)
+        assert get_files(result1) == get_files(result2)
+
+    def test_sample_with_hierarchy(self, tmp_path: Path) -> None:
+        """Sampling works globally across hierarchy levels."""
+        root = tmp_path / "vkitti2"
+        create_vkitti2_tree(root)
+        cfg = make_vkitti2_config(str(root))
+        full_result = index_dataset(cfg)
+        sampled_result = index_dataset(cfg, sample=2)
+        full_count = len(get_files(full_result))
+        sampled_count = len(get_files(sampled_result))
+        # Every 2nd file from 4 total files = 2
+        assert sampled_count < full_count
+        assert sampled_count == (full_count + 1) // 2
+
+    def test_sample_via_from_files(self, tmp_path: Path) -> None:
+        root = tmp_path / "data"
+        for i in range(6):
+            touch(root / f"frame_{i:03d}.png")
+        cfg = self._make_flat_config(str(root))
+        ds_config = DatasetConfig(**cfg)
+
+        from ds_crawler.handlers.generic import GenericHandler
+
+        handler = GenericHandler(ds_config)
+        files = list(handler.get_files())
+
+        result = index_dataset_from_files(cfg, files, sample=2)
+        assert len(get_files(result)) == 3
+
+
+# ===================================================================
+# Match index
+# ===================================================================
+
+
+class TestMatchIndex:
+    def _make_flat_config(self, path: str) -> dict[str, Any]:
+        return {
+            "name": "test",
+            "path": path,
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "basename_regex": r"^(?P<f>.+)\.(?P<ext>png)$",
+            "id_regex": r"^(?P<name>.+)\.png$",
+        }
+
+    def test_match_index_filters_by_id(self, tmp_path: Path) -> None:
+        root = tmp_path / "data"
+        for i in range(4):
+            touch(root / f"frame_{i:03d}.png")
+        cfg = self._make_flat_config(str(root))
+
+        # Index all files
+        full_result = index_dataset(cfg)
+        full_files = get_files(full_result)
+        assert len(full_files) == 4
+
+        # Build a match index with only 2 IDs
+        match = index_dataset(cfg, sample=2)
+        match_ids = _collect_ids(match)
+        assert len(match_ids) == 2
+
+        # Re-index with match_index
+        filtered = index_dataset(cfg, match_index=match)
+        filtered_files = get_files(filtered)
+        assert len(filtered_files) == 2
+
+    def test_match_index_empty_produces_empty(self, tmp_path: Path) -> None:
+        root = tmp_path / "data"
+        for i in range(4):
+            touch(root / f"frame_{i:03d}.png")
+        cfg = self._make_flat_config(str(root))
+        # Empty match index has no IDs
+        empty_match: dict[str, Any] = {"dataset": {}}
+        result = index_dataset(cfg, match_index=empty_match)
+        assert get_files(result) == []
+
+    def test_match_index_none_keeps_all(self, tmp_path: Path) -> None:
+        root = tmp_path / "data"
+        for i in range(4):
+            touch(root / f"frame_{i:03d}.png")
+        cfg = self._make_flat_config(str(root))
+        result = index_dataset(cfg, match_index=None)
+        assert len(get_files(result)) == 4
+
+    def test_match_index_cross_dataset(self, tmp_path: Path) -> None:
+        """Use depth_predictions index to filter matching VKITTI2 entries."""
+        # Create two datasets with overlapping IDs via scene names
+        root_a = tmp_path / "a"
+        root_b = tmp_path / "b"
+        for name in ["001.png", "002.png", "003.png"]:
+            touch(root_a / name)
+            touch(root_b / name)
+
+        cfg_a = self._make_flat_config(str(root_a))
+        cfg_b = self._make_flat_config(str(root_b))
+
+        # Index A with sample=2 (gets 001, 003)
+        index_a = index_dataset(cfg_a, sample=2)
+        # Use A's output as match_index for B
+        result_b = index_dataset(cfg_b, match_index=index_a)
+        files_b = get_files(result_b)
+        assert len(files_b) == 2
+
+    def test_match_index_and_sample_combined(self, tmp_path: Path) -> None:
+        """match_index filters first, then sample subsamples the result."""
+        root = tmp_path / "data"
+        for i in range(10):
+            touch(root / f"frame_{i:03d}.png")
+        cfg = self._make_flat_config(str(root))
+
+        # Full index has 10 files; sample=2 gives 5
+        match = index_dataset(cfg, sample=2)
+        assert len(get_files(match)) == 5
+
+        # Now re-index: match_index filters to 5, then sample=2 from those -> ~3
+        result = index_dataset(cfg, match_index=match, sample=2)
+        result_files = get_files(result)
+        # 5 IDs match, then every 2nd of those 5 -> 3
+        assert len(result_files) == 3
+
+    def test_match_index_via_from_files(self, tmp_path: Path) -> None:
+        root = tmp_path / "data"
+        for i in range(4):
+            touch(root / f"frame_{i:03d}.png")
+        cfg = self._make_flat_config(str(root))
+        ds_config = DatasetConfig(**cfg)
+
+        from ds_crawler.handlers.generic import GenericHandler
+
+        handler = GenericHandler(ds_config)
+        files = list(handler.get_files())
+
+        match = index_dataset(cfg, sample=2)
+        result = index_dataset_from_files(cfg, files, match_index=match)
+        assert len(get_files(result)) == 2

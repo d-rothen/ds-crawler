@@ -2,6 +2,7 @@
 """Dataset crawler main entry point."""
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -64,6 +65,20 @@ def main() -> int:
         action="store_true",
         help="Strict mode: abort on duplicate IDs or excessive regex misses.",
     )
+    parser.add_argument(
+        "--sample",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Keep every Nth regex-matched file (deterministic subsampling).",
+    )
+    parser.add_argument(
+        "--match-index",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Path to an output.json whose file IDs are used as a filter.",
+    )
 
     args = parser.parse_args()
 
@@ -78,7 +93,21 @@ def main() -> int:
         print(f"Configuration error: {e}", file=sys.stderr)
         return 1
 
-    parser_instance = DatasetParser(config, strict=args.strict)
+    match_index = None
+    if args.match_index is not None:
+        try:
+            with open(args.match_index) as f:
+                match_index = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"Error loading match-index: {e}", file=sys.stderr)
+            return 1
+
+    parser_instance = DatasetParser(
+        config,
+        strict=args.strict,
+        sample=args.sample,
+        match_index=match_index,
+    )
 
     logger = logging.getLogger(__name__)
 

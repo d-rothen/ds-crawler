@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -93,23 +94,40 @@ def _add_file_to_node(node: dict, entry: dict) -> None:
 class DatasetParser:
     """Parses datasets according to configuration."""
 
-    def __init__(self, config: Config, strict: bool = False) -> None:
+    def __init__(
+        self,
+        config: Config,
+        strict: bool = False,
+        sample: int | None = None,
+        match_index: dict[str, Any] | None = None,
+    ) -> None:
         """Initialize parser with configuration.
 
         Args:
             config: Loaded configuration.
             strict: If True, abort on duplicate IDs or excessive regex
                 misses instead of warning and continuing.
+            sample: If set, keep only every *sample*-th regex-matched file
+                (after sorting for deterministic ordering).
+            match_index: If set, a dataset output dict whose file IDs are
+                used as a filter — only files whose ID appears in the
+                match index are included.
         """
         self.config = config
         self.strict = strict
+        self.sample = sample
+        self.match_index = match_index
 
     def parse_all(self) -> list[dict[str, Any]]:
         """Parse all configured datasets and return list of dataset outputs."""
         results = []
 
         for ds_config in self.config.datasets:
-            dataset_node = self.parse_dataset(ds_config)
+            dataset_node = self.parse_dataset(
+                ds_config,
+                sample=self.sample,
+                match_index=self.match_index,
+            )
             output = self._build_output(ds_config, dataset_node)
             results.append(output)
 
@@ -142,8 +160,22 @@ class DatasetParser:
             )
         return output
 
-    def parse_dataset(self, ds_config: DatasetConfig) -> dict[str, Any]:
-        """Parse a single dataset and return hierarchical DatasetNode."""
+    def parse_dataset(
+        self,
+        ds_config: DatasetConfig,
+        *,
+        sample: int | None = None,
+        match_index: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Parse a single dataset and return hierarchical DatasetNode.
+
+        Args:
+            ds_config: Dataset configuration.
+            sample: Keep every *sample*-th matched file.  Overrides the
+                instance default when provided.
+            match_index: Base output dict used to filter by file ID.
+                Overrides the instance default when provided.
+        """
         handler_class = get_handler(ds_config.name, path=ds_config.path)
         handler = handler_class(ds_config)
 
@@ -159,13 +191,19 @@ class DatasetParser:
         files = list(handler.get_files())
         logger.info(f"File scan complete. Found {len(files)} files")
 
-        return self._parse_files(ds_config, files, base_path)
+        return self._parse_files(
+            ds_config, files, base_path,
+            sample=sample, match_index=match_index,
+        )
 
     def parse_dataset_from_files(
         self,
         ds_config: DatasetConfig,
         files: Iterable[str | Path],
         base_path: str | Path | None = None,
+        *,
+        sample: int | None = None,
+        match_index: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Parse pre-collected files without handler-based file discovery.
 
@@ -180,6 +218,10 @@ class DatasetParser:
                 iterable of ``str`` or ``Path`` objects.
             base_path: Root path used to compute relative paths for regex
                 matching.  Defaults to ``ds_config.path`` when *None*.
+            sample: Keep every *sample*-th matched file.  Overrides the
+                instance default when provided.
+            match_index: Base output dict used to filter by file ID.
+                Overrides the instance default when provided.
 
         Returns:
             Hierarchical dataset node (same structure as ``parse_dataset``).
@@ -195,15 +237,33 @@ class DatasetParser:
             resolved_base,
         )
 
-        return self._parse_files(ds_config, file_list, resolved_base)
+        return self._parse_files(
+            ds_config, file_list, resolved_base,
+            sample=sample, match_index=match_index,
+        )
 
     def _parse_files(
         self,
         ds_config: DatasetConfig,
         files: list[Path],
         base_path: Path,
+        *,
+        sample: int | None = None,
+        match_index: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Core file-processing loop shared by all parse entry-points."""
+        # Sort files for deterministic ordering (important for sampling)
+        files = sorted(files)
+
+        # Pre-compute match IDs from match_index
+        match_ids: set[str] | None = None
+        if match_index is not None:
+            match_ids = _collect_ids(match_index)
+            logger.info("match_index filter active: %d IDs to match against", len(match_ids))
+
+        if sample is not None:
+            logger.info("Sampling active: keeping every %d-th matched file", sample)
+
         # Root of the hierarchical structure
         dataset_root: dict[str, Any] = {}
 
@@ -219,10 +279,13 @@ class DatasetParser:
         skipped_no_id = 0
         skipped_path_regex = 0
         skipped_hierarchy = 0
+        skipped_match_index = 0
+        skipped_sample = 0
         id_misses = 0
         warned_id_miss = False
         id_miss_threshold = max(1, int(len(files) * ID_MISS_WARN_RATIO))
         matched_entries = 0
+        sample_counter = 0
 
         # Process intrinsics/extrinsics files (stores paths in hierarchy)
         intrinsics_count = self._process_camera_files(
@@ -244,6 +307,18 @@ class DatasetParser:
             entry, skip_reason = self._process_file(file_path, base_path, ds_config)
             if entry:
                 entry_id = entry["id"]
+
+                # match_index filter (applied first)
+                if match_ids is not None and entry_id not in match_ids:
+                    skipped_match_index += 1
+                    continue
+
+                # Sampling filter (applied after match_index)
+                if sample is not None:
+                    sample_counter += 1
+                    if (sample_counter - 1) % sample != 0:
+                        skipped_sample += 1
+                        continue
 
                 # Get hierarchy keys first (needed for per-level duplicate check)
                 hierarchy_keys = self._get_entry_hierarchy_keys(
@@ -348,6 +423,10 @@ class DatasetParser:
                 f"Skipped {skipped_hierarchy} files: hierarchy_regex did not match "
                 "(but id_regex did - check your regex configuration)"
             )
+        if skipped_match_index:
+            logger.info(f"Skipped {skipped_match_index} files: ID not in match_index")
+        if skipped_sample:
+            logger.info(f"Skipped {skipped_sample} files: sampling (every {sample}th)")
 
         return dataset_root
 
@@ -590,7 +669,12 @@ class DatasetParser:
 
 
 def index_dataset(
-    config: dict[str, Any], *, strict: bool = False, save_index: bool = False
+    config: dict[str, Any],
+    *,
+    strict: bool = False,
+    save_index: bool = False,
+    sample: int | None = None,
+    match_index: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Index a single dataset and return its output dict.
 
@@ -603,13 +687,20 @@ def index_dataset(
         strict: Abort on duplicate IDs or excessive regex misses.
         save_index: If True, persist the output as ``output.json`` in the
             dataset's root directory.
+        sample: If set, keep only every *sample*-th regex-matched file
+            (after sorting for deterministic ordering).
+        match_index: If set, a dataset output dict whose file IDs are
+            used as a filter — only files whose ID appears in the
+            match index are included in the output.
 
     Returns:
         The output object (same structure as one element of ``output.json``).
     """
     ds_config = DatasetConfig.from_dict(config)
     parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
-    dataset_node = parser.parse_dataset(ds_config)
+    dataset_node = parser.parse_dataset(
+        ds_config, sample=sample, match_index=match_index,
+    )
     output = parser._build_output(ds_config, dataset_node)
     if save_index:
         _save_output(output, Path(ds_config.path))
@@ -622,6 +713,8 @@ def index_dataset_from_files(
     *,
     base_path: str | Path | None = None,
     strict: bool = False,
+    sample: int | None = None,
+    match_index: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Index a dataset from pre-collected file paths.
 
@@ -639,13 +732,21 @@ def index_dataset_from_files(
             matching.  Defaults to the ``path`` key in *config* when
             *None*.
         strict: Abort on duplicate IDs or excessive regex misses.
+        sample: If set, keep only every *sample*-th regex-matched file
+            (after sorting for deterministic ordering).
+        match_index: If set, a dataset output dict whose file IDs are
+            used as a filter — only files whose ID appears in the
+            match index are included in the output.
 
     Returns:
         The output object (same structure as one element of ``output.json``).
     """
     ds_config = DatasetConfig.from_dict(config)
     parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
-    dataset_node = parser.parse_dataset_from_files(ds_config, files, base_path=base_path)
+    dataset_node = parser.parse_dataset_from_files(
+        ds_config, files, base_path=base_path,
+        sample=sample, match_index=match_index,
+    )
     return parser._build_output(ds_config, dataset_node)
 
 
@@ -655,6 +756,8 @@ def index_dataset_from_path(
     strict: bool = False,
     save_index: bool = False,
     force_reindex: bool = False,
+    sample: int | None = None,
+    match_index: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Index a dataset by path, loading config from ``ds-crawler.json``.
 
@@ -669,6 +772,11 @@ def index_dataset_from_path(
         force_reindex: If False (default) and ``output.json`` already exists
             in the dataset root (or inside the ZIP), read and return it
             without re-indexing.
+        sample: If set, keep only every *sample*-th regex-matched file
+            (after sorting for deterministic ordering).
+        match_index: If set, a dataset output dict whose file IDs are
+            used as a filter — only files whose ID appears in the
+            match index are included in the output.
 
     Returns:
         The output object (same structure as one element of ``output.json``).
@@ -682,7 +790,9 @@ def index_dataset_from_path(
 
     ds_config = load_dataset_config({"path": str(path)})
     parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
-    dataset_node = parser.parse_dataset(ds_config)
+    dataset_node = parser.parse_dataset(
+        ds_config, sample=sample, match_index=match_index,
+    )
     output = parser._build_output(ds_config, dataset_node)
     if save_index:
         _save_output(output, Path(ds_config.path))
@@ -742,6 +852,72 @@ def _collect_paths(node: dict[str, Any], paths: list[str]) -> None:
         _collect_paths(child, paths)
 
 
+def _collect_ids(output_json: dict[str, Any]) -> set[str]:
+    """Extract all file IDs from an output JSON dict's hierarchy.
+
+    Recursively walks the ``dataset`` node and collects the ``id`` field
+    from every file entry.
+
+    Args:
+        output_json: A single dataset output dict (as returned by
+            ``index_dataset``).
+
+    Returns:
+        A set of all file ID strings found in the hierarchy.
+    """
+    ids: set[str] = set()
+    _collect_ids_from_node(output_json.get("dataset", {}), ids)
+    return ids
+
+
+def _collect_ids_from_node(node: dict[str, Any], ids: set[str]) -> None:
+    """Recursively collect file IDs from a hierarchy node."""
+    for file_entry in node.get("files", []):
+        file_id = file_entry.get("id")
+        if file_id is not None:
+            ids.add(file_id)
+    for child in node.get("children", {}).values():
+        _collect_ids_from_node(child, ids)
+
+
+def _collect_all_referenced_paths(output_json: dict[str, Any]) -> list[str]:
+    """Collect ALL file paths referenced in an output JSON dict.
+
+    This includes:
+
+    - File paths from file entries (the ``path`` field)
+    - ``camera_intrinsics`` paths
+    - ``camera_extrinsics`` paths
+
+    Args:
+        output_json: A single dataset output dict.
+
+    Returns:
+        A list of all referenced relative file paths (may contain
+        duplicates when the same camera file is shared across hierarchy
+        levels).
+    """
+    paths: list[str] = []
+    _collect_all_paths_from_node(output_json.get("dataset", {}), paths)
+    return paths
+
+
+def _collect_all_paths_from_node(
+    node: dict[str, Any], paths: list[str]
+) -> None:
+    """Recursively collect all referenced paths from a hierarchy node."""
+    for file_entry in node.get("files", []):
+        path = file_entry.get("path")
+        if path is not None:
+            paths.append(path)
+    for key in ("camera_intrinsics", "camera_extrinsics"):
+        cam_path = node.get(key)
+        if cam_path is not None:
+            paths.append(cam_path)
+    for child in node.get("children", {}).values():
+        _collect_all_paths_from_node(child, paths)
+
+
 def _save_output(
     output: dict[str, Any],
     dataset_path: Path,
@@ -758,3 +934,79 @@ def _save_output(
         output_path = dataset_path / filename
         with open(output_path, "w") as f:
             json.dump(output, f, indent=2)
+
+
+def copy_dataset(
+    input_path: str | Path,
+    output_path: str | Path,
+    *,
+    index: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Copy files referenced in a dataset index to a new location.
+
+    Preserves the relative directory structure.  If *index* is not
+    provided, ``output.json`` is loaded from *input_path*.  The index
+    is written as ``output.json`` in *output_path* so the copied dataset
+    is self-contained.
+
+    Args:
+        input_path: Root directory of the source dataset.
+        output_path: Root directory of the destination.  Created if it
+            does not exist.
+        index: A dataset output dict (as returned by ``index_dataset``).
+            When ``None``, ``output.json`` is read from *input_path*.
+
+    Returns:
+        A summary dict with keys ``copied`` (int), ``missing`` (int),
+        and ``missing_files`` (list of relative paths that were not
+        found in the source).
+    """
+    input_path = Path(input_path)
+    output_path = Path(output_path)
+
+    if index is None:
+        index_file = input_path / "output.json"
+        if not index_file.is_file():
+            raise FileNotFoundError(
+                f"No output.json found at {index_file} and no index was provided"
+            )
+        with open(index_file) as f:
+            index = json.load(f)
+
+    assert index is not None  # ensured by the branch above
+    all_paths = _collect_all_referenced_paths(index)
+    # Deduplicate while preserving order
+    unique_paths = list(dict.fromkeys(all_paths))
+
+    copied = 0
+    missing = 0
+    missing_files: list[str] = []
+
+    for rel_path_str in unique_paths:
+        src = input_path / rel_path_str
+        dst = output_path / rel_path_str
+
+        if not src.is_file():
+            logger.warning("Source file not found, skipping: %s", src)
+            missing += 1
+            missing_files.append(rel_path_str)
+            continue
+
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        copied += 1
+
+    # Write the index into the output directory
+    output_path.mkdir(parents=True, exist_ok=True)
+    with open(output_path / "output.json", "w") as f:
+        json.dump(index, f, indent=2)
+
+    logger.info(
+        "copy_dataset complete: %d files copied, %d missing", copied, missing
+    )
+
+    return {
+        "copied": copied,
+        "missing": missing,
+        "missing_files": missing_files,
+    }
