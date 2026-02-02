@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 import shutil
 from pathlib import Path
@@ -1016,6 +1017,369 @@ def _save_output(
         output_path = dataset_path / filename
         with open(output_path, "w") as f:
             json.dump(output, f, indent=2)
+
+
+def collect_qualified_ids(output_json: dict[str, Any]) -> set[tuple[str, ...]]:
+    """Extract hierarchy-qualified file IDs from an output JSON dict.
+
+    Each ID is a tuple of ``(*hierarchy_keys, file_id)`` so that files
+    with identical IDs under different hierarchy levels are distinguished.
+
+    Args:
+        output_json: A single dataset output dict (as returned by
+            ``index_dataset``).
+
+    Returns:
+        A set of tuples, each containing the hierarchy path keys
+        followed by the file ID.
+    """
+    return _collect_qualified_ids(output_json)
+
+
+def filter_index_by_qualified_ids(
+    output_json: dict[str, Any],
+    qualified_ids: set[tuple[str, ...]],
+) -> dict[str, Any]:
+    """Return a copy of *output_json* keeping only entries matching *qualified_ids*.
+
+    Each qualified ID is a tuple of ``(*hierarchy_keys, file_id)``.  Only
+    file entries whose hierarchy path + id match an entry in *qualified_ids*
+    are retained.  Camera intrinsics/extrinsics and other node-level
+    metadata are preserved.
+
+    Args:
+        output_json: A single dataset output dict.
+        qualified_ids: Set of ``(*hierarchy_keys, file_id)`` tuples to keep.
+
+    Returns:
+        A filtered copy of the output dict.
+    """
+    result = dict(output_json)
+    if "dataset" in result:
+        result["dataset"] = _filter_node_by_qualified_ids(
+            result["dataset"], (), qualified_ids
+        )
+    return result
+
+
+def _filter_node_by_qualified_ids(
+    node: dict[str, Any],
+    path: tuple[str, ...],
+    qualified_ids: set[tuple[str, ...]],
+) -> dict[str, Any]:
+    """Recursively filter file entries by hierarchy-qualified IDs."""
+    filtered: dict[str, Any] = {}
+    for key, value in node.items():
+        if key == "files":
+            filtered[key] = [
+                f for f in value
+                if path + (f.get("id"),) in qualified_ids
+            ]
+        elif key == "children":
+            filtered[key] = {
+                name: _filter_node_by_qualified_ids(
+                    child, path + (name,), qualified_ids
+                )
+                for name, child in value.items()
+            }
+        else:
+            filtered[key] = value
+    return filtered
+
+
+def split_qualified_ids(
+    qualified_ids: set[tuple[str, ...]],
+    ratios: list[int],
+    *,
+    seed: int | None = None,
+) -> list[set[tuple[str, ...]]]:
+    """Split qualified IDs into groups according to integer percentages.
+
+    Args:
+        qualified_ids: Set of ``(*hierarchy_keys, file_id)`` tuples.
+        ratios: List of integers that must sum to 100.  Each entry
+            specifies what percentage of IDs goes into that group.
+        seed: Random seed for shuffling before splitting.  When ``None``
+            the IDs are split in sorted order (deterministic but not
+            randomised).
+
+    Returns:
+        A list of sets (one per ratio) partitioning *qualified_ids*.
+
+    Raises:
+        ValueError: If *ratios* do not sum to 100 or contain non-positive
+            values.
+    """
+    if not ratios:
+        raise ValueError("ratios must be non-empty")
+    if any(r <= 0 for r in ratios):
+        raise ValueError(f"All ratios must be positive, got {ratios}")
+    if sum(ratios) != 100:
+        raise ValueError(
+            f"Ratios must sum to 100, got {sum(ratios)} from {ratios}"
+        )
+
+    ordered = sorted(qualified_ids)
+    if seed is not None:
+        rng = random.Random(seed)
+        rng.shuffle(ordered)
+
+    total = len(ordered)
+    # Compute cumulative boundaries to avoid rounding drift
+    boundaries: list[int] = []
+    cumsum = 0
+    for ratio in ratios[:-1]:
+        cumsum += ratio
+        boundaries.append(round(total * cumsum / 100))
+    boundaries.append(total)
+
+    splits: list[set[tuple[str, ...]]] = []
+    start = 0
+    for end in boundaries:
+        splits.append(set(ordered[start:end]))
+        start = end
+
+    return splits
+
+
+def split_dataset(
+    source_path: str | Path,
+    ratios: list[int],
+    target_paths: list[str | Path],
+    *,
+    qualified_ids: set[tuple[str, ...]] | None = None,
+    seed: int | None = None,
+) -> dict[str, Any]:
+    """Split a dataset into multiple targets according to percentages.
+
+    Loads ``output.json`` from *source_path* (raises ``FileNotFoundError``
+    if absent), partitions the file entries by their hierarchy-qualified
+    IDs, and copies each partition to the corresponding target path — in
+    the same way ``copy_dataset`` handles file transfer.
+
+    An ``output.json`` containing only the partition's entries is written
+    into each target.
+
+    Args:
+        source_path: Root directory or ``.zip`` archive of the source
+            dataset.  Must contain an ``output.json``.
+        ratios: List of positive integers summing to 100.  Position *i*
+            determines the percentage of IDs that go to
+            ``target_paths[i]``.
+        target_paths: Destination directories (or ``.zip`` archives),
+            one per ratio entry.
+        qualified_ids: When provided, only these IDs are considered
+            for splitting (the rest are ignored).  This is useful when
+            splitting multiple aligned datasets by a common intersection
+            of their IDs.
+        seed: Random seed for shuffling IDs before splitting.  ``None``
+            means deterministic sorted order without shuffling.
+
+    Returns:
+        A dict with keys:
+
+        - ``splits``: list of per-target result dicts, each with keys
+          ``target``, ``ratio``, ``num_ids``, ``copied``, ``missing``,
+          ``missing_files``.
+        - ``qualified_id_splits``: list of sets (one per target)
+          containing the qualified IDs assigned to that split.  Useful
+          for applying the same split to other aligned datasets.
+
+    Raises:
+        FileNotFoundError: If ``output.json`` is missing in the source.
+        ValueError: If *ratios* / *target_paths* are invalid.
+    """
+    if len(ratios) != len(target_paths):
+        raise ValueError(
+            f"ratios and target_paths must have the same length, "
+            f"got {len(ratios)} and {len(target_paths)}"
+        )
+
+    source_path = Path(source_path)
+    index = _load_required_index(source_path)
+
+    # Collect IDs from the source index
+    source_ids = _collect_qualified_ids(index)
+    if qualified_ids is not None:
+        # Intersect with the provided set (keeps only IDs that exist
+        # in *both* the source index and the caller's set)
+        effective_ids = source_ids & qualified_ids
+    else:
+        effective_ids = source_ids
+
+    # Split the IDs
+    id_splits = split_qualified_ids(effective_ids, ratios, seed=seed)
+
+    # Copy each split
+    split_results: list[dict[str, Any]] = []
+    for split_ids, target, ratio in zip(id_splits, target_paths, ratios):
+        filtered_index = filter_index_by_qualified_ids(index, split_ids)
+        result = copy_dataset(source_path, target, index=filtered_index)
+        result["target"] = str(target)
+        result["ratio"] = ratio
+        result["num_ids"] = len(split_ids)
+        split_results.append(result)
+
+    return {
+        "splits": split_results,
+        "qualified_id_splits": id_splits,
+    }
+
+
+def _derive_split_path(source: Path, suffix: str) -> Path:
+    """Derive a target path by appending *suffix* to *source*.
+
+    For directories: ``/data/kitti_rgb`` → ``/data/kitti_rgb_train``
+    For ZIP files:   ``/data/kitti_rgb.zip`` → ``/data/kitti_rgb_train.zip``
+    """
+    if source.suffix.lower() == ".zip":
+        return source.with_name(f"{source.stem}_{suffix}.zip")
+    return source.with_name(f"{source.name}_{suffix}")
+
+
+def split_datasets(
+    source_paths: list[str | Path],
+    suffixes: list[str],
+    ratios: list[int],
+    *,
+    seed: int | None = None,
+) -> dict[str, Any]:
+    """Split multiple aligned datasets using a common ID intersection.
+
+    Loads ``output.json`` from each source, computes the intersection of
+    their hierarchy-qualified IDs, partitions that intersection according
+    to *ratios*, and copies each partition into a derived target path for
+    every source dataset.
+
+    Target paths are derived by appending each suffix to the source path:
+
+    - Directory ``/data/kitti_rgb`` with suffix ``"train"``
+      → ``/data/kitti_rgb_train``
+    - ZIP ``/data/kitti_rgb.zip`` with suffix ``"train"``
+      → ``/data/kitti_rgb_train.zip``
+
+    When a source has IDs that are absent from other sources (i.e. not
+    part of the intersection), they are logged but silently excluded so
+    that every split contains only entries present in *all* modalities.
+
+    Args:
+        source_paths: Dataset root directories or ``.zip`` archives.
+            Each must contain an ``output.json``.
+        suffixes: One label per split (e.g. ``["train", "val"]``).
+            Must have the same length as *ratios*.
+        ratios: Positive integers summing to 100 (e.g. ``[80, 20]``).
+            Must have the same length as *suffixes*.
+        seed: Random seed for shuffling IDs before splitting.  ``None``
+            means deterministic sorted order without shuffling.
+
+    Returns:
+        A dict with keys:
+
+        - ``common_ids``: the set of qualified IDs present in every
+          source (the intersection).
+        - ``qualified_id_splits``: list of sets (one per suffix)
+          partitioning the common IDs.
+        - ``per_source``: list of per-source result dicts (same order
+          as *source_paths*), each containing ``source``,
+          ``total_ids``, ``excluded_ids``, and ``splits`` (a list
+          of per-suffix copy results with ``target``, ``suffix``,
+          ``ratio``, ``num_ids``, ``copied``, ``missing``,
+          ``missing_files``).
+
+    Raises:
+        FileNotFoundError: If ``output.json`` is missing in any source.
+        ValueError: If lengths of *suffixes* and *ratios* differ, or
+            if *source_paths* is empty.
+    """
+    if len(suffixes) != len(ratios):
+        raise ValueError(
+            f"suffixes and ratios must have the same length, "
+            f"got {len(suffixes)} and {len(ratios)}"
+        )
+    if not source_paths:
+        raise ValueError("source_paths must be non-empty")
+
+    sources = [Path(p) for p in source_paths]
+
+    # --- Load indices and collect qualified IDs per source ---
+    indices: list[dict[str, Any]] = []
+    per_source_ids: list[set[tuple[str, ...]]] = []
+    for src in sources:
+        index = _load_required_index(src)
+        indices.append(index)
+        qids = _collect_qualified_ids(index)
+        per_source_ids.append(qids)
+        logger.info(
+            "Loaded index for %s: %d qualified IDs", src, len(qids),
+        )
+
+    # --- Compute intersection ---
+    common_ids = per_source_ids[0]
+    for qids in per_source_ids[1:]:
+        common_ids = common_ids & qids
+    logger.info(
+        "Intersection across %d sources: %d common qualified IDs",
+        len(sources), len(common_ids),
+    )
+
+    # --- Log per-source exclusions ---
+    for src, qids in zip(sources, per_source_ids):
+        excluded = qids - common_ids
+        if excluded:
+            logger.warning(
+                "%s: %d / %d IDs not present in all sources (excluded "
+                "from split)",
+                src, len(excluded), len(qids),
+            )
+
+    # --- Split the common IDs ---
+    id_splits = split_qualified_ids(common_ids, ratios, seed=seed)
+
+    # --- Copy each split for each source ---
+    per_source_results: list[dict[str, Any]] = []
+    for src, index, qids in zip(sources, indices, per_source_ids):
+        source_split_results: list[dict[str, Any]] = []
+        for split_ids, suffix, ratio in zip(id_splits, suffixes, ratios):
+            target = _derive_split_path(src, suffix)
+            filtered_index = filter_index_by_qualified_ids(index, split_ids)
+            result = copy_dataset(src, target, index=filtered_index)
+            result["target"] = str(target)
+            result["suffix"] = suffix
+            result["ratio"] = ratio
+            result["num_ids"] = len(split_ids)
+            source_split_results.append(result)
+
+        per_source_results.append({
+            "source": str(src),
+            "total_ids": len(qids),
+            "excluded_ids": len(qids - common_ids),
+            "splits": source_split_results,
+        })
+
+    return {
+        "common_ids": common_ids,
+        "qualified_id_splits": id_splits,
+        "per_source": per_source_results,
+    }
+
+
+def _load_required_index(
+    dataset_path: Path, filename: str = "output.json"
+) -> dict[str, Any]:
+    """Load an output index from *dataset_path*, raising if absent."""
+    if is_zip_path(dataset_path):
+        index = read_json_from_zip(dataset_path, filename)
+        if index is None:
+            raise FileNotFoundError(
+                f"No {filename} found inside {dataset_path}"
+            )
+        return index
+
+    index_file = dataset_path / filename
+    if not index_file.is_file():
+        raise FileNotFoundError(f"No {filename} found at {index_file}")
+    with open(index_file) as f:
+        return json.load(f)
 
 
 def copy_dataset(
