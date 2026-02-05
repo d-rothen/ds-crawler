@@ -1382,6 +1382,107 @@ def _load_required_index(
         return json.load(f)
 
 
+def _collect_file_entries_by_id(
+    node: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Recursively collect ``{id: file_entry}`` from a hierarchy node."""
+    entries: dict[str, dict[str, Any]] = {}
+    for file_entry in node.get("files", []):
+        file_id = file_entry.get("id")
+        if file_id is not None:
+            entries[file_id] = file_entry
+    for child in node.get("children", {}).values():
+        entries.update(_collect_file_entries_by_id(child))
+    return entries
+
+
+def _resolve_dataset_source(source: str | Path | dict[str, Any]) -> dict[str, Any]:
+    """Resolve a dataset source to an output JSON dict.
+
+    When *source* is already a dict it is returned as-is (assumed to be a
+    loaded output JSON object).  When it is a path, ``output.json`` is
+    checked first; if absent, ``ds-crawler.json`` is used to index on the
+    fly.  Raises ``FileNotFoundError`` if neither file exists.
+    """
+    if isinstance(source, dict):
+        return source
+    return index_dataset_from_path(source)
+
+
+def align_datasets(
+    *args: dict[str, Any],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Align multiple dataset modalities by file ID.
+
+    Each positional argument is a dict with keys:
+
+    - ``modality`` (str): Label for this modality (e.g. ``"rgb"``,
+      ``"depth"``).
+    - ``source``: Either a filesystem path (``str`` or ``Path``) to a
+      dataset root, or an already-loaded output JSON dict.
+
+    When *source* is a path, the function first looks for an existing
+    ``output.json``.  If none is found it looks for a ``ds-crawler.json``
+    configuration and indexes the dataset on the fly.  If neither file
+    exists a ``FileNotFoundError`` is raised.
+
+    Returns:
+        A dict keyed by file ID.  Each value is a dict mapping modality
+        labels to their corresponding file entry dicts.  IDs that are
+        not present in every modality will have fewer keys than the
+        number of input modalities.
+
+    Example::
+
+        aligned = align_datasets(
+            {"modality": "rgb", "source": "/data/rgb"},
+            {"modality": "depth", "source": depth_output_dict},
+        )
+        for file_id, modalities in aligned.items():
+            if "rgb" in modalities and "depth" in modalities:
+                rgb_path = modalities["rgb"]["path"]
+                depth_path = modalities["depth"]["path"]
+    """
+    if not args:
+        return {}
+
+    per_modality: dict[str, dict[str, dict[str, Any]]] = {}
+    for arg in args:
+        modality = arg["modality"]
+        source = arg["source"]
+        output = _resolve_dataset_source(source)
+        entries = _collect_file_entries_by_id(output.get("dataset", {}))
+        per_modality[modality] = entries
+        logger.info(
+            "align_datasets: modality '%s' has %d file entries",
+            modality, len(entries),
+        )
+
+    # Union of all IDs
+    all_ids: set[str] = set()
+    for entries in per_modality.values():
+        all_ids.update(entries.keys())
+
+    # Build aligned dict
+    aligned: dict[str, dict[str, dict[str, Any]]] = {}
+    for file_id in sorted(all_ids):
+        entry: dict[str, dict[str, Any]] = {}
+        for modality, entries in per_modality.items():
+            if file_id in entries:
+                entry[modality] = entries[file_id]
+        aligned[file_id] = entry
+
+    # Log alignment stats
+    n_modalities = len(per_modality)
+    n_complete = sum(1 for v in aligned.values() if len(v) == n_modalities)
+    logger.info(
+        "align_datasets: %d unique IDs, %d with all %d modalities",
+        len(aligned), n_complete, n_modalities,
+    )
+
+    return aligned
+
+
 def copy_dataset(
     input_path: str | Path,
     output_path: str | Path,
