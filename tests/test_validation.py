@@ -86,6 +86,16 @@ class TestValidateOutput:
         with pytest.raises(ValueError, match=r"\.id must be a non-empty string"):
             validate_output(output)
 
+    def test_euler_train_slot_is_optional(self, tmp_path: Path) -> None:
+        root = tmp_path / "depth_predictions"
+        create_depth_predictions_tree(root)
+        config = make_depth_predictions_config(str(root))
+        output = index_dataset(config)
+        output["euler_train"].pop("slot", None)
+
+        validated = validate_output(output)
+        assert validated is output
+
 
 class TestValidateDataset:
     def _build_dataset_files(self, root: Path) -> tuple[dict[str, Any], dict[str, Any]]:

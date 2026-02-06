@@ -80,13 +80,14 @@ def _validate_euler_train(value: Any, context: str) -> None:
     _validate_token(modality_type, f"{context}.modality_type")
 
     slot = value.get("slot")
-    if not isinstance(slot, str) or not slot:
-        raise ValueError(f"{context}.slot is required")
-    if not _SLOT_PATTERN.match(slot):
-        raise ValueError(
-            f"{context}.slot must match "
-            "'segment.segment.segment' (alphanumeric/underscore only)"
-        )
+    if slot is not None:
+        if not isinstance(slot, str) or not slot:
+            raise ValueError(f"{context}.slot must be a non-empty string")
+        if not _SLOT_PATTERN.match(slot):
+            raise ValueError(
+                f"{context}.slot must match "
+                "'segment.segment.segment' (alphanumeric/underscore only)"
+            )
 
     hierarchy_scope = value.get("hierarchy_scope")
     applies_to = value.get("applies_to")
