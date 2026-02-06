@@ -2,6 +2,7 @@
 
 from .schema import DatasetDescriptor
 from .config import Config, DatasetConfig, load_dataset_config
+from .validation import validate_crawler_config, validate_dataset, validate_output
 from .parser import (
     DatasetParser,
     align_datasets,
@@ -34,4 +35,7 @@ __all__ = [
     "split_dataset",
     "split_datasets",
     "split_qualified_ids",
+    "validate_crawler_config",
+    "validate_dataset",
+    "validate_output",
 ]

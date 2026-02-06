@@ -41,7 +41,15 @@ ds-crawler config.json -v -s -w /data/
 ### Python API
 
 ```python
-from ds_crawler import index_dataset, index_dataset_from_path, index_dataset_from_files, get_files
+from ds_crawler import (
+    get_files,
+    index_dataset,
+    index_dataset_from_files,
+    index_dataset_from_path,
+    validate_crawler_config,
+    validate_dataset,
+    validate_output,
+)
 ```
 
 #### `index_dataset(config, *, strict=False, save_index=False) -> dict`
@@ -91,6 +99,29 @@ Extract a flat list of all file paths from a crawler output.
 | `output_json` | `dict \| list[dict]` | A single output dict or a list of output dicts |
 
 **Returns:** `list[str]` of relative file paths.
+
+#### `validate_crawler_config(config, *, workdir=None) -> DatasetConfig`
+
+Validate a single embedded `ds-crawler.json` object (same schema as one dataset entry).
+Returns a parsed `DatasetConfig` and raises `ValueError` on invalid input.
+
+#### `validate_output(output) -> dict | list[dict]`
+
+Validate an `output.json` payload. Accepts either:
+- a single dataset output object, or
+- a list of dataset output objects.
+
+Returns the input object unchanged when valid; raises `ValueError` otherwise.
+
+#### `validate_dataset(path) -> dict`
+
+Validate metadata available for a dataset path (directory or `.zip`):
+- checks `ds-crawler.json` and `output.json`,
+- looks in `.ds_crawler/` first, then dataset root.
+
+Returns validation details (`has_config`, `has_output`, parsed `config`, and `output`) and raises:
+- `FileNotFoundError` if neither metadata file exists,
+- `ValueError` if a found file is invalid.
 
 ## Configuration
 
