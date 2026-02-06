@@ -420,8 +420,8 @@ class TestSplitDataset:
             assert s["missing"] == 0
 
         # output.json written in each target
-        assert (dst_a / "output.json").is_file()
-        assert (dst_b / "output.json").is_file()
+        assert (dst_a / ".ds_crawler" / "output.json").is_file()
+        assert (dst_b / ".ds_crawler" / "output.json").is_file()
 
     def test_three_way_split(self, tmp_path: Path) -> None:
         root = tmp_path / "src"
@@ -523,7 +523,7 @@ class TestSplitDataset:
         split_dataset(root, [50, 50], [dst_a, dst_b])
 
         for dst in [dst_a, dst_b]:
-            with open(dst / "output.json") as f:
+            with open(dst / ".ds_crawler" / "output.json") as f:
                 split_idx = json.load(f)
             for rel_path in get_files(split_idx):
                 assert (dst / rel_path).is_file()
@@ -624,9 +624,9 @@ class TestCrossDatasetIntersection:
             copy_dataset(depth_root, target, index=filtered)
 
         # Verify rgb and depth train splits have the same qualified IDs
-        with open(tmp_path / "rgb_train" / "output.json") as f:
+        with open(tmp_path / "rgb_train" / ".ds_crawler" / "output.json") as f:
             rgb_train_idx = json.load(f)
-        with open(tmp_path / "depth_train" / "output.json") as f:
+        with open(tmp_path / "depth_train" / ".ds_crawler" / "output.json") as f:
             depth_train_idx = json.load(f)
 
         assert (
@@ -635,9 +635,9 @@ class TestCrossDatasetIntersection:
         )
 
         # Same for val
-        with open(tmp_path / "rgb_val" / "output.json") as f:
+        with open(tmp_path / "rgb_val" / ".ds_crawler" / "output.json") as f:
             rgb_val_idx = json.load(f)
-        with open(tmp_path / "depth_val" / "output.json") as f:
+        with open(tmp_path / "depth_val" / ".ds_crawler" / "output.json") as f:
             depth_val_idx = json.load(f)
 
         assert (
@@ -748,7 +748,7 @@ class TestCrossDatasetIntersection:
         # Verify files on disk for all four targets
         for name in ["rgb_train", "rgb_val", "depth_train", "depth_val"]:
             target = tmp_path / name
-            with open(target / "output.json") as f:
+            with open(target / ".ds_crawler" / "output.json") as f:
                 split_idx = json.load(f)
             for rel_path in get_files(split_idx):
                 assert (target / rel_path).is_file(), (
@@ -872,7 +872,7 @@ class TestSplitDatasets:
 
         for name in ["rgb_train", "rgb_val", "depth_train", "depth_val"]:
             target = tmp_path / name
-            assert (target / "output.json").is_file(), f"missing output.json in {name}"
+            assert (target / ".ds_crawler" / "output.json").is_file(), f"missing output.json in {name}"
 
     # -- intersection correctness --
 
@@ -954,7 +954,7 @@ class TestSplitDatasets:
             qid_sets: list[set[tuple[str, ...]]] = []
             for src_name in ["rgb", "depth", "normals"]:
                 target = tmp_path / f"{src_name}_{suffix}"
-                with open(target / "output.json") as f:
+                with open(target / ".ds_crawler" / "output.json") as f:
                     idx = json.load(f)
                 qid_sets.append(collect_qualified_ids(idx))
 
@@ -984,7 +984,7 @@ class TestSplitDatasets:
 
         for name in ["rgb_train", "rgb_val", "depth_train", "depth_val"]:
             target = tmp_path / name
-            with open(target / "output.json") as f:
+            with open(target / ".ds_crawler" / "output.json") as f:
                 idx = json.load(f)
             for rel_path in get_files(idx):
                 assert (target / rel_path).is_file(), (

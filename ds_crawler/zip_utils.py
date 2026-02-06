@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Any
 
 
+METADATA_DIR = ".ds_crawler"
+OUTPUT_FILENAME = "output.json"
+
+
 def is_zip_path(path: str | Path) -> bool:
     """Return True if *path* points to an existing ``.zip`` file."""
     p = Path(path)
@@ -149,3 +153,75 @@ def write_json_to_zip(
             os.close(fd)
         except OSError:
             pass
+
+
+def read_metadata_json(
+    dataset_path: Path, filename: str
+) -> dict | None:
+    """Read a metadata JSON file from a dataset's ``.ds_crawler/`` directory.
+
+    For both ZIP and filesystem datasets, checks
+    ``.ds_crawler/{filename}`` first, then falls back to ``{filename}``
+    at the dataset root for backwards compatibility.
+
+    Args:
+        dataset_path: Root directory or ``.zip`` archive of the dataset.
+        filename: The metadata filename (e.g. ``"output.json"``).
+
+    Returns:
+        Parsed JSON dict, or ``None`` if the file is not found in
+        either location.
+    """
+    new_name = f"{METADATA_DIR}/{filename}"
+
+    if is_zip_path(dataset_path):
+        result = read_json_from_zip(dataset_path, new_name)
+        if result is not None:
+            return result
+        return read_json_from_zip(dataset_path, filename)
+
+    new_path = dataset_path / METADATA_DIR / filename
+    if new_path.is_file():
+        with open(new_path) as f:
+            return json.load(f)
+
+    old_path = dataset_path / filename
+    if old_path.is_file():
+        with open(old_path) as f:
+            return json.load(f)
+
+    return None
+
+
+def write_metadata_json(
+    dataset_path: Path, filename: str, data: Any
+) -> Path:
+    """Write a metadata JSON file to a dataset's ``.ds_crawler/`` directory.
+
+    Always writes to ``.ds_crawler/{filename}``.  For filesystem
+    datasets the directory is created if it does not exist.  For ZIP
+    datasets the entry is written as ``.ds_crawler/{filename}`` inside
+    the archive.
+
+    Args:
+        dataset_path: Root directory or ``.zip`` archive of the dataset.
+        filename: The metadata filename (e.g. ``"output.json"``).
+        data: JSON-serialisable data to write.
+
+    Returns:
+        The path that was written to.  For filesystem datasets this is
+        the actual file path; for ZIP datasets this is the ZIP path
+        itself.
+    """
+    new_name = f"{METADATA_DIR}/{filename}"
+
+    if is_zip_path(dataset_path):
+        write_json_to_zip(dataset_path, new_name, data)
+        return dataset_path
+
+    output_dir = dataset_path / METADATA_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / filename
+    with open(output_path, "w") as f:
+        json.dump(data, f, indent=2)
+    return output_path

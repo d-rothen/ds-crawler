@@ -344,7 +344,7 @@ class TestIndexDatasetZip:
         config_dict = make_depth_predictions_config(str(depth_predictions_zip))
         result = index_dataset(config_dict, save_index=True)
 
-        saved = read_json_from_zip(depth_predictions_zip, "output.json")
+        saved = read_json_from_zip(depth_predictions_zip, ".ds_crawler/output.json")
         assert saved is not None
         assert saved["name"] == result["name"]
         assert saved["dataset"] == result["dataset"]
@@ -359,7 +359,7 @@ class TestIndexDatasetZip:
         with zipfile.ZipFile(depth_predictions_zip, "r") as zf:
             names = zf.namelist()
             assert "Scene01/00001_pred.png" in names
-            assert "output.json" in names
+            assert ".ds_crawler/output.json" in names
 
 
 # ===================================================================
@@ -403,7 +403,7 @@ class TestIndexDatasetFromPathZip:
 
         result = index_dataset_from_path(zp, save_index=True)
 
-        saved = read_json_from_zip(zp, "output.json")
+        saved = read_json_from_zip(zp, ".ds_crawler/output.json")
         assert saved is not None
         assert saved["name"] == result["name"]
 
@@ -476,7 +476,7 @@ class TestWriteOutputsPerDatasetZip:
         assert len(paths) == 1
         assert paths[0] == depth_predictions_zip
 
-        saved = read_json_from_zip(depth_predictions_zip, "output.json")
+        saved = read_json_from_zip(depth_predictions_zip, ".ds_crawler/output.json")
         assert saved is not None
         assert saved["name"] == "depth_predictions"
 
@@ -496,7 +496,7 @@ class TestWriteOutputsPerDatasetZip:
         assert paths[0] == custom_output
         assert custom_output.exists()
         # The zip should NOT contain output.json
-        assert read_json_from_zip(depth_predictions_zip, "output.json") is None
+        assert read_json_from_zip(depth_predictions_zip, ".ds_crawler/output.json") is None
 
     def test_preserves_existing_zip_entries(
         self, depth_predictions_zip: Path
@@ -513,7 +513,7 @@ class TestWriteOutputsPerDatasetZip:
             names = zf.namelist()
             assert "Scene01/00001_pred.png" in names
             assert "Scene01/00001_pred.npy" in names
-            assert "output.json" in names
+            assert ".ds_crawler/output.json" in names
 
 
 # ===================================================================
@@ -885,13 +885,13 @@ class TestPrefixedZipMatchesDirectory:
         result = index_dataset_from_path(zp, save_index=True)
 
         # output.json should be readable (via prefix detection)
-        saved = read_json_from_zip(zp, "output.json")
+        saved = read_json_from_zip(zp, ".ds_crawler/output.json")
         assert saved is not None
         assert saved["name"] == result["name"]
 
         # Verify it was stored under the prefix
         with zipfile.ZipFile(zp, "r") as zf:
-            assert "mydata/output.json" in zf.namelist()
+            assert "mydata/.ds_crawler/output.json" in zf.namelist()
 
     def test_cached_output_in_prefixed_zip(self, tmp_path: Path) -> None:
         root = tmp_path / "_tree"

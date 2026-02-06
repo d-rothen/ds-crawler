@@ -92,7 +92,7 @@ class TestCopyDataset:
         copy_dataset(root, dst, index=idx)
 
         # output.json must exist in destination
-        output_json_path = dst / "output.json"
+        output_json_path = dst / ".ds_crawler" / "output.json"
         assert output_json_path.is_file()
         with open(output_json_path) as f:
             written_idx = json.load(f)
@@ -157,7 +157,7 @@ class TestCopyDataset:
         copy_dataset(root, dst, index=idx)
 
         assert dst.is_dir()
-        assert (dst / "output.json").is_file()
+        assert (dst / ".ds_crawler" / "output.json").is_file()
 
     def test_with_vkitti2_dataset(self, tmp_path: Path) -> None:
         """End-to-end: index VKITTI2, copy it, verify structure."""
@@ -255,7 +255,7 @@ class TestCopyDataset:
         dst = tmp_path / "dst"
         copy_dataset(root, dst, index=idx, sample=2)
 
-        with open(dst / "output.json") as f:
+        with open(dst / ".ds_crawler" / "output.json") as f:
             written_idx = json.load(f)
 
         written_files = get_files(written_idx)
@@ -277,7 +277,7 @@ class TestCopyDataset:
         dst = tmp_path / "dst"
         copy_dataset(root, dst, index=idx, sample=100)
 
-        with open(dst / "output.json") as f:
+        with open(dst / ".ds_crawler" / "output.json") as f:
             written_idx = json.load(f)
 
         written_files = get_files(written_idx)
@@ -402,8 +402,8 @@ class TestCopyDatasetFromZip:
         dst = tmp_path / "dst"
         copy_dataset(zip_path, dst)
 
-        assert (dst / "output.json").is_file()
-        with open(dst / "output.json") as f:
+        assert (dst / ".ds_crawler" / "output.json").is_file()
+        with open(dst / ".ds_crawler" / "output.json") as f:
             written = json.load(f)
         assert written == idx
 
@@ -470,7 +470,7 @@ class TestCopyDatasetToZip:
             names = set(zf.namelist())
             for rel_path in expected_files:
                 assert rel_path in names
-            assert "output.json" in names
+            assert ".ds_crawler/output.json" in names
 
     def test_zip_to_zip(self, tmp_path: Path) -> None:
         """copy_dataset can read from a zip and write to a zip."""
@@ -491,7 +491,7 @@ class TestCopyDatasetToZip:
             names = set(zf.namelist())
             for rel_path in expected_files:
                 assert rel_path in names
-            assert "output.json" in names
+            assert ".ds_crawler/output.json" in names
 
     def test_output_json_written_into_zip(self, tmp_path: Path) -> None:
         """The index is embedded as output.json inside the output zip."""
@@ -504,7 +504,7 @@ class TestCopyDatasetToZip:
         copy_dataset(root, dst_zip, index=idx)
 
         with zipfile.ZipFile(dst_zip, "r") as zf:
-            with zf.open("output.json") as f:
+            with zf.open(".ds_crawler/output.json") as f:
                 written_idx = json.load(f)
         assert written_idx == idx
 
@@ -526,7 +526,7 @@ class TestCopyDatasetToZip:
         assert summary["missing"] == 0
 
         with zipfile.ZipFile(dst_zip, "r") as zf:
-            with zf.open("output.json") as f:
+            with zf.open(".ds_crawler/output.json") as f:
                 written_idx = json.load(f)
             written_files = get_files(written_idx)
             assert len(written_files) == expected_count

@@ -12,7 +12,13 @@ from typing import Any, Iterable
 
 from .config import Config, DatasetConfig, load_dataset_config
 from .handlers import get_handler
-from .zip_utils import is_zip_path, read_json_from_zip, write_json_to_zip
+from .zip_utils import (
+    METADATA_DIR,
+    OUTPUT_FILENAME,
+    is_zip_path,
+    read_metadata_json,
+    write_metadata_json,
+)
 
 try:
     from tqdm import tqdm
@@ -666,13 +672,8 @@ class DatasetParser:
                 output_path = Path(ds_config.output_json)
                 with open(output_path, "w") as f:
                     json.dump(output, f, indent=2)
-            elif is_zip_path(ds_path):
-                write_json_to_zip(ds_path, filename, output)
-                output_path = ds_path
             else:
-                output_path = ds_path / filename
-                with open(output_path, "w") as f:
-                    json.dump(output, f, indent=2)
+                output_path = write_metadata_json(ds_path, filename, output)
 
             output_paths.append(output_path)
 
@@ -821,24 +822,14 @@ def _read_cached_output(
     dataset_path: Path, filename: str = "output.json"
 ) -> dict[str, Any] | None:
     """Return a previously written output dict, or ``None``."""
-    if is_zip_path(dataset_path):
-        cached = read_json_from_zip(dataset_path, filename)
-        if cached is not None:
-            logger.info(
-                "Found existing %s inside %s, skipping reindex",
-                filename,
-                dataset_path,
-            )
-        return cached
-
-    output_path = dataset_path / filename
-    if output_path.is_file():
+    cached = read_metadata_json(dataset_path, filename)
+    if cached is not None:
         logger.info(
-            "Found existing %s at %s, skipping reindex", filename, output_path
+            "Found existing %s for %s, skipping reindex",
+            filename,
+            dataset_path,
         )
-        with open(output_path) as f:
-            return json.load(f)
-    return None
+    return cached
 
 
 def get_files(output_json: dict[str, Any] | list[dict[str, Any]]) -> list[str]:
@@ -1006,17 +997,12 @@ def _save_output(
     dataset_path: Path,
     filename: str = "output.json",
 ) -> None:
-    """Write an output dict as ``output.json`` inside *dataset_path*.
+    """Write an output dict to ``.ds_crawler/{filename}`` inside *dataset_path*.
 
     When *dataset_path* is a ``.zip`` file the entry is written inside
     the archive.
     """
-    if is_zip_path(dataset_path):
-        write_json_to_zip(dataset_path, filename, output)
-    else:
-        output_path = dataset_path / filename
-        with open(output_path, "w") as f:
-            json.dump(output, f, indent=2)
+    write_metadata_json(dataset_path, filename, output)
 
 
 def collect_qualified_ids(output_json: dict[str, Any]) -> set[tuple[str, ...]]:
@@ -1367,19 +1353,12 @@ def _load_required_index(
     dataset_path: Path, filename: str = "output.json"
 ) -> dict[str, Any]:
     """Load an output index from *dataset_path*, raising if absent."""
-    if is_zip_path(dataset_path):
-        index = read_json_from_zip(dataset_path, filename)
-        if index is None:
-            raise FileNotFoundError(
-                f"No {filename} found inside {dataset_path}"
-            )
-        return index
-
-    index_file = dataset_path / filename
-    if not index_file.is_file():
-        raise FileNotFoundError(f"No {filename} found at {index_file}")
-    with open(index_file) as f:
-        return json.load(f)
+    index = read_metadata_json(dataset_path, filename)
+    if index is None:
+        raise FileNotFoundError(
+            f"No {filename} found at {dataset_path}"
+        )
+    return index
 
 
 def _collect_file_entries_by_id(
@@ -1526,20 +1505,11 @@ def copy_dataset(
     zip_output = output_path.suffix.lower() == ".zip"
 
     if index is None:
-        if zip_input:
-            index = read_json_from_zip(input_path, "output.json")
-            if index is None:
-                raise FileNotFoundError(
-                    f"No output.json found inside {input_path} and no index was provided"
-                )
-        else:
-            index_file = input_path / "output.json"
-            if not index_file.is_file():
-                raise FileNotFoundError(
-                    f"No output.json found at {index_file} and no index was provided"
-                )
-            with open(index_file) as f:
-                index = json.load(f)
+        index = read_metadata_json(input_path, OUTPUT_FILENAME)
+        if index is None:
+            raise FileNotFoundError(
+                f"No {OUTPUT_FILENAME} found at {input_path} and no index was provided"
+            )
 
     assert index is not None  # ensured by the branch above
     all_paths = _collect_all_referenced_paths(index)
@@ -1641,14 +1611,13 @@ def copy_dataset(
         # Write the (possibly filtered) index
         if dst_zf is not None:
             dst_zf.writestr(
-                "output.json",
+                f"{METADATA_DIR}/{OUTPUT_FILENAME}",
                 json.dumps(index, indent=2),
                 compress_type=zipfile.ZIP_DEFLATED,
             )
         else:
             output_path.mkdir(parents=True, exist_ok=True)
-            with open(output_path / "output.json", "w") as f:
-                json.dump(index, f, indent=2)
+            write_metadata_json(output_path, OUTPUT_FILENAME, index)
 
     logger.info(
         "copy_dataset complete: %d files copied, %d missing", copied, missing

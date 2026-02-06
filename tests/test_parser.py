@@ -915,7 +915,7 @@ class TestWriteOutput:
         paths = parser.write_outputs_per_dataset()
 
         assert len(paths) == 1
-        assert paths[0] == root / "output.json"
+        assert paths[0] == root / ".ds_crawler" / "output.json"
         assert paths[0].exists()
 
     def test_write_per_dataset_custom_output_json(self, tmp_path: Path) -> None:

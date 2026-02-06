@@ -855,7 +855,7 @@ class TestSaveIndex:
         }
         result = index_dataset(config_dict, save_index=True)
 
-        output_path = root / "output.json"
+        output_path = root / ".ds_crawler" / "output.json"
         assert output_path.exists()
         with open(output_path) as f:
             saved = json.load(f)
@@ -874,7 +874,7 @@ class TestSaveIndex:
             "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
             "id_regex": r"^(?P<frame>\d+)\.png$",
         })
-        assert not (root / "output.json").exists()
+        assert not (root / ".ds_crawler" / "output.json").exists()
 
     def test_index_dataset_from_path_save_index(self, tmp_path: Path) -> None:
         root = tmp_path / "ds"
@@ -894,7 +894,7 @@ class TestSaveIndex:
 
         result = index_dataset_from_path(root, save_index=True)
 
-        output_path = root / "output.json"
+        output_path = root / ".ds_crawler" / "output.json"
         assert output_path.exists()
         with open(output_path) as f:
             saved = json.load(f)
@@ -933,7 +933,7 @@ class TestFromPathCacheBypass:
 
         # First call without sampling, saving index
         full = index_dataset_from_path(root, save_index=True)
-        assert (root / "output.json").exists()
+        assert (root / ".ds_crawler" / "output.json").exists()
         assert len(get_files(full)) == 6
 
         # Second call with sample — must NOT return the cached full index
@@ -974,7 +974,7 @@ class TestFromPathCacheBypass:
 
         index_dataset_from_path(root, save_index=True)
         # Plant a stale marker to confirm cache is read
-        output_path = root / "output.json"
+        output_path = root / ".ds_crawler" / "output.json"
         with open(output_path) as f:
             cached = json.load(f)
         cached["_stale_marker"] = True
@@ -990,6 +990,6 @@ class TestFromPathCacheBypass:
 
         index_dataset_from_path(root, sample=3, save_index=True)
 
-        with open(root / "output.json") as f:
+        with open(root / ".ds_crawler" / "output.json") as f:
             saved = json.load(f)
         assert saved["sampled"] == 3

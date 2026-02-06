@@ -184,24 +184,14 @@ def load_dataset_config(
             ds_path = str(Path(workdir) / ds_path)
 
         ds_path_obj = Path(ds_path)
-        from .zip_utils import is_zip_path, read_json_from_zip
+        from .zip_utils import read_metadata_json
 
-        if is_zip_path(ds_path_obj):
-            file_config = read_json_from_zip(ds_path_obj, CONFIG_FILENAME)
-            if file_config is None:
-                raise FileNotFoundError(
-                    f"Dataset entry has no inline config and no {CONFIG_FILENAME} "
-                    f"found inside: {ds_path_obj}"
-                )
-        else:
-            config_file = ds_path_obj / CONFIG_FILENAME
-            if not config_file.exists():
-                raise FileNotFoundError(
-                    f"Dataset entry has no inline config and no {CONFIG_FILENAME} "
-                    f"found at: {config_file}"
-                )
-            with open(config_file) as f:
-                file_config = json.load(f)
+        file_config = read_metadata_json(ds_path_obj, CONFIG_FILENAME)
+        if file_config is None:
+            raise FileNotFoundError(
+                f"Dataset entry has no inline config and no {CONFIG_FILENAME} "
+                f"found at: {ds_path_obj}"
+            )
         # Caller-supplied keys override file values
         resolved = {**file_config, **data}
     return DatasetConfig.from_dict(resolved, workdir=workdir)
