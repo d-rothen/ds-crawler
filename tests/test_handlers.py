@@ -39,6 +39,16 @@ class TestGenericHandler:
             "id_regex": r"^(?P<f>.+)\.\w+$",
         }
         defaults.update(overrides)
+        props = defaults.get("properties")
+        if props is None:
+            props = {}
+        if isinstance(props, dict) and "euler_train" not in props:
+            props = props.copy()
+            props["euler_train"] = {
+                "used_as": "input",
+                "modality_type": defaults.get("type", "rgb"),
+            }
+            defaults["properties"] = props
         return DatasetConfig(**defaults)
 
     def test_finds_matching_files(self, tmp_path: Path) -> None:

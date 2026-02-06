@@ -116,9 +116,13 @@ def make_vkitti2_config(path: str) -> dict[str, Any]:
         ),
         "flat_ids_unique": True,
         "properties": {
-            "type": "rgb",
             "gt": True,
             "baseline": True,
+            "euler_train": {
+                "used_as": "target",
+                "slot": "demo.target.rgb",
+                "modality_type": "rgb",
+            },
             "dataset": {
                 "license": "CC BY-NC-SA 4.0",
                 "source": "https://europe.naverlabs.com/research/computer-vision/proxy-virtual-worlds-vkitti-2/",
@@ -144,8 +148,12 @@ def make_ddad_config(path: str) -> dict[str, Any]:
         "named_capture_group_value_separator": ":",
         "intrinsics_regex": r"^(?P<scene>\d+)/calibration/(?P<camera>CAMERA_\d+)\.json$",
         "properties": {
-            "type": "rgb",
             "gt": True,
+            "euler_train": {
+                "used_as": "target",
+                "slot": "demo.target.rgb",
+                "modality_type": "rgb",
+            },
         },
     }
 
@@ -163,9 +171,13 @@ def make_depth_predictions_config(path: str) -> dict[str, Any]:
         "named_capture_group_value_separator": ":",
         "output_json": None,
         "properties": {
-            "type": "depth",
             "gt": False,
             "model": "DepthAnythingV2",
+            "euler_train": {
+                "used_as": "input",
+                "slot": "demo.input.depth",
+                "modality_type": "depth",
+            },
         },
     }
 

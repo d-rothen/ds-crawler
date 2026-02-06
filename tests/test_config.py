@@ -92,6 +92,17 @@ class TestDatasetConfigValidation:
             "id_regex": r"^(?P<name>.+)\.png$",
         }
         defaults.update(overrides)
+
+        props = defaults.get("properties")
+        if props is None:
+            props = {}
+        if isinstance(props, dict) and "euler_train" not in props:
+            props = props.copy()
+            props["euler_train"] = {
+                "used_as": "input",
+                "modality_type": defaults["type"],
+            }
+            defaults["properties"] = props
         return defaults
 
     def test_valid_minimal_config(self) -> None:
@@ -104,9 +115,99 @@ class TestDatasetConfigValidation:
             DatasetConfig(**self._minimal_kwargs(type="video"))
 
     def test_valid_types(self) -> None:
-        for t in ("rgb", "depth", "segmentation"):
+        for t in ("rgb", "depth", "segmentation", "metadata"):
             ds = DatasetConfig(**self._minimal_kwargs(type=t))
             assert ds.type == t
+
+    def test_properties_reserved_type_key_raises(self) -> None:
+        with pytest.raises(ValueError, match="reserved top-level key"):
+            DatasetConfig(**self._minimal_kwargs(properties={"type": "rgb"}))
+
+    def test_euler_train_required_when_omitted(self) -> None:
+        with pytest.raises(ValueError, match="properties.euler_train is required"):
+            DatasetConfig(
+                name="test",
+                path="/tmp/test",
+                type="rgb",
+                basename_regex=r"^(?P<name>.+)\.(?P<ext>png)$",
+                id_regex=r"^(?P<name>.+)\.png$",
+                properties={},
+            )
+
+    def test_euler_train_must_be_object_when_present(self) -> None:
+        with pytest.raises(ValueError, match="properties.euler_train must be an object"):
+            DatasetConfig(**self._minimal_kwargs(properties={"euler_train": "bad"}))
+
+    def test_euler_train_unknown_keys_raise(self) -> None:
+        with pytest.raises(ValueError, match="Unknown properties.euler_train key"):
+            DatasetConfig(**self._minimal_kwargs(properties={"euler_train": {"foo": "bar"}}))
+
+    def test_euler_train_requires_used_as(self) -> None:
+        with pytest.raises(ValueError, match="properties.euler_train.used_as is required"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={"euler_train": {"modality_type": "rgb"}}
+                )
+            )
+
+    def test_euler_train_requires_modality_type(self) -> None:
+        with pytest.raises(
+            ValueError, match="properties.euler_train.modality_type is required"
+        ):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={"euler_train": {"used_as": "input"}}
+                )
+            )
+
+    def test_euler_train_used_as_condition_requires_condition_fields_shape(self) -> None:
+        with pytest.raises(ValueError, match="applies_to must be a list"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "condition",
+                            "modality_type": "metadata",
+                            "applies_to": "rgb",
+                        }
+                    }
+                )
+            )
+
+    def test_euler_train_slot_is_inferred_when_omitted(self) -> None:
+        ds = DatasetConfig(
+            **self._minimal_kwargs(
+                properties={
+                    "euler_train": {
+                        "used_as": "target",
+                        "modality_type": "rgb",
+                    }
+                }
+            )
+        )
+        assert ds.euler_train["used_as"] == "target"
+        assert ds.euler_train["modality_type"] == "rgb"
+        assert ds.euler_train["slot"] == "test.target.rgb"
+
+    def test_euler_train_metadata_condition_defaults_include_condition_fields(
+        self,
+    ) -> None:
+        ds = DatasetConfig(
+            **self._minimal_kwargs(
+                type="metadata",
+                hierarchy_regex=r"^(?P<scene>[^/]+)/(?P<camera>[^/]+)/(?P<frame>\d+)\.png$",
+                named_capture_group_value_separator=":",
+                properties={
+                    "euler_train": {
+                        "used_as": "condition",
+                        "modality_type": "metadata",
+                    }
+                },
+            )
+        )
+        assert ds.euler_train["used_as"] == "condition"
+        assert ds.euler_train["hierarchy_scope"] == "scene_camera_frame"
+        assert ds.euler_train["applies_to"] == ["*"]
 
     def test_invalid_basename_regex_raises(self) -> None:
         with pytest.raises(ValueError, match="Invalid basename_regex"):
@@ -200,8 +301,22 @@ class TestFileExtensions:
             "type": "rgb",
             "basename_regex": r"^(.+)\.(?P<ext>png)$",
             "id_regex": r"^(.+)\.png$",
+            "properties": {
+                "euler_train": {
+                    "used_as": "input",
+                    "modality_type": "rgb",
+                }
+            },
         }
         defaults.update(overrides)
+        props = defaults.get("properties")
+        if isinstance(props, dict) and "euler_train" not in props:
+            props = props.copy()
+            props["euler_train"] = {
+                "used_as": "input",
+                "modality_type": defaults["type"],
+            }
+            defaults["properties"] = props
         return defaults
 
     def test_no_extensions_returns_none(self) -> None:
@@ -275,6 +390,12 @@ class TestConfigFromFile:
                     "type": "invalid_type",
                     "basename_regex": ".*",
                     "id_regex": "(.*)",
+                    "properties": {
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "rgb",
+                        }
+                    },
                 }
             ]
         }
@@ -292,6 +413,12 @@ class TestConfigFromFile:
                     "type": "rgb",
                     "basename_regex": r"^(?P<f>.+)\.png$",
                     "id_regex": r"^(?P<f>.+)\.png$",
+                    "properties": {
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "rgb",
+                        }
+                    },
                 }
             ]
         }
@@ -309,6 +436,12 @@ class TestConfigFromFile:
                     "type": "rgb",
                     "basename_regex": r"^(?P<f>.+)\.png$",
                     "id_regex": r"^(?P<f>.+)\.png$",
+                    "properties": {
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "rgb",
+                        }
+                    },
                 }
             ]
         }
@@ -322,6 +455,12 @@ class TestConfigFromFile:
             "type": "rgb",
             "basename_regex": r"^(?P<f>.+)\.png$",
             "id_regex": r"^(?P<f>.+)\.png$",
+            "properties": {
+                "euler_train": {
+                    "used_as": "input",
+                    "modality_type": "rgb",
+                }
+            },
         }
         data = {
             "datasets": [
@@ -345,6 +484,12 @@ class TestConfigFromFile:
                     "type": "rgb",
                     "basename_regex": r"^(?P<f>.+)\.png$",
                     "id_regex": r"^(?P<f>.+)\.png$",
+                    "properties": {
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "rgb",
+                        }
+                    },
                 }
             ]
         }
@@ -358,7 +503,12 @@ class TestConfigFromFile:
         assert ds.extrinsics_regex is None
         assert ds.flat_ids_unique is False
         assert ds.id_regex_join_char == "+"
-        assert ds.properties == {}
+        assert ds.properties == {
+            "euler_train": {
+                "used_as": "input",
+                "modality_type": "rgb",
+            }
+        }
         assert ds.output_json is None
         assert ds.file_extensions is None
 
@@ -372,13 +522,27 @@ class TestConfigFromFile:
                     "type": "depth",
                     "basename_regex": r"^(?P<f>.+)\.png$",
                     "id_regex": r"^(?P<f>.+)\.png$",
-                    "properties": {"gt": False, "model": "MyModel"},
+                    "properties": {
+                        "gt": False,
+                        "model": "MyModel",
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "depth",
+                        },
+                    },
                 }
             ]
         }
         config_path.write_text(json.dumps(data))
         config = Config.from_file(config_path)
-        assert config.datasets[0].properties == {"gt": False, "model": "MyModel"}
+        assert config.datasets[0].properties == {
+            "gt": False,
+            "model": "MyModel",
+            "euler_train": {
+                "used_as": "input",
+                "modality_type": "depth",
+            },
+        }
 
 
 # ===================================================================

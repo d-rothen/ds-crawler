@@ -154,6 +154,8 @@ class DatasetParser:
         # Separate dataset-level properties from top-level properties
         properties = ds_config.properties.copy()
         dataset_properties = properties.pop("dataset", None)
+        # euler_train is normalized and emitted explicitly below.
+        properties.pop("euler_train", None)
 
         # Deep merge dataset properties into the computed dataset_node
         if dataset_properties and isinstance(dataset_properties, dict):
@@ -161,8 +163,10 @@ class DatasetParser:
 
         output = {
             "name": ds_config.name,
+            "type": ds_config.type,
             "id_regex": ds_config.id_regex,
             "id_regex_join_char": ds_config.id_regex_join_char,
+            "euler_train": ds_config.euler_train,
             **properties,
             "dataset": dataset_node,
         }

@@ -164,6 +164,16 @@ class TestZipHandler:
             "id_regex": r"^(?P<f>.+)\.\w+$",
         }
         defaults.update(overrides)
+        props = defaults.get("properties")
+        if props is None:
+            props = {}
+        if isinstance(props, dict) and "euler_train" not in props:
+            props = props.copy()
+            props["euler_train"] = {
+                "used_as": "input",
+                "modality_type": defaults.get("type", "rgb"),
+            }
+            defaults["properties"] = props
         return DatasetConfig(**defaults)
 
     def test_finds_all_files_without_extension_filter(self, tmp_path: Path) -> None:
@@ -299,6 +309,12 @@ class TestLoadConfigFromZip:
             "file_extensions": [".png"],
             "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
             "id_regex": r"^(?P<dir>[^/]+)/(?P<frame>\d+)\.png$",
+            "properties": {
+                "euler_train": {
+                    "used_as": "input",
+                    "modality_type": "rgb",
+                }
+            },
         }
 
         zp = create_zip_from_tree_with_config(root, tmp_path / "ds.zip", config_dict)
@@ -322,6 +338,12 @@ class TestLoadConfigFromZip:
             "type": "rgb",
             "basename_regex": r"^(?P<f>.+)\.png$",
             "id_regex": r"^(?P<f>.+)\.png$",
+            "properties": {
+                "euler_train": {
+                    "used_as": "input",
+                    "modality_type": "rgb",
+                }
+            },
         })
         assert ds_config.name == "inline"
 
@@ -379,6 +401,12 @@ class TestIndexDatasetFromPathZip:
             "file_extensions": [".png"],
             "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
             "id_regex": r"^(?P<dir>[^/]+)/(?P<frame>\d+)\.png$",
+            "properties": {
+                "euler_train": {
+                    "used_as": "input",
+                    "modality_type": "rgb",
+                }
+            },
         }
         zp = create_zip_from_tree_with_config(root, tmp_path / "ds.zip", config_dict)
 
@@ -398,6 +426,12 @@ class TestIndexDatasetFromPathZip:
             "file_extensions": [".png"],
             "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
             "id_regex": r"^(?P<frame>\d+)\.png$",
+            "properties": {
+                "euler_train": {
+                    "used_as": "input",
+                    "modality_type": "rgb",
+                }
+            },
         }
         zp = create_zip_from_tree_with_config(root, tmp_path / "ds.zip", config_dict)
 
@@ -418,6 +452,12 @@ class TestIndexDatasetFromPathZip:
             "file_extensions": [".png"],
             "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
             "id_regex": r"^(?P<frame>\d+)\.png$",
+            "properties": {
+                "euler_train": {
+                    "used_as": "input",
+                    "modality_type": "rgb",
+                }
+            },
         }
         zp = create_zip_from_tree_with_config(root, tmp_path / "ds.zip", config_dict)
 
@@ -439,6 +479,12 @@ class TestIndexDatasetFromPathZip:
             "file_extensions": [".png"],
             "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
             "id_regex": r"^(?P<frame>\d+)\.png$",
+            "properties": {
+                "euler_train": {
+                    "used_as": "input",
+                    "modality_type": "rgb",
+                }
+            },
         }
         zp = create_zip_from_tree_with_config(root, tmp_path / "ds.zip", config_dict)
 
@@ -717,6 +763,16 @@ class TestZipHandlerWithPrefix:
             "id_regex": r"^(?P<f>.+)\.\w+$",
         }
         defaults.update(overrides)
+        props = defaults.get("properties")
+        if props is None:
+            props = {}
+        if isinstance(props, dict) and "euler_train" not in props:
+            props = props.copy()
+            props["euler_train"] = {
+                "used_as": "input",
+                "modality_type": defaults.get("type", "rgb"),
+            }
+            defaults["properties"] = props
         return DatasetConfig(**defaults)
 
     def test_strips_root_prefix(self, tmp_path: Path) -> None:
@@ -855,6 +911,12 @@ class TestPrefixedZipMatchesDirectory:
             "file_extensions": [".png"],
             "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
             "id_regex": r"^(?P<dir>[^/]+)/(?P<frame>\d+)\.png$",
+            "properties": {
+                "euler_train": {
+                    "used_as": "input",
+                    "modality_type": "rgb",
+                }
+            },
         }
         # Zip name "mydata" matches prefix "mydata/"
         zp = create_zip_from_tree_with_config(
@@ -877,6 +939,12 @@ class TestPrefixedZipMatchesDirectory:
             "file_extensions": [".png"],
             "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
             "id_regex": r"^(?P<frame>\d+)\.png$",
+            "properties": {
+                "euler_train": {
+                    "used_as": "input",
+                    "modality_type": "rgb",
+                }
+            },
         }
         zp = create_zip_from_tree_with_config(
             root, tmp_path / "mydata.zip", config_dict, root_prefix="mydata/"
@@ -904,6 +972,12 @@ class TestPrefixedZipMatchesDirectory:
             "file_extensions": [".png"],
             "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
             "id_regex": r"^(?P<frame>\d+)\.png$",
+            "properties": {
+                "euler_train": {
+                    "used_as": "input",
+                    "modality_type": "rgb",
+                }
+            },
         }
         zp = create_zip_from_tree_with_config(
             root, tmp_path / "mydata.zip", config_dict, root_prefix="mydata/"

@@ -6,6 +6,11 @@
     "type": "rgb",
     "gt": true,
     "baseline": true,
+    "euler_train": {
+      "used_as": "target",
+      "slot": "demo.target.rgb",
+      "modality_type": "rgb"
+    },
     "dataset": {
       "license": "CC BY-NC-SA 4.0",
       "source": "https://europe.naverlabs.com/research/computer-vision/proxy-virtual-worlds-vkitti-2/",
@@ -123,6 +128,11 @@
     "id_regex_join_char": "+",
     "type": "rgb",
     "gt": true,
+    "euler_train": {
+      "used_as": "target",
+      "slot": "demo.target.rgb",
+      "modality_type": "rgb"
+    },
     "dataset": {
       "children": {
         "scene:000150": {
@@ -199,6 +209,11 @@
     "type": "depth",
     "gt": false,
     "model": "DepthAnythingV2",
+    "euler_train": {
+      "used_as": "input",
+      "slot": "demo.input.depth",
+      "modality_type": "depth"
+    },
     "dataset": {
       "children": {
         "scene:Scene01": {

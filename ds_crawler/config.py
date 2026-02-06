@@ -11,8 +11,44 @@ from typing import Any, Literal
 from .schema import DatasetDescriptor
 
 
-DatasetType = Literal["depth", "rgb", "segmentation"]
+DatasetType = Literal["depth", "rgb", "segmentation", "metadata"]
 CONFIG_FILENAME = "ds-crawler.json"
+EULER_TRAIN_ALLOWED_USED_AS: frozenset[str] = frozenset({
+    "input", "target", "condition",
+})
+_EULER_TRAIN_ALLOWED_KEYS: frozenset[str] = frozenset({
+    "used_as",
+    "slot",
+    "modality_type",
+    "hierarchy_scope",
+    "applies_to",
+    "task",
+})
+_RESERVED_TOP_LEVEL_PROPERTIES: frozenset[str] = frozenset({
+    "name",
+    "path",
+    "type",
+    "id_regex",
+    "id_regex_join_char",
+    "hierarchy_regex",
+    "named_capture_group_value_separator",
+    "sampled",
+})
+_SLOT_PATTERN = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+){2,}$")
+_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def _as_non_empty_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _slugify(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_]+", "_", value.strip().lower())
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    return cleaned or "dataset"
 
 @dataclass
 class DatasetConfig(DatasetDescriptor):
@@ -29,6 +65,7 @@ class DatasetConfig(DatasetDescriptor):
     id_regex_join_char: str = "+"
     output_json: str | None = None
     file_extensions: list[str] | None = None
+    euler_train: dict[str, Any] = field(init=False)
 
     def __post_init__(self) -> None:
         """Validate configuration and compile regex patterns."""
@@ -37,11 +74,156 @@ class DatasetConfig(DatasetDescriptor):
         self._validate_type()
         self._normalize_file_extensions()
         self._compile_and_validate_regexes()
+        self._validate_properties()
+        self.euler_train = self._normalize_euler_train()
 
     def _validate_type(self) -> None:
-        valid_types = {"depth", "rgb", "segmentation"}
+        valid_types = {"depth", "rgb", "segmentation", "metadata"}
         if self.type not in valid_types:
             raise ValueError(f"Invalid type '{self.type}'. Must be one of: {valid_types}")
+
+    def _validate_properties(self) -> None:
+        if not isinstance(self.properties, dict):
+            raise ValueError("properties must be a dict when provided")
+
+        reserved = sorted(
+            key for key in self.properties if key in _RESERVED_TOP_LEVEL_PROPERTIES
+        )
+        if reserved:
+            joined = ", ".join(reserved)
+            raise ValueError(
+                f"properties contains reserved top-level key(s): {joined}. "
+                "Use dedicated top-level config fields instead."
+            )
+
+    def _normalize_euler_train(self) -> dict[str, Any]:
+        if "runlog" in self.properties:
+            raise ValueError(
+                "properties.runlog has been renamed to properties.euler_train"
+            )
+
+        raw = self.properties.get("euler_train")
+        if raw is None:
+            raise ValueError(
+                "properties.euler_train is required and must define "
+                "'used_as' and 'modality_type'"
+            )
+        if not isinstance(raw, dict):
+            raise ValueError("properties.euler_train must be an object")
+
+        unknown = sorted(set(raw.keys()) - _EULER_TRAIN_ALLOWED_KEYS)
+        if unknown:
+            joined = ", ".join(unknown)
+            raise ValueError(f"Unknown properties.euler_train key(s): {joined}")
+
+        used_as = _as_non_empty_str(raw.get("used_as"))
+        if used_as is None:
+            raise ValueError("properties.euler_train.used_as is required")
+        if used_as not in EULER_TRAIN_ALLOWED_USED_AS:
+            allowed = ", ".join(sorted(EULER_TRAIN_ALLOWED_USED_AS))
+            raise ValueError(
+                f"properties.euler_train.used_as must be one of {{{allowed}}}, "
+                f"got {used_as!r}"
+            )
+
+        modality_type = _as_non_empty_str(raw.get("modality_type"))
+        if modality_type is None:
+            raise ValueError("properties.euler_train.modality_type is required")
+        self._validate_token(
+            modality_type,
+            "properties.euler_train.modality_type",
+        )
+
+        slot = _as_non_empty_str(raw.get("slot"))
+        task = _as_non_empty_str(raw.get("task"))
+        if slot is None:
+            scope = task or _slugify(self.name)
+            slot = f"{scope}.{used_as}.{modality_type}"
+        self._validate_slot(slot)
+
+        result: dict[str, Any] = {
+            "used_as": used_as,
+            "slot": slot,
+            "modality_type": modality_type,
+        }
+
+        raw_hierarchy_scope = _as_non_empty_str(raw.get("hierarchy_scope"))
+        raw_applies_to = raw.get("applies_to")
+
+        if used_as == "condition":
+            hierarchy_scope = raw_hierarchy_scope or self._infer_hierarchy_scope()
+            self._validate_token(
+                hierarchy_scope,
+                "properties.euler_train.hierarchy_scope",
+            )
+            applies_to = self._normalize_applies_to(raw_applies_to)
+            if applies_to is None:
+                applies_to = ["*"]
+            if not applies_to:
+                raise ValueError("properties.euler_train.applies_to cannot be empty")
+            result["hierarchy_scope"] = hierarchy_scope
+            result["applies_to"] = applies_to
+        else:
+            if raw_hierarchy_scope is not None or raw_applies_to is not None:
+                raise ValueError(
+                    "properties.euler_train.hierarchy_scope and applies_to are only "
+                    "allowed when used_as is 'condition'"
+                )
+
+        return result
+
+    def _infer_hierarchy_scope(self) -> str:
+        if self.compiled_hierarchy_regex is None:
+            return "root"
+
+        if self.compiled_hierarchy_regex.groupindex:
+            ordered_names = [
+                name
+                for name, _ in sorted(
+                    self.compiled_hierarchy_regex.groupindex.items(),
+                    key=lambda item: item[1],
+                )
+            ]
+            if ordered_names:
+                return "_".join(ordered_names)
+
+        groups = self.compiled_hierarchy_regex.groups
+        if groups <= 0:
+            return "root"
+        return f"level_{groups}"
+
+    def _normalize_applies_to(self, value: Any) -> list[str] | None:
+        if value is None:
+            return None
+        if not isinstance(value, list):
+            raise ValueError(
+                "properties.euler_train.applies_to must be a list of strings"
+            )
+
+        result: list[str] = []
+        for item in value:
+            token = _as_non_empty_str(item)
+            if token is None:
+                raise ValueError(
+                    "properties.euler_train.applies_to entries must be non-empty strings"
+                )
+            if token != "*":
+                self._validate_token(token, "properties.euler_train.applies_to")
+            result.append(token)
+        return result
+
+    def _validate_slot(self, value: str) -> None:
+        if not _SLOT_PATTERN.match(value):
+            raise ValueError(
+                "properties.euler_train.slot must match "
+                "'segment.segment.segment' (alphanumeric/underscore only)"
+            )
+
+    def _validate_token(self, value: str, label: str) -> None:
+        if not _TOKEN_PATTERN.match(value):
+            raise ValueError(
+                f"{label} must contain only letters, digits, or underscores"
+            )
 
     def _normalize_file_extensions(self) -> None:
         """Ensure file extensions start with a dot."""

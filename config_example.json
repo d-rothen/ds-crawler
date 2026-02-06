@@ -11,9 +11,13 @@
       "hierarchy_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/rgb/(?P<camera>Camera_\\d+)/rgb_(?P<frame>\\d+)\\.png$",
       "id_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/rgb/(?P<camera>Camera_\\d+)/rgb_(?P<frame>\\d+)\\.(?:jpg|png)$",
       "properties": {
-        "type": "rgb",
         "gt": true,
         "baseline": true,
+        "euler_train": {
+          "used_as": "target",
+          "slot": "demo.target.rgb",
+          "modality_type": "rgb"
+        },
         "specifier": "whatever",
         "some_other_prop": 1234566
       }
@@ -28,8 +32,12 @@
       "hierarchy_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/depth/(?P<camera>Camera_\\d+)/depth_(?P<frame>\\d+)\\.png$",
       "id_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/frames/depth/(?P<camera>Camera_\\d+)/depth_(?P<frame>\\d+)\\.png$",
       "properties": {
-        "type": "depth",
-        "gt": true
+        "gt": true,
+        "euler_train": {
+          "used_as": "target",
+          "slot": "demo.target.depth",
+          "modality_type": "depth"
+        }
       }
     },
     {
@@ -42,8 +50,12 @@
       "id_regex": "^(?P<frame>\\d+)_pred\\.png$",
       "hierarchy_regex": "^(?P<frame>\\d+)_pred\\.(?:png|npy)$",
       "properties": {
-        "type": "depth",
-        "gt": false
+        "gt": false,
+        "euler_train": {
+          "used_as": "input",
+          "slot": "demo.input.depth",
+          "modality_type": "depth"
+        }
       }
     }
   ]

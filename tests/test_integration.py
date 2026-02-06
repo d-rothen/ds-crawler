@@ -56,6 +56,29 @@ def get_node_at_path(root: dict, keys: list[str]) -> dict:
     return current
 
 
+def with_euler_train(config: dict[str, Any]) -> dict[str, Any]:
+    """Ensure a config dict has minimal required euler_train metadata."""
+    result = config.copy()
+    props = result.get("properties")
+    if props is None:
+        props = {}
+    if isinstance(props, dict) and "euler_train" not in props:
+        props = props.copy()
+        modality_type = str(result.get("type") or "unknown")
+        used_as = "condition" if modality_type == "metadata" else "input"
+        props["euler_train"] = {
+            "used_as": used_as,
+            "modality_type": modality_type,
+        }
+        result["properties"] = props
+    return result
+
+
+def make_dataset_config(**kwargs: Any) -> DatasetConfig:
+    """Build DatasetConfig with required euler_train defaults when omitted."""
+    return DatasetConfig(**with_euler_train(kwargs))
+
+
 # ===================================================================
 # Example output.json structural validation
 # ===================================================================
@@ -73,8 +96,10 @@ class TestExampleOutputStructure:
     ) -> None:
         for ds in example_output_data:
             assert "name" in ds
+            assert "type" in ds
             assert "id_regex" in ds
             assert "id_regex_join_char" in ds
+            assert "euler_train" in ds
             assert "dataset" in ds
 
     def test_dataset_names(self, example_output_data: list[dict]) -> None:
@@ -88,6 +113,9 @@ class TestExampleOutputStructure:
         assert vk["type"] == "rgb"
         assert vk["gt"] is True
         assert vk["baseline"] is True
+        assert vk["euler_train"]["used_as"] == "target"
+        assert vk["euler_train"]["slot"] == "demo.target.rgb"
+        assert vk["euler_train"]["modality_type"] == "rgb"
         assert vk["id_regex_join_char"] == "+"
         assert "hierarchy_regex" in vk
         assert vk["named_capture_group_value_separator"] == ":"
@@ -170,6 +198,7 @@ class TestExampleOutputStructure:
         ddad = example_output_data[1]
         assert ddad["type"] == "rgb"
         assert ddad["gt"] is True
+        assert ddad["euler_train"]["used_as"] == "target"
 
         ddad_ds = ddad["dataset"]
         cam01 = get_node_at_path(
@@ -197,6 +226,8 @@ class TestExampleOutputStructure:
         assert dp["type"] == "depth"
         assert dp["gt"] is False
         assert dp["model"] == "DepthAnythingV2"
+        assert dp["euler_train"]["used_as"] == "input"
+        assert dp["euler_train"]["slot"] == "demo.input.depth"
 
         dp_ds = dp["dataset"]
         frame01 = get_node_at_path(dp_ds, ["scene:Scene01", "frame:00001"])
@@ -268,7 +299,7 @@ class TestReproduceExampleOutput:
         self, vkitti2_root: Path, example_output_data: list[dict]
     ) -> None:
         cfg = make_vkitti2_config(str(vkitti2_root))
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
         config = Config(datasets=[ds_config])
         parser = DatasetParser(config)
         results = parser.parse_all()
@@ -324,7 +355,7 @@ class TestReproduceExampleOutput:
         self, ddad_root: Path, example_output_data: list[dict]
     ) -> None:
         cfg = make_ddad_config(str(ddad_root))
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
         config = Config(datasets=[ds_config])
         parser = DatasetParser(config)
         results = parser.parse_all()
@@ -356,7 +387,7 @@ class TestReproduceExampleOutput:
         self, depth_predictions_root: Path, example_output_data: list[dict]
     ) -> None:
         cfg = make_depth_predictions_config(str(depth_predictions_root))
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
         config = Config(datasets=[ds_config])
         parser = DatasetParser(config)
         results = parser.parse_all()
@@ -474,7 +505,12 @@ class TestFullPipeline:
             "id_regex": r"^(?P<scene>[^/]+)/(?P<frame>\d+)_pred\.(?P<ext>png|npy)$",
             "hierarchy_regex": r"^(?P<scene>[^/]+)/(?P<frame>\d+)_pred\.(?:png|npy)$",
             "named_capture_group_value_separator": ":",
-            "properties": {"type": "depth"},
+            "properties": {
+                "euler_train": {
+                    "used_as": "input",
+                    "modality_type": "depth",
+                }
+            },
         }
         config_path = write_config_json(tmp_path / "config.json", [cfg_data])
         config = Config.from_file(config_path, workdir=str(workdir))
@@ -496,7 +532,7 @@ class TestEdgeCases:
         root = tmp_path / "single"
         touch(root / "only_file.png")
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="single",
             path=str(root),
             type="rgb",
@@ -516,7 +552,7 @@ class TestEdgeCases:
         root = tmp_path / "deep"
         touch(root / "a" / "b" / "c" / "001.png")
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="deep",
             path=str(root),
             type="rgb",
@@ -543,7 +579,7 @@ class TestEdgeCases:
         touch(root / "scene" / "002.png")
         touch(root / "scene" / "003.png")
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="multi",
             path=str(root),
             type="rgb",
@@ -569,7 +605,7 @@ class TestEdgeCases:
         touch(root / "valid" / "002.png")
         touch(root / "stray_file.png")  # basename matches but id_regex won't
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="mixed",
             path=str(root),
             type="rgb",
@@ -590,7 +626,7 @@ class TestEdgeCases:
         root = tmp_path / "data"
         touch(root / "a" / "001.png")
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(root),
             type="rgb",
@@ -612,7 +648,7 @@ class TestEdgeCases:
         root = tmp_path / "data"
         touch(root / "001.png")
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(root),
             type="rgb",
@@ -633,7 +669,7 @@ class TestEdgeCases:
         for i in range(200):
             touch(root / f"scene_{i:03d}" / "frame.png")
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="large",
             path=str(root),
             type="rgb",
@@ -663,14 +699,14 @@ class TestIndexDataset:
         root = tmp_path / "data"
         touch(root / "scene" / "001.png")
 
-        config_dict = {
+        config_dict = with_euler_train({
             "name": "test",
             "path": str(root),
             "type": "rgb",
             "file_extensions": [".png"],
             "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
             "id_regex": r"^(?P<dir>[^/]+)/(?P<frame>\d+)\.png$",
-        }
+        })
         result = index_dataset(config_dict)
 
         assert result["name"] == "test"
@@ -695,7 +731,7 @@ class TestIndexDataset:
         touch(root / "a" / "001.png")
         touch(root / "b" / "001.png")
 
-        config_dict = {
+        config_dict = with_euler_train({
             "name": "test",
             "path": str(root),
             "type": "rgb",
@@ -704,7 +740,7 @@ class TestIndexDataset:
             "id_regex": r"^[^/]+/(?P<frame>\d+)\.png$",
             "hierarchy_regex": r"^([^/]+)/(\d+)\.png$",
             "flat_ids_unique": True,
-        }
+        })
         with pytest.raises(RuntimeError, match="Duplicate id"):
             index_dataset(config_dict, strict=True)
 
@@ -721,7 +757,7 @@ class TestIndexDatasetFromPath:
         config_path = dataset_root / CONFIG_FILENAME
         config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(config_path, "w") as f:
-            json.dump(config, f)
+            json.dump(with_euler_train(config), f)
         return config_path
 
     def test_basic_from_path(self, tmp_path: Path) -> None:
@@ -799,13 +835,13 @@ class TestIndexDatasetFromPath:
 
     def test_load_dataset_config_full_inline(self, tmp_path: Path) -> None:
         """load_dataset_config with all fields present does not look for config file."""
-        config_dict = {
+        config_dict = with_euler_train({
             "name": "inline",
             "path": str(tmp_path),
             "type": "rgb",
             "basename_regex": r"^(?P<f>.+)\.png$",
             "id_regex": r"^(?P<f>.+)\.png$",
-        }
+        })
         ds_config = load_dataset_config(config_dict)
         assert ds_config.name == "inline"
 
@@ -845,14 +881,14 @@ class TestSaveIndex:
         root = tmp_path / "data"
         touch(root / "001.png")
 
-        config_dict = {
+        config_dict = with_euler_train({
             "name": "save_test",
             "path": str(root),
             "type": "rgb",
             "file_extensions": [".png"],
             "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
             "id_regex": r"^(?P<frame>\d+)\.png$",
-        }
+        })
         result = index_dataset(config_dict, save_index=True)
 
         output_path = root / ".ds_crawler" / "output.json"
@@ -866,14 +902,14 @@ class TestSaveIndex:
         root = tmp_path / "data"
         touch(root / "001.png")
 
-        index_dataset({
+        index_dataset(with_euler_train({
             "name": "no_save",
             "path": str(root),
             "type": "rgb",
             "file_extensions": [".png"],
             "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
             "id_regex": r"^(?P<frame>\d+)\.png$",
-        })
+        }))
         assert not (root / ".ds_crawler" / "output.json").exists()
 
     def test_index_dataset_from_path_save_index(self, tmp_path: Path) -> None:
@@ -883,14 +919,14 @@ class TestSaveIndex:
         config_file = root / CONFIG_FILENAME
         config_file.parent.mkdir(parents=True, exist_ok=True)
         with open(config_file, "w") as f:
-            json.dump({
+            json.dump(with_euler_train({
                 "name": "save_from_path",
                 "path": str(root),
                 "type": "rgb",
                 "file_extensions": [".png"],
                 "basename_regex": r"^(?P<frame>\d+)\.(?P<ext>png)$",
                 "id_regex": r"^(?P<frame>\d+)\.png$",
-            }, f)
+            }), f)
 
         result = index_dataset_from_path(root, save_index=True)
 
@@ -917,14 +953,14 @@ class TestFromPathCacheBypass:
         config_path = root / CONFIG_FILENAME
         config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(config_path, "w") as f:
-            json.dump({
+            json.dump(with_euler_train({
                 "name": "cache_bypass_test",
                 "path": str(root),
                 "type": "rgb",
                 "file_extensions": [".png"],
                 "basename_regex": r"^(?P<f>.+)\.(?P<ext>png)$",
                 "id_regex": r"^(?P<name>.+)\.png$",
-            }, f)
+            }), f)
 
         return root
 

@@ -116,7 +116,16 @@ A configuration file is a JSON object with a `datasets` array. Each entry descri
       "id_regex_join_char": "+",     // Character joining capture group values into the ID string
       "file_extensions": [".png"],   // Override default extensions for this type
       "output_json": "custom.json",  // Custom output path (overrides default)
-      "properties": {}               // Arbitrary user metadata, merged into output
+      "properties": {
+        "euler_train": {             // Required
+          "used_as": "target",       // Required
+          "modality_type": "rgb",    // Required
+          "slot": "dehaze.target.rgb",
+          "hierarchy_scope": "scene_camera",
+          "applies_to": ["hazy_rgb"]
+        },
+        "dataset": {}                // Optional metadata merged into output["dataset"]
+      }
     }
   ]
 }
@@ -157,6 +166,11 @@ Each indexed dataset produces a dict with this structure:
   "type": "rgb",
   "id_regex": "...",
   "id_regex_join_char": "+",
+  "euler_train": {
+    "used_as": "target",
+    "slot": "dehaze.target.rgb",
+    "modality_type": "rgb"
+  },
   "hierarchy_regex": "...",
   "named_capture_group_value_separator": ":",
 
@@ -189,6 +203,33 @@ Each indexed dataset produces a dict with this structure:
   }
 }
 ```
+
+### Euler Train metadata contract
+
+`output.json` now always contains a normalized top-level `euler_train` object per
+dataset with:
+
+- `used_as`
+- `modality_type`
+- `slot`
+
+When `used_as == "condition"`, it may additionally contain:
+
+- `hierarchy_scope`
+- `applies_to` (list of strings)
+
+`properties.euler_train` in `ds-crawler.json` is required and strictly
+validated:
+
+- Unknown keys are rejected.
+- `used_as` must be one of `input`, `target`, `condition`.
+- `modality_type` is required.
+- `slot` must follow `segment.segment.segment` (alphanumeric/underscore).
+- `modality_type` / `hierarchy_scope` / `applies_to[*]` must be
+  alphanumeric/underscore (except `applies_to` may also contain `"*"`).
+
+`properties` can no longer override reserved top-level output keys such as
+`type`, `id_regex`, etc. Use dedicated top-level fields instead.
 
 Each **file entry** contains:
 

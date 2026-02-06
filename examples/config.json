@@ -14,9 +14,13 @@
       "extrinsics_regex": "^(?P<scene>Scene\\d+)/(?P<variation>[^/]+)/extrinsics/(?P<camera>Camera_\\d+)_extrinsics\\.txt$",
       "flat_ids_unique": true,
       "properties": {
-        "type": "rgb",
         "gt": true,
         "baseline": true,
+        "euler_train": {
+          "used_as": "target",
+          "slot": "demo.target.rgb",
+          "modality_type": "rgb"
+        },
         "dataset": {
           "license": "CC BY-NC-SA 4.0",
           "source": "https://europe.naverlabs.com/research/computer-vision/proxy-virtual-worlds-vkitti-2/"
@@ -35,8 +39,12 @@
       "named_capture_group_value_separator": ":",
       "intrinsics_regex": "^(?P<scene>\\d+)/calibration/(?P<camera>CAMERA_\\d+)\\.json$",
       "properties": {
-        "type": "rgb",
-        "gt": true
+        "gt": true,
+        "euler_train": {
+          "used_as": "target",
+          "slot": "demo.target.rgb",
+          "modality_type": "rgb"
+        }
       }
     },
     {
@@ -50,9 +58,13 @@
       "named_capture_group_value_separator": ":",
       "output_json": "/data/predictions/depth_index.json",
       "properties": {
-        "type": "depth",
         "gt": false,
-        "model": "DepthAnythingV2"
+        "model": "DepthAnythingV2",
+        "euler_train": {
+          "used_as": "input",
+          "slot": "demo.input.depth",
+          "modality_type": "depth"
+        }
       }
     }
   ]

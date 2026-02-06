@@ -33,6 +33,39 @@ from .conftest import (
 )
 
 
+def make_dataset_config(**kwargs: Any) -> DatasetConfig:
+    """Build a DatasetConfig with minimal euler_train defaults for parser tests."""
+    props = kwargs.get("properties")
+    if props is None:
+        props = {}
+    if isinstance(props, dict) and "euler_train" not in props:
+        props = props.copy()
+        props["euler_train"] = {
+            "used_as": "input",
+            "modality_type": kwargs.get("type", "rgb"),
+        }
+    kwargs["properties"] = props
+    return DatasetConfig(**kwargs)
+
+
+def with_euler_train(config: dict[str, Any]) -> dict[str, Any]:
+    """Ensure a plain config dict has minimal required euler_train metadata."""
+    result = config.copy()
+    props = result.get("properties")
+    if props is None:
+        props = {}
+    if isinstance(props, dict) and "euler_train" not in props:
+        props = props.copy()
+        modality_type = str(result.get("type") or "unknown")
+        used_as = "condition" if modality_type == "metadata" else "input"
+        props["euler_train"] = {
+            "used_as": used_as,
+            "modality_type": modality_type,
+        }
+        result["properties"] = props
+    return result
+
+
 # ===================================================================
 # _deep_merge
 # ===================================================================
@@ -274,7 +307,7 @@ class TestProcessFile:
         assert skip == "basename"
 
     def test_skip_id_regex_mismatch(self, tmp_path: Path) -> None:
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(tmp_path),
             type="rgb",
@@ -291,7 +324,7 @@ class TestProcessFile:
         assert skip == "id_regex"
 
     def test_skip_path_regex_mismatch(self, tmp_path: Path) -> None:
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(tmp_path),
             type="rgb",
@@ -309,7 +342,7 @@ class TestProcessFile:
 
     def test_unnamed_id_regex_groups(self, tmp_path: Path) -> None:
         """Test ID construction with unnamed capture groups."""
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(tmp_path),
             type="rgb",
@@ -337,7 +370,7 @@ class TestGetEntryHierarchyKeys:
         return DatasetParser(config)
 
     def test_no_hierarchy_regex_returns_empty(self, tmp_path: Path) -> None:
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(tmp_path),
             type="rgb",
@@ -391,14 +424,21 @@ class TestBuildOutput:
         return DatasetParser(config)
 
     def test_basic_output_structure(self, tmp_path: Path) -> None:
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="MyDS",
             path=str(tmp_path),
             type="rgb",
             basename_regex=r"^(?P<f>.+)\.png$",
             id_regex=r"^(?P<f>.+)\.png$",
             id_regex_join_char="+",
-            properties={"type": "rgb", "gt": True},
+            properties={
+                "gt": True,
+                "euler_train": {
+                    "used_as": "target",
+                    "slot": "demo.target.rgb",
+                    "modality_type": "rgb",
+                },
+            },
         )
         parser = self._make_parser(ds)
         node: dict = {"children": {"a": {"files": []}}}
@@ -408,12 +448,17 @@ class TestBuildOutput:
         assert output["id_regex"] == r"^(?P<f>.+)\.png$"
         assert output["id_regex_join_char"] == "+"
         assert output["type"] == "rgb"
+        assert output["euler_train"] == {
+            "used_as": "target",
+            "slot": "demo.target.rgb",
+            "modality_type": "rgb",
+        }
         assert output["gt"] is True
         assert "dataset" in output
         assert output["dataset"]["children"]["a"]["files"] == []
 
     def test_hierarchy_regex_included(self, tmp_path: Path) -> None:
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(tmp_path),
             type="rgb",
@@ -429,7 +474,7 @@ class TestBuildOutput:
         assert output["named_capture_group_value_separator"] == ":"
 
     def test_no_hierarchy_regex_omitted(self, tmp_path: Path) -> None:
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(tmp_path),
             type="rgb",
@@ -443,14 +488,13 @@ class TestBuildOutput:
         assert "named_capture_group_value_separator" not in output
 
     def test_dataset_properties_deep_merged(self, tmp_path: Path) -> None:
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(tmp_path),
             type="rgb",
             basename_regex=r"^(?P<f>.+)\.png$",
             id_regex=r"^(?P<f>.+)\.png$",
             properties={
-                "type": "rgb",
                 "dataset": {
                     "license": "MIT",
                     "source": "http://example.com",
@@ -478,7 +522,7 @@ class TestBuildOutput:
 class TestParseDataset:
     def test_vkitti2_parse(self, vkitti2_root: Path) -> None:
         cfg = make_vkitti2_config(str(vkitti2_root))
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
         config = Config(datasets=[ds_config])
         parser = DatasetParser(config)
 
@@ -523,7 +567,7 @@ class TestParseDataset:
 
     def test_ddad_parse(self, ddad_root: Path) -> None:
         cfg = make_ddad_config(str(ddad_root))
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
         config = Config(datasets=[ds_config])
         parser = DatasetParser(config)
 
@@ -543,7 +587,7 @@ class TestParseDataset:
 
     def test_depth_predictions_parse(self, depth_predictions_root: Path) -> None:
         cfg = make_depth_predictions_config(str(depth_predictions_root))
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
         config = Config(datasets=[ds_config])
         parser = DatasetParser(config)
 
@@ -567,7 +611,7 @@ class TestParseDataset:
         touch(root / "file1.png")
         touch(root / "file2.png")
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="flat",
             path=str(root),
             type="rgb",
@@ -586,7 +630,7 @@ class TestParseDataset:
     def test_empty_directory(self, tmp_path: Path) -> None:
         root = tmp_path / "empty"
         root.mkdir()
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="empty",
             path=str(root),
             type="rgb",
@@ -599,7 +643,7 @@ class TestParseDataset:
         assert node == {}
 
     def test_nonexistent_directory(self, tmp_path: Path) -> None:
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="missing",
             path=str(tmp_path / "nonexistent"),
             type="rgb",
@@ -624,7 +668,7 @@ class TestDuplicateDetection:
         touch(root / "a" / "001.png")
         touch(root / "b" / "001.png")
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(root),
             type="rgb",
@@ -651,7 +695,7 @@ class TestDuplicateDetection:
         touch(root / "a" / "001.png")
         touch(root / "b" / "001.png")
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(root),
             type="rgb",
@@ -680,7 +724,7 @@ class TestDuplicateDetection:
         touch(root / "scene" / "001.png")
         touch(root / "scene" / "001.jpg")
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(root),
             type="rgb",
@@ -704,7 +748,7 @@ class TestDuplicateDetection:
         touch(root / "a" / "001.png")
         touch(root / "b" / "001.png")
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(root),
             type="rgb",
@@ -743,7 +787,7 @@ class TestIdMissThreshold:
         for i in range(10):
             touch(root / f"wrong_dir_{i}" / "file.png")
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(root),
             type="rgb",
@@ -764,7 +808,7 @@ class TestIdMissThreshold:
         for i in range(10):
             touch(root / f"wrong_dir_{i}" / "file.png")
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(root),
             type="rgb",
@@ -813,7 +857,7 @@ class TestParseAll:
 class TestCameraFileProcessing:
     def test_intrinsics_placed_in_hierarchy(self, vkitti2_root: Path) -> None:
         cfg = make_vkitti2_config(str(vkitti2_root))
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
         config = Config(datasets=[ds_config])
         parser = DatasetParser(config)
 
@@ -828,7 +872,7 @@ class TestCameraFileProcessing:
 
     def test_extrinsics_placed_in_hierarchy(self, vkitti2_root: Path) -> None:
         cfg = make_vkitti2_config(str(vkitti2_root))
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
         config = Config(datasets=[ds_config])
         parser = DatasetParser(config)
 
@@ -843,7 +887,7 @@ class TestCameraFileProcessing:
 
     def test_ddad_intrinsics(self, ddad_root: Path) -> None:
         cfg = make_ddad_config(str(ddad_root))
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
         config = Config(datasets=[ds_config])
         parser = DatasetParser(config)
 
@@ -859,7 +903,7 @@ class TestCameraFileProcessing:
         root = tmp_path / "data"
         touch(root / "file.png")
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(root),
             type="rgb",
@@ -902,7 +946,7 @@ class TestWriteOutput:
         root = tmp_path / "data"
         touch(root / "file.png")
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(root),
             type="rgb",
@@ -923,7 +967,7 @@ class TestWriteOutput:
         touch(root / "file.png")
         custom_output = tmp_path / "custom_output.json"
 
-        ds = DatasetConfig(
+        ds = make_dataset_config(
             name="test",
             path=str(root),
             type="rgb",
@@ -962,7 +1006,7 @@ class TestParseDatasetFromFiles:
         # Collect the same files manually and use the new API
         from ds_crawler.handlers.generic import GenericHandler
 
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
         handler = GenericHandler(ds_config)
         files = list(handler.get_files())
 
@@ -979,7 +1023,7 @@ class TestParseDatasetFromFiles:
 
         from ds_crawler.handlers.generic import GenericHandler
 
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
         handler = GenericHandler(ds_config)
         string_files = [str(f) for f in handler.get_files()]
 
@@ -996,7 +1040,7 @@ class TestParseDatasetFromFiles:
 
         from ds_crawler.handlers.generic import GenericHandler
 
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
         handler = GenericHandler(ds_config)
         files = list(handler.get_files())
 
@@ -1014,7 +1058,7 @@ class TestParseDatasetFromFiles:
 
         from ds_crawler.handlers.generic import GenericHandler
 
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
         handler = GenericHandler(ds_config)
         files = list(handler.get_files())
 
@@ -1029,7 +1073,7 @@ class TestParseDatasetFromFiles:
             touch(root / "a" / "001.png"),
             touch(root / "b" / "001.png"),
         ]
-        cfg = {
+        cfg = with_euler_train({
             "name": "test",
             "path": str(root),
             "type": "rgb",
@@ -1038,7 +1082,7 @@ class TestParseDatasetFromFiles:
             "id_regex": r"^[^/]+/(?P<frame>\d+)\.png$",
             "hierarchy_regex": r"^([^/]+)/(\d+)\.png$",
             "flat_ids_unique": True,
-        }
+        })
 
         with pytest.raises(RuntimeError, match="Duplicate id"):
             index_dataset_from_files(cfg, files, strict=True)
@@ -1053,7 +1097,7 @@ class TestParseDatasetFromFiles:
 
         from ds_crawler.handlers.generic import GenericHandler
 
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
         handler = GenericHandler(ds_config)
         files = list(handler.get_files())
 
@@ -1074,7 +1118,7 @@ class TestParseDatasetFromFiles:
         root = tmp_path / "dp"
         create_depth_predictions_tree(root)
         cfg = make_depth_predictions_config(str(root))
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
         config = Config(datasets=[ds_config])
 
         parser = DatasetParser(config)
@@ -1192,14 +1236,14 @@ class TestCollectAllReferencedPaths:
 
 class TestSampling:
     def _make_flat_config(self, path: str) -> dict[str, Any]:
-        return {
+        return with_euler_train({
             "name": "test",
             "path": path,
             "type": "rgb",
             "file_extensions": [".png"],
             "basename_regex": r"^(?P<f>.+)\.(?P<ext>png)$",
             "id_regex": r"^(?P<name>.+)\.png$",
-        }
+        })
 
     def test_sample_every_2nd(self, tmp_path: Path) -> None:
         root = tmp_path / "data"
@@ -1265,7 +1309,7 @@ class TestSampling:
         for i in range(6):
             touch(root / f"frame_{i:03d}.png")
         cfg = self._make_flat_config(str(root))
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
 
         from ds_crawler.handlers.generic import GenericHandler
 
@@ -1299,7 +1343,7 @@ class TestSampling:
         for i in range(6):
             touch(root / f"frame_{i:03d}.png")
         cfg = self._make_flat_config(str(root))
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
 
         from ds_crawler.handlers.generic import GenericHandler
 
@@ -1317,14 +1361,14 @@ class TestSampling:
 
 class TestMatchIndex:
     def _make_flat_config(self, path: str) -> dict[str, Any]:
-        return {
+        return with_euler_train({
             "name": "test",
             "path": path,
             "type": "rgb",
             "file_extensions": [".png"],
             "basename_regex": r"^(?P<f>.+)\.(?P<ext>png)$",
             "id_regex": r"^(?P<name>.+)\.png$",
-        }
+        })
 
     def test_match_index_filters_by_id(self, tmp_path: Path) -> None:
         root = tmp_path / "data"
@@ -1406,7 +1450,7 @@ class TestMatchIndex:
         for i in range(4):
             touch(root / f"frame_{i:03d}.png")
         cfg = self._make_flat_config(str(root))
-        ds_config = DatasetConfig(**cfg)
+        ds_config = make_dataset_config(**cfg)
 
         from ds_crawler.handlers.generic import GenericHandler
 
@@ -1436,7 +1480,7 @@ class TestMatchIndex:
                 touch(root_rgb / scene / "cam_0" / f"{frame:03d}.png")
                 touch(root_seg / scene / "cam_0" / f"{frame:03d}.png")
 
-        cfg_base = {
+        cfg_base = with_euler_train({
             "type": "rgb",
             "file_extensions": [".png"],
             "basename_regex": r"^(?P<f>.+)\.(?P<ext>png)$",
@@ -1444,7 +1488,7 @@ class TestMatchIndex:
             "id_regex": r"^.+/(?P<frame>\d+)\.png$",
             "hierarchy_regex": r"^(?P<scene>[^/]+)/(?P<cam>[^/]+)/",
             "named_capture_group_value_separator": "_",
-        }
+        })
 
         cfg_rgb = {**cfg_base, "name": "rgb", "path": str(root_rgb)}
         cfg_seg = {**cfg_base, "name": "seg", "path": str(root_seg)}

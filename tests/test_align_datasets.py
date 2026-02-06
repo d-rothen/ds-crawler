@@ -57,6 +57,12 @@ def _rgb_config(path: str) -> dict[str, Any]:
         "id_regex": _SHARED_ID_REGEX,
         "hierarchy_regex": _SHARED_HIERARCHY_REGEX,
         "named_capture_group_value_separator": _SEPARATOR,
+        "properties": {
+            "euler_train": {
+                "used_as": "input",
+                "modality_type": "rgb",
+            }
+        },
     }
 
 
@@ -69,6 +75,12 @@ def _depth_config(path: str) -> dict[str, Any]:
         "id_regex": _SHARED_ID_REGEX,
         "hierarchy_regex": _SHARED_HIERARCHY_REGEX,
         "named_capture_group_value_separator": _SEPARATOR,
+        "properties": {
+            "euler_train": {
+                "used_as": "target",
+                "modality_type": "depth",
+            }
+        },
     }
 
 
@@ -81,6 +93,12 @@ def _seg_config(path: str) -> dict[str, Any]:
         "id_regex": _SHARED_ID_REGEX,
         "hierarchy_regex": _SHARED_HIERARCHY_REGEX,
         "named_capture_group_value_separator": _SEPARATOR,
+        "properties": {
+            "euler_train": {
+                "used_as": "target",
+                "modality_type": "segmentation",
+            }
+        },
     }
 
 

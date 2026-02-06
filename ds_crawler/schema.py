@@ -19,9 +19,11 @@ _OUTPUT_KEYS = frozenset({
     "type",
     "id_regex",
     "id_regex_join_char",
+    "euler_train",
     "dataset",
     "hierarchy_regex",
     "named_capture_group_value_separator",
+    "sampled",
 })
 
 
