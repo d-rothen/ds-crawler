@@ -107,7 +107,7 @@ dict). Minimal example:
 |---|---|---|
 | `name` | yes | Human-readable dataset name |
 | `path` | yes | Root directory or `.zip` archive |
-| `type` | yes | One of `"rgb"`, `"depth"`, `"segmentation"`, `"metadata"` |
+| `type` | yes | Semantic label for the data modality (e.g. `"rgb"`, `"depth"`) |
 | `id_regex` | yes | Regex applied to each file's relative path. Capture groups form the file ID (joined by `id_regex_join_char`). |
 | `properties.euler_train.used_as` | yes | `"input"`, `"target"`, or `"condition"` |
 | `properties.euler_train.modality_type` | yes | Identifier token (e.g. `"rgb"`, `"depth"`) |

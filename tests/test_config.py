@@ -110,15 +110,6 @@ class TestDatasetConfigValidation:
         assert ds.name == "test"
         assert ds.type == "rgb"
 
-    def test_invalid_type_raises(self) -> None:
-        with pytest.raises(ValueError, match="Invalid type"):
-            DatasetConfig(**self._minimal_kwargs(type="video"))
-
-    def test_valid_types(self) -> None:
-        for t in ("rgb", "depth", "segmentation", "metadata"):
-            ds = DatasetConfig(**self._minimal_kwargs(type=t))
-            assert ds.type == t
-
     def test_properties_reserved_type_key_raises(self) -> None:
         with pytest.raises(ValueError, match="reserved top-level key"):
             DatasetConfig(**self._minimal_kwargs(properties={"type": "rgb"}))

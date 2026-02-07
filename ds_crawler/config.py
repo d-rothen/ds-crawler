@@ -6,12 +6,11 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from .schema import DatasetDescriptor
 
 
-DatasetType = Literal["depth", "rgb", "segmentation", "metadata"]
 CONFIG_FILENAME = "ds-crawler.json"
 EULER_TRAIN_ALLOWED_USED_AS: frozenset[str] = frozenset({
     "input", "target", "condition",
@@ -71,16 +70,10 @@ class DatasetConfig(DatasetDescriptor):
         """Validate configuration and compile regex patterns."""
         if not self.id_regex:
             raise ValueError("id_regex is required")
-        self._validate_type()
         self._normalize_file_extensions()
         self._compile_and_validate_regexes()
         self._validate_properties()
         self.euler_train = self._normalize_euler_train()
-
-    def _validate_type(self) -> None:
-        valid_types = {"depth", "rgb", "segmentation", "metadata"}
-        if self.type not in valid_types:
-            raise ValueError(f"Invalid type '{self.type}'. Must be one of: {valid_types}")
 
     def _validate_properties(self) -> None:
         if not isinstance(self.properties, dict):

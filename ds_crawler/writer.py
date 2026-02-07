@@ -83,8 +83,8 @@ class DatasetWriter:
     Args:
         root: Output directory.  Subdirectories are created as needed.
         name: Dataset name (written to the index).
-        type: Dataset type (``"rgb"``, ``"depth"``, ``"segmentation"``,
-            ``"metadata"``).
+        type: Semantic label for the data modality (e.g. ``"rgb"``,
+            ``"depth"``).
         euler_train: Training metadata dict.  Must contain at least
             ``used_as`` and ``modality_type``.
         separator: The character used to join hierarchy key names and
