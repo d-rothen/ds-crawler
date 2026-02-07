@@ -38,11 +38,21 @@ _SLOT_PATTERN = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+){2,}$")
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 
 # Modality-specific required fields in ``properties.meta``.
-# Maps modality_type -> {field_name: (accepted_types, human_label)}.
-_MODALITY_META_SCHEMAS: dict[str, dict[str, tuple[type | tuple[type, ...], str]]] = {
+# Maps modality_type -> {field_name: (accepted_types, type_label, description)}.
+_MODALITY_META_SCHEMAS: dict[str, dict[str, tuple[type | tuple[type, ...], str, str]]] = {
     "depth": {
-        "radial_depth": (bool, "a bool"),
-        "scale_to_meters": ((int, float), "a number"),
+        "radial_depth": (
+            bool,
+            "a bool",
+            "Whether the depth values represent radial (euclidean) distance "
+            "from the camera rather than perpendicular (z-buffer) depth.",
+        ),
+        "scale_to_meters": (
+            (int, float),
+            "a number",
+            "Factor that converts raw depth values to meters "
+            "(e.g. 0.001 when stored in millimetres).",
+        ),
     },
 }
 
@@ -232,7 +242,7 @@ class DatasetConfig(DatasetDescriptor):
                 f"and must contain: {required_keys}"
             )
 
-        for key, (expected_type, type_label) in schema.items():
+        for key, (expected_type, type_label, _desc) in schema.items():
             if key not in meta:
                 raise ValueError(
                     f"properties.meta.{key} is required for "

@@ -121,7 +121,7 @@ class DatasetWriter:
                     f"meta is required for modality_type={modality_type!r} "
                     f"and must contain: {required_keys}"
                 )
-            for key, (expected_type, type_label) in schema.items():
+            for key, (expected_type, type_label, _desc) in schema.items():
                 if key not in meta:
                     raise ValueError(
                         f"meta.{key} is required for "

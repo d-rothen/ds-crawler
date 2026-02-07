@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ds-crawler modality meta schemas",
+  "description": "Defines the required properties.meta object for each euler_train.modality_type value.",
+  "type": "object",
+  "properties": {
+    "depth": {
+      "type": "object",
+      "description": "Required meta fields when euler_train.modality_type is 'depth'.",
+      "properties": {
+        "radial_depth": {
+          "type": "boolean",
+          "description": "Whether the depth values represent radial (euclidean) distance from the camera rather than perpendicular (z-buffer) depth."
+        },
+        "scale_to_meters": {
+          "type": "number",
+          "description": "Factor that converts raw depth values to meters (e.g. 0.001 when stored in millimetres)."
+        }
+      },
+      "required": [
+        "radial_depth",
+        "scale_to_meters"
+      ],
+      "additionalProperties": true
+    }
+  }
+}

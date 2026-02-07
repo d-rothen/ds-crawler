@@ -125,7 +125,7 @@ def _validate_modality_meta(
             f"and must contain: {required_keys}"
         )
 
-    for key, (expected_type, type_label) in schema.items():
+    for key, (expected_type, type_label, _desc) in schema.items():
         if key not in meta:
             raise ValueError(
                 f"{context}.meta.{key} is required for "
