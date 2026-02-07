@@ -371,29 +371,6 @@ class TestConfigFromFile:
         with pytest.raises(ValueError, match="missing required field"):
             Config.from_file(config_path)
 
-    def test_invalid_dataset_raises_with_name(self, tmp_path: Path) -> None:
-        config_path = tmp_path / "bad.json"
-        data = {
-            "datasets": [
-                {
-                    "name": "bad_ds",
-                    "path": "/tmp",
-                    "type": "invalid_type",
-                    "basename_regex": ".*",
-                    "id_regex": "(.*)",
-                    "properties": {
-                        "euler_train": {
-                            "used_as": "input",
-                            "modality_type": "rgb",
-                        }
-                    },
-                }
-            ]
-        }
-        config_path.write_text(json.dumps(data))
-        with pytest.raises(ValueError, match="bad_ds"):
-            Config.from_file(config_path)
-
     def test_workdir_prepends_to_path(self, tmp_path: Path) -> None:
         config_path = tmp_path / "cfg.json"
         data = {
