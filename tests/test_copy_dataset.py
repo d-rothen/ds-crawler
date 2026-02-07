@@ -9,7 +9,9 @@ from typing import Any
 
 import pytest
 
-from ds_crawler.parser import copy_dataset, get_files, index_dataset
+from ds_crawler.parser import index_dataset
+from ds_crawler.traversal import get_files
+from ds_crawler.operations import copy_dataset
 
 from .conftest import (
     create_vkitti2_tree,

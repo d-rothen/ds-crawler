@@ -16,7 +16,9 @@ Usage::
 import argparse
 import logging
 
-from ds_crawler.parser import copy_dataset, get_files, index_dataset_from_path
+from ds_crawler.operations import copy_dataset
+from ds_crawler.parser import index_dataset_from_path
+from ds_crawler.traversal import get_files
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)

@@ -1,7 +1,8 @@
 import json
 import logging
 
-from ds_crawler.parser import copy_dataset, index_dataset_from_path
+from ds_crawler.operations import copy_dataset
+from ds_crawler.parser import index_dataset_from_path
 
 logging.basicConfig(level=logging.INFO)
 

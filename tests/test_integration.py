@@ -18,10 +18,10 @@ import pytest
 from ds_crawler.config import Config, DatasetConfig, CONFIG_FILENAME, load_dataset_config
 from ds_crawler.parser import (
     DatasetParser,
-    get_files,
     index_dataset,
     index_dataset_from_path,
 )
+from ds_crawler.traversal import get_files
 
 from .conftest import (
     create_ddad_tree,

@@ -8,18 +8,19 @@ from typing import Any
 
 import pytest
 
-from ds_crawler.parser import (
+from ds_crawler.parser import index_dataset
+from ds_crawler.traversal import (
     collect_qualified_ids,
-    copy_dataset,
     filter_index_by_qualified_ids,
     get_files,
-    index_dataset,
-    split_dataset,
-    split_datasets,
     split_qualified_ids,
 )
-
-from ds_crawler.parser import _derive_split_path
+from ds_crawler.operations import (
+    copy_dataset,
+    split_dataset,
+    split_datasets,
+    _derive_split_path,
+)
 
 from .conftest import (
     create_depth_predictions_tree,

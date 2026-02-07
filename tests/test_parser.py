@@ -11,15 +11,17 @@ import pytest
 from ds_crawler.config import Config, DatasetConfig
 from ds_crawler.parser import (
     DatasetParser,
-    get_files,
     index_dataset,
     index_dataset_from_files,
     _add_file_to_node,
-    _collect_all_referenced_paths,
-    _collect_ids,
     _deep_merge,
     _ensure_hierarchy_path,
     _get_hierarchy_keys,
+)
+from ds_crawler.traversal import (
+    get_files,
+    _collect_all_referenced_paths,
+    _collect_ids,
 )
 
 from .conftest import (
