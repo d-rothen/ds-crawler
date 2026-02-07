@@ -214,6 +214,10 @@
       "slot": "demo.input.depth",
       "modality_type": "depth"
     },
+    "meta": {
+      "radial_depth": false,
+      "scale_to_meters": 1.0
+    },
     "dataset": {
       "children": {
         "scene:Scene01": {

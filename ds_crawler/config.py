@@ -32,9 +32,19 @@ _RESERVED_TOP_LEVEL_PROPERTIES: frozenset[str] = frozenset({
     "hierarchy_regex",
     "named_capture_group_value_separator",
     "sampled",
+    "id_override",
 })
 _SLOT_PATTERN = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+){2,}$")
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
+
+# Modality-specific required fields in ``properties.meta``.
+# Maps modality_type -> {field_name: (accepted_types, human_label)}.
+_MODALITY_META_SCHEMAS: dict[str, dict[str, tuple[type | tuple[type, ...], str]]] = {
+    "depth": {
+        "radial_depth": (bool, "a bool"),
+        "scale_to_meters": ((int, float), "a number"),
+    },
+}
 
 
 def _as_non_empty_str(value: Any) -> str | None:
@@ -62,6 +72,7 @@ class DatasetConfig(DatasetDescriptor):
     extrinsics_regex: str | None = None
     flat_ids_unique: bool = False
     id_regex_join_char: str = "+"
+    id_override: str | None = None
     output_json: str | None = None
     file_extensions: list[str] | None = None
     euler_train: dict[str, Any] = field(init=False)
@@ -74,6 +85,7 @@ class DatasetConfig(DatasetDescriptor):
         self._compile_and_validate_regexes()
         self._validate_properties()
         self.euler_train = self._normalize_euler_train()
+        self._validate_modality_meta()
 
     def _validate_properties(self) -> None:
         if not isinstance(self.properties, dict):
@@ -205,6 +217,32 @@ class DatasetConfig(DatasetDescriptor):
             result.append(token)
         return result
 
+    def _validate_modality_meta(self) -> None:
+        """Validate ``properties.meta`` against modality-specific schemas."""
+        modality_type = self.euler_train["modality_type"]
+        schema = _MODALITY_META_SCHEMAS.get(modality_type)
+        if schema is None:
+            return
+
+        meta = self.properties.get("meta")
+        if meta is None or not isinstance(meta, dict):
+            required_keys = ", ".join(sorted(schema))
+            raise ValueError(
+                f"properties.meta is required for modality_type={modality_type!r} "
+                f"and must contain: {required_keys}"
+            )
+
+        for key, (expected_type, type_label) in schema.items():
+            if key not in meta:
+                raise ValueError(
+                    f"properties.meta.{key} is required for "
+                    f"modality_type={modality_type!r}"
+                )
+            if not isinstance(meta[key], expected_type):
+                raise ValueError(
+                    f"properties.meta.{key} must be {type_label}"
+                )
+
     def _validate_slot(self, value: str) -> None:
         if not _SLOT_PATTERN.match(value):
             raise ValueError(
@@ -264,6 +302,7 @@ class DatasetConfig(DatasetDescriptor):
             extrinsics_regex=data.get("extrinsics_regex"),
             flat_ids_unique=data.get("flat_ids_unique", False),
             id_regex_join_char=data.get("id_regex_join_char", "+"),
+            id_override=data.get("id_override"),
             properties=data.get("properties", {}),
             output_json=data.get("output_json"),
             file_extensions=data.get("file_extensions"),

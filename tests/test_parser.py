@@ -42,10 +42,13 @@ def make_dataset_config(**kwargs: Any) -> DatasetConfig:
         props = {}
     if isinstance(props, dict) and "euler_train" not in props:
         props = props.copy()
+        modality = kwargs.get("type", "rgb")
         props["euler_train"] = {
             "used_as": "input",
-            "modality_type": kwargs.get("type", "rgb"),
+            "modality_type": modality,
         }
+        if modality == "depth" and "meta" not in props:
+            props["meta"] = {"radial_depth": False, "scale_to_meters": 1.0}
     kwargs["properties"] = props
     return DatasetConfig(**kwargs)
 
@@ -64,6 +67,8 @@ def with_euler_train(config: dict[str, Any]) -> dict[str, Any]:
             "used_as": used_as,
             "modality_type": modality_type,
         }
+        if modality_type == "depth" and "meta" not in props:
+            props["meta"] = {"radial_depth": False, "scale_to_meters": 1.0}
         result["properties"] = props
     return result
 
@@ -360,6 +365,41 @@ class TestProcessFile:
         assert entry is not None
         assert entry["id"] == "scene01-00001"
 
+    def test_id_override_replaces_extracted_id(self, tmp_path: Path) -> None:
+        """When id_override is set, the extracted ID is replaced."""
+        ds = make_dataset_config(
+            name="test",
+            path=str(tmp_path),
+            type="calibration",
+            id_regex=r"^.*/(\w+)\.json$",
+            id_override="intrinsics",
+        )
+        parser = self._make_parser(ds)
+        file_path = tmp_path / "scene01" / "d0b061d777c48f07f1ba3c51fa5a80451745b345.json"
+        touch(file_path)
+
+        entry, skip = parser._process_file(file_path, tmp_path, ds)
+        assert skip is None
+        assert entry is not None
+        assert entry["id"] == "intrinsics"
+
+    def test_id_override_none_uses_extracted_id(self, tmp_path: Path) -> None:
+        """When id_override is None, the regex-extracted ID is used."""
+        ds = make_dataset_config(
+            name="test",
+            path=str(tmp_path),
+            type="calibration",
+            id_regex=r"^.*/(\w+)\.json$",
+        )
+        parser = self._make_parser(ds)
+        file_path = tmp_path / "scene01" / "some_uuid.json"
+        touch(file_path)
+
+        entry, skip = parser._process_file(file_path, tmp_path, ds)
+        assert skip is None
+        assert entry is not None
+        assert entry["id"] == "some_uuid"
+
 
 # ===================================================================
 # DatasetParser._get_entry_hierarchy_keys
@@ -488,6 +528,30 @@ class TestBuildOutput:
 
         assert "hierarchy_regex" not in output
         assert "named_capture_group_value_separator" not in output
+
+    def test_id_override_included_in_output(self, tmp_path: Path) -> None:
+        ds = make_dataset_config(
+            name="test",
+            path=str(tmp_path),
+            type="calibration",
+            id_regex=r"^(?P<f>.+)\.json$",
+            id_override="intrinsics",
+        )
+        parser = self._make_parser(ds)
+        output = parser._build_output(ds, {})
+        assert output["id_override"] == "intrinsics"
+
+    def test_id_override_none_omitted_from_output(self, tmp_path: Path) -> None:
+        ds = make_dataset_config(
+            name="test",
+            path=str(tmp_path),
+            type="rgb",
+            basename_regex=r"^(?P<f>.+)\.png$",
+            id_regex=r"^(?P<f>.+)\.png$",
+        )
+        parser = self._make_parser(ds)
+        output = parser._build_output(ds, {})
+        assert "id_override" not in output
 
     def test_dataset_properties_deep_merged(self, tmp_path: Path) -> None:
         ds = make_dataset_config(
@@ -764,6 +828,58 @@ class TestDuplicateDetection:
         parser = DatasetParser(config, strict=True)
 
         with pytest.raises(RuntimeError, match="Duplicate id"):
+            parser.parse_dataset(ds)
+
+    def test_id_override_duplicate_same_level_verbose_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """id_override causing duplicates produces a verbose warning."""
+        root = tmp_path / "data"
+        touch(root / "scene" / "uuid_a.json")
+        touch(root / "scene" / "uuid_b.json")
+
+        ds = make_dataset_config(
+            name="test",
+            path=str(root),
+            type="calibration",
+            file_extensions=[".json"],
+            id_regex=r"^([^/]+)/(\w+)\.json$",
+            hierarchy_regex=r"^([^/]+)/",
+            id_override="intrinsics",
+        )
+        config = Config(datasets=[ds])
+        parser = DatasetParser(config)
+
+        import logging
+        with caplog.at_level(logging.WARNING):
+            node = parser.parse_dataset(ds)
+
+        all_files = self._collect_all_files(node)
+        assert len(all_files) == 1  # second file skipped as duplicate
+        assert "id_override" in caplog.text
+        assert "only one file per hierarchy level" in caplog.text
+
+    def test_id_override_duplicate_strict_raises_verbose(
+        self, tmp_path: Path
+    ) -> None:
+        """id_override causing duplicates in strict mode raises with verbose message."""
+        root = tmp_path / "data"
+        touch(root / "scene" / "uuid_a.json")
+        touch(root / "scene" / "uuid_b.json")
+
+        ds = make_dataset_config(
+            name="test",
+            path=str(root),
+            type="calibration",
+            file_extensions=[".json"],
+            id_regex=r"^([^/]+)/(\w+)\.json$",
+            hierarchy_regex=r"^([^/]+)/",
+            id_override="intrinsics",
+        )
+        config = Config(datasets=[ds])
+        parser = DatasetParser(config, strict=True)
+
+        with pytest.raises(RuntimeError, match="id_override"):
             parser.parse_dataset(ds)
 
     def _collect_all_files(self, node: dict) -> list[dict]:

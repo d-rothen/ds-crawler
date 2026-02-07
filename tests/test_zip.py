@@ -169,10 +169,13 @@ class TestZipHandler:
             props = {}
         if isinstance(props, dict) and "euler_train" not in props:
             props = props.copy()
+            modality = defaults.get("type", "rgb")
             props["euler_train"] = {
                 "used_as": "input",
-                "modality_type": defaults.get("type", "rgb"),
+                "modality_type": modality,
             }
+            if modality == "depth" and "meta" not in props:
+                props["meta"] = {"radial_depth": False, "scale_to_meters": 1.0}
             defaults["properties"] = props
         return DatasetConfig(**defaults)
 
@@ -768,10 +771,13 @@ class TestZipHandlerWithPrefix:
             props = {}
         if isinstance(props, dict) and "euler_train" not in props:
             props = props.copy()
+            modality = defaults.get("type", "rgb")
             props["euler_train"] = {
                 "used_as": "input",
-                "modality_type": defaults.get("type", "rgb"),
+                "modality_type": modality,
             }
+            if modality == "depth" and "meta" not in props:
+                props["meta"] = {"radial_depth": False, "scale_to_meters": 1.0}
             defaults["properties"] = props
         return DatasetConfig(**defaults)
 

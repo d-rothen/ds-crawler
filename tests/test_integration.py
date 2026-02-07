@@ -70,6 +70,8 @@ def with_euler_train(config: dict[str, Any]) -> dict[str, Any]:
             "used_as": used_as,
             "modality_type": modality_type,
         }
+        if modality_type == "depth" and "meta" not in props:
+            props["meta"] = {"radial_depth": False, "scale_to_meters": 1.0}
         result["properties"] = props
     return result
 
@@ -509,7 +511,11 @@ class TestFullPipeline:
                 "euler_train": {
                     "used_as": "input",
                     "modality_type": "depth",
-                }
+                },
+                "meta": {
+                    "radial_depth": False,
+                    "scale_to_meters": 1.0,
+                },
             },
         }
         config_path = write_config_json(tmp_path / "config.json", [cfg_data])

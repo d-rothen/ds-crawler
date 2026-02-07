@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .config import CONFIG_FILENAME, DatasetConfig
+from .config import _MODALITY_META_SCHEMAS, CONFIG_FILENAME, DatasetConfig
 from .zip_utils import OUTPUT_FILENAME, read_metadata_json
 
 _EULER_TRAIN_ALLOWED_USED_AS: frozenset[str] = frozenset({
@@ -110,6 +110,31 @@ def _validate_euler_train(value: Any, context: str) -> None:
         )
 
 
+def _validate_modality_meta(
+    value: dict[str, Any], modality_type: str, context: str,
+) -> None:
+    schema = _MODALITY_META_SCHEMAS.get(modality_type)
+    if schema is None:
+        return
+
+    meta = value.get("meta")
+    if meta is None or not isinstance(meta, dict):
+        required_keys = ", ".join(sorted(schema))
+        raise ValueError(
+            f"{context}.meta is required for modality_type={modality_type!r} "
+            f"and must contain: {required_keys}"
+        )
+
+    for key, (expected_type, type_label) in schema.items():
+        if key not in meta:
+            raise ValueError(
+                f"{context}.meta.{key} is required for "
+                f"modality_type={modality_type!r}"
+            )
+        if not isinstance(meta[key], expected_type):
+            raise ValueError(f"{context}.meta.{key} must be {type_label}")
+
+
 def _validate_string_dict(value: Any, label: str) -> None:
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be an object")
@@ -182,6 +207,11 @@ def _validate_output_dataset(value: Any, context: str) -> None:
     if sampled is not None and (not isinstance(sampled, int) or sampled <= 0):
         raise ValueError(f"{context}.sampled must be a positive integer")
 
+    id_override = value.get("id_override")
+    if id_override is not None:
+        if not isinstance(id_override, str) or not id_override:
+            raise ValueError(f"{context}.id_override must be a non-empty string")
+
     id_regex = value["id_regex"]
     try:
         compiled_id_regex = re.compile(id_regex)
@@ -218,6 +248,9 @@ def _validate_output_dataset(value: Any, context: str) -> None:
     if "euler_train" not in value:
         raise ValueError(f"{context}.euler_train is required")
     _validate_euler_train(value["euler_train"], f"{context}.euler_train")
+
+    modality_type = value["euler_train"].get("modality_type", "")
+    _validate_modality_meta(value, modality_type, context)
 
     if "dataset" not in value:
         raise ValueError(f"{context}.dataset is required")

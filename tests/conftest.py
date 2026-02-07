@@ -178,6 +178,10 @@ def make_depth_predictions_config(path: str) -> dict[str, Any]:
                 "slot": "demo.input.depth",
                 "modality_type": "depth",
             },
+            "meta": {
+                "radial_depth": False,
+                "scale_to_meters": 1.0,
+            },
         },
     }
 

@@ -84,6 +84,8 @@ class TestDatasetConfigValidation:
 
     def _minimal_kwargs(self, **overrides) -> dict:
         """Return minimal valid kwargs for DatasetConfig."""
+        from ds_crawler.config import _MODALITY_META_SCHEMAS
+
         defaults = {
             "name": "test",
             "path": "/tmp/test",
@@ -98,10 +100,13 @@ class TestDatasetConfigValidation:
             props = {}
         if isinstance(props, dict) and "euler_train" not in props:
             props = props.copy()
+            modality = defaults["type"]
             props["euler_train"] = {
                 "used_as": "input",
-                "modality_type": defaults["type"],
+                "modality_type": modality,
             }
+            if modality in _MODALITY_META_SCHEMAS and "meta" not in props:
+                props["meta"] = {"radial_depth": False, "scale_to_meters": 1.0}
             defaults["properties"] = props
         return defaults
 
@@ -199,6 +204,125 @@ class TestDatasetConfigValidation:
         assert ds.euler_train["used_as"] == "condition"
         assert ds.euler_train["hierarchy_scope"] == "scene_camera_frame"
         assert ds.euler_train["applies_to"] == ["*"]
+
+    def test_depth_modality_requires_meta(self) -> None:
+        with pytest.raises(ValueError, match="properties.meta is required"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "depth",
+                        }
+                    }
+                )
+            )
+
+    def test_depth_modality_meta_missing_radial_depth(self) -> None:
+        with pytest.raises(ValueError, match="meta.radial_depth is required"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "depth",
+                        },
+                        "meta": {"scale_to_meters": 1.0},
+                    }
+                )
+            )
+
+    def test_depth_modality_meta_missing_scale_to_meters(self) -> None:
+        with pytest.raises(ValueError, match="meta.scale_to_meters is required"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "depth",
+                        },
+                        "meta": {"radial_depth": True},
+                    }
+                )
+            )
+
+    def test_depth_modality_meta_wrong_type_radial_depth(self) -> None:
+        with pytest.raises(ValueError, match="meta.radial_depth must be a bool"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "depth",
+                        },
+                        "meta": {"radial_depth": "yes", "scale_to_meters": 1.0},
+                    }
+                )
+            )
+
+    def test_depth_modality_meta_wrong_type_scale_to_meters(self) -> None:
+        with pytest.raises(ValueError, match="meta.scale_to_meters must be a number"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "depth",
+                        },
+                        "meta": {"radial_depth": False, "scale_to_meters": "one"},
+                    }
+                )
+            )
+
+    def test_depth_modality_meta_valid(self) -> None:
+        ds = DatasetConfig(
+            **self._minimal_kwargs(
+                properties={
+                    "euler_train": {
+                        "used_as": "input",
+                        "modality_type": "depth",
+                    },
+                    "meta": {"radial_depth": True, "scale_to_meters": 0.001},
+                }
+            )
+        )
+        assert ds.properties["meta"]["radial_depth"] is True
+        assert ds.properties["meta"]["scale_to_meters"] == 0.001
+
+    def test_depth_modality_meta_accepts_int_scale(self) -> None:
+        ds = DatasetConfig(
+            **self._minimal_kwargs(
+                properties={
+                    "euler_train": {
+                        "used_as": "input",
+                        "modality_type": "depth",
+                    },
+                    "meta": {"radial_depth": False, "scale_to_meters": 1},
+                }
+            )
+        )
+        assert ds.properties["meta"]["scale_to_meters"] == 1
+
+    def test_non_depth_modality_does_not_require_meta(self) -> None:
+        ds = DatasetConfig(
+            **self._minimal_kwargs(
+                properties={
+                    "euler_train": {
+                        "used_as": "input",
+                        "modality_type": "rgb",
+                    }
+                }
+            )
+        )
+        assert "meta" not in ds.properties
+
+    def test_id_override_accepted(self) -> None:
+        ds = DatasetConfig(**self._minimal_kwargs(id_override="calibration"))
+        assert ds.id_override == "calibration"
+
+    def test_id_override_default_none(self) -> None:
+        ds = DatasetConfig(**self._minimal_kwargs())
+        assert ds.id_override is None
 
     def test_invalid_basename_regex_raises(self) -> None:
         with pytest.raises(ValueError, match="Invalid basename_regex"):
@@ -497,6 +621,10 @@ class TestConfigFromFile:
                             "used_as": "input",
                             "modality_type": "depth",
                         },
+                        "meta": {
+                            "radial_depth": False,
+                            "scale_to_meters": 1.0,
+                        },
                     },
                 }
             ]
@@ -509,6 +637,10 @@ class TestConfigFromFile:
             "euler_train": {
                 "used_as": "input",
                 "modality_type": "depth",
+            },
+            "meta": {
+                "radial_depth": False,
+                "scale_to_meters": 1.0,
             },
         }
 

@@ -79,7 +79,11 @@ def _depth_config(path: str) -> dict[str, Any]:
             "euler_train": {
                 "used_as": "target",
                 "modality_type": "depth",
-            }
+            },
+            "meta": {
+                "radial_depth": False,
+                "scale_to_meters": 1.0,
+            },
         },
     }
 

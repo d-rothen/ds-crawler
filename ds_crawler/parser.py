@@ -159,6 +159,8 @@ class DatasetParser:
             **properties,
             "dataset": dataset_node,
         }
+        if ds_config.id_override is not None:
+            output["id_override"] = ds_config.id_override
         if ds_config.hierarchy_regex:
             output["hierarchy_regex"] = ds_config.hierarchy_regex
         if ds_config.named_capture_group_value_separator:
@@ -368,20 +370,27 @@ class DatasetParser:
                         first_seen_paths_per_level[level_key][entry_id] = entry["path"]
 
                 if is_duplicate:
-                    if self.strict:
-                        raise RuntimeError(
+                    if ds_config.id_override is not None:
+                        dup_detail = (
+                            f"Duplicate id '{entry_id}' caused by id_override "
+                            f"(only one file per hierarchy level allowed "
+                            f"when id_override is set). "
+                            f"first: {first_path}, again: {entry['path']}"
+                        )
+                    else:
+                        dup_detail = (
                             f"Duplicate id '{entry_id}' "
                             f"(first: {first_path}, again: {entry['path']})"
                         )
+                    if self.strict:
+                        raise RuntimeError(dup_detail)
                     duplicate_occurrences += 1
                     duplicate_ids.add(entry_id)
                     logger.warning(
-                        "%sDuplicate id%s: %s (first: %s, again: %s)",
+                        "%s%s%s",
                         ANSI_DUPLICATE,
+                        dup_detail,
                         ANSI_RESET,
-                        entry_id,
-                        first_path,
-                        entry["path"],
                     )
                     continue  # Always skip duplicates from output
 
@@ -591,6 +600,10 @@ class DatasetParser:
             if not groups or any(value is None for value in groups):
                 return None, "no_id"
             file_id = ds_config.id_regex_join_char.join(groups)
+
+        # Apply id_override if configured (replaces regex-extracted id)
+        if ds_config.id_override is not None:
+            file_id = ds_config.id_override
 
         # Extract path properties if path_regex is defined
         path_properties = {}
