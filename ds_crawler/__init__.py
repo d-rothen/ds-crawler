@@ -17,9 +17,11 @@ from .parser import (
     split_datasets,
     split_qualified_ids,
 )
+from .writer import DatasetWriter
 
 __all__ = [
     "DatasetDescriptor",
+    "DatasetWriter",
     "Config",
     "DatasetConfig",
     "DatasetParser",
