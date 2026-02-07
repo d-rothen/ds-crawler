@@ -896,12 +896,11 @@ class TestDuplicateDetection:
 
 
 class TestIdMissThreshold:
-    def test_strict_mode_raises_on_excessive_misses(
-        self, tmp_path: Path
+    def test_excessive_misses_warns_but_does_not_raise(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """If >20% of files fail id_regex, strict mode raises."""
+        """High miss ratio logs a warning but never raises, even in strict mode."""
         root = tmp_path / "data"
-        # Create 10 files, all with basenames that match but paths that don't
         for i in range(10):
             touch(root / f"wrong_dir_{i}" / "file.png")
 
@@ -911,14 +910,17 @@ class TestIdMissThreshold:
             type="rgb",
             file_extensions=[".png"],
             basename_regex=r"^(?P<f>.+)\.(?P<ext>png)$",
-            # id_regex requires specific directory structure
             id_regex=r"^correct_dir/(?P<f>.+)\.png$",
         )
         config = Config(datasets=[ds])
         parser = DatasetParser(config, strict=True)
 
-        with pytest.raises(RuntimeError, match="failed ID extraction"):
-            parser.parse_dataset(ds)
+        import logging
+        with caplog.at_level(logging.WARNING):
+            node = parser.parse_dataset(ds)
+
+        assert node == {}
+        assert "failed ID extraction" in caplog.text
 
     def test_non_strict_does_not_raise(self, tmp_path: Path) -> None:
         """Non-strict mode warns but continues."""

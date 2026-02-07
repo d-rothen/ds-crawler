@@ -34,6 +34,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from .config import _MODALITY_META_SCHEMAS
 from .zip_utils import write_metadata_json
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,25 @@ class DatasetWriter:
             raise ValueError("euler_train must contain 'used_as'")
         if "modality_type" not in euler_train:
             raise ValueError("euler_train must contain 'modality_type'")
+
+        modality_type = euler_train["modality_type"]
+        schema = _MODALITY_META_SCHEMAS.get(modality_type)
+        if schema is not None:
+            meta = properties.get("meta")
+            if meta is None or not isinstance(meta, dict):
+                required_keys = ", ".join(sorted(schema))
+                raise ValueError(
+                    f"meta is required for modality_type={modality_type!r} "
+                    f"and must contain: {required_keys}"
+                )
+            for key, (expected_type, type_label) in schema.items():
+                if key not in meta:
+                    raise ValueError(
+                        f"meta.{key} is required for "
+                        f"modality_type={modality_type!r}"
+                    )
+                if not isinstance(meta[key], expected_type):
+                    raise ValueError(f"meta.{key} must be {type_label}")
 
         self._root = Path(root)
         self._name = name

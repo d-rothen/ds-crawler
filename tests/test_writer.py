@@ -50,6 +50,41 @@ class TestConstruction:
         with pytest.raises(ValueError, match="modality_type"):
             _make_writer(tmp_path, euler_train={"used_as": "target"})
 
+    def test_depth_modality_requires_meta(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="meta is required"):
+            _make_writer(
+                tmp_path,
+                euler_train={"used_as": "target", "modality_type": "depth"},
+            )
+
+    def test_depth_modality_meta_missing_field(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="meta.scale_to_meters is required"):
+            _make_writer(
+                tmp_path,
+                euler_train={"used_as": "target", "modality_type": "depth"},
+                meta={"radial_depth": False},
+            )
+
+    def test_depth_modality_meta_wrong_type(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="meta.radial_depth must be a bool"):
+            _make_writer(
+                tmp_path,
+                euler_train={"used_as": "target", "modality_type": "depth"},
+                meta={"radial_depth": "yes", "scale_to_meters": 1.0},
+            )
+
+    def test_depth_modality_meta_valid(self, tmp_path: Path) -> None:
+        writer = _make_writer(
+            tmp_path,
+            euler_train={"used_as": "target", "modality_type": "depth"},
+            meta={"radial_depth": False, "scale_to_meters": 0.001},
+        )
+        assert len(writer) == 0
+
+    def test_non_depth_modality_no_meta_required(self, tmp_path: Path) -> None:
+        writer = _make_writer(tmp_path)  # uses "semantic" modality
+        assert len(writer) == 0
+
 
 # ---------------------------------------------------------------------------
 # get_path — hierarchy + directory creation

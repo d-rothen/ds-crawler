@@ -406,14 +406,14 @@ class DatasetParser:
                 skipped_id_regex += 1
                 id_misses += 1
                 warned_id_miss = self._check_id_miss_threshold(
-                    id_misses, len(files), id_miss_threshold, warned_id_miss
+                    id_misses, len(files), id_miss_threshold, warned_id_miss,
                 )
                 logger.debug(f"Skipped (id regex): {file_path}")
             elif skip_reason == "no_id":
                 skipped_no_id += 1
                 id_misses += 1
                 warned_id_miss = self._check_id_miss_threshold(
-                    id_misses, len(files), id_miss_threshold, warned_id_miss
+                    id_misses, len(files), id_miss_threshold, warned_id_miss,
                 )
                 logger.debug(f"Skipped (capture group was empty): {file_path}")
             elif skip_reason == "path_regex":
@@ -458,7 +458,8 @@ class DatasetParser:
     ) -> bool:
         """Check if ID misses exceed threshold.
 
-        In strict mode, raises RuntimeError. Otherwise logs a warning once.
+        Logs a warning once when the ratio is exceeded.  This never raises
+        — a high miss ratio is informational, not an error.
         Returns updated warned state.
         """
         if already_warned or total_files == 0:
@@ -471,8 +472,6 @@ class DatasetParser:
             f"(>{ID_MISS_WARN_RATIO * 100:.0f}% threshold). "
             "Check your id_regex configuration."
         )
-        if self.strict:
-            raise RuntimeError(msg)
         logger.warning(msg)
         return True
 
