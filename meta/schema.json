@@ -22,6 +22,46 @@
         "scale_to_meters"
       ],
       "additionalProperties": true
+    },
+    "rgb": {
+      "type": "object",
+      "description": "Required meta fields when euler_train.modality_type is 'rgb'.",
+      "properties": {
+        "rgb_range": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "Value range of the colour channels (e.g. [0, 255] for 8-bit or [0, 1] for normalised data)."
+        }
+      },
+      "required": [
+        "rgb_range"
+      ],
+      "additionalProperties": true
+    },
+    "semantic_segmentation": {
+      "type": "object",
+      "description": "Required meta fields when euler_train.modality_type is 'semantic_segmentation'.",
+      "properties": {
+        "skyclass": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "RGB colour value identifying the sky class in the segmentation map."
+        }
+      },
+      "required": [
+        "skyclass"
+      ],
+      "additionalProperties": true
     }
   }
 }

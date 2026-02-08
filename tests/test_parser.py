@@ -47,8 +47,10 @@ def make_dataset_config(**kwargs: Any) -> DatasetConfig:
             "used_as": "input",
             "modality_type": modality,
         }
-        if modality == "depth" and "meta" not in props:
-            props["meta"] = {"radial_depth": False, "scale_to_meters": 1.0}
+        from .conftest import default_meta_for_modality
+        meta = default_meta_for_modality(modality)
+        if meta is not None and "meta" not in props:
+            props["meta"] = meta
     kwargs["properties"] = props
     return DatasetConfig(**kwargs)
 
@@ -67,8 +69,10 @@ def with_euler_train(config: dict[str, Any]) -> dict[str, Any]:
             "used_as": used_as,
             "modality_type": modality_type,
         }
-        if modality_type == "depth" and "meta" not in props:
-            props["meta"] = {"radial_depth": False, "scale_to_meters": 1.0}
+        from .conftest import default_meta_for_modality
+        meta = default_meta_for_modality(modality_type)
+        if meta is not None and "meta" not in props:
+            props["meta"] = meta
         result["properties"] = props
     return result
 
@@ -479,6 +483,9 @@ class TestBuildOutput:
                     "used_as": "target",
                     "slot": "demo.target.rgb",
                     "modality_type": "rgb",
+                },
+                "meta": {
+                    "rgb_range": [0, 255],
                 },
             },
         )

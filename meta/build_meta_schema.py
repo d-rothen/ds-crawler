@@ -23,6 +23,24 @@ _TYPE_MAP: dict[type, str] = {
     int: "number",
     float: "number",
     str: "string",
+    list: "array",
+}
+
+# Field-level JSON Schema overrides for fields that need a richer schema
+# than a bare {"type": ...} (e.g. array items, min/maxItems).
+_JSON_SCHEMA_OVERRIDES: dict[tuple[str, str], dict] = {
+    ("rgb", "rgb_range"): {
+        "type": "array",
+        "items": {"type": "number"},
+        "minItems": 2,
+        "maxItems": 2,
+    },
+    ("semantic_segmentation", "skyclass"): {
+        "type": "array",
+        "items": {"type": "integer", "minimum": 0, "maximum": 255},
+        "minItems": 3,
+        "maxItems": 3,
+    },
 }
 
 
@@ -46,9 +64,15 @@ def build_schema() -> dict:
         properties: dict[str, dict] = {}
         required: list[str] = []
 
-        for field_name, (accepted_type, _type_label, description) in sorted(fields.items()):
+        for field_name, entry in sorted(fields.items()):
+            _accepted_type, _type_label, description = entry[:3]
+            override = _JSON_SCHEMA_OVERRIDES.get((modality_type, field_name))
+            if override is not None:
+                type_clause = override
+            else:
+                type_clause = _json_schema_type(_accepted_type)
             properties[field_name] = {
-                **_json_schema_type(accepted_type),
+                **type_clause,
                 "description": description,
             }
             required.append(field_name)

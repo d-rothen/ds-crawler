@@ -121,13 +121,20 @@ class DatasetWriter:
                     f"meta is required for modality_type={modality_type!r} "
                     f"and must contain: {required_keys}"
                 )
-            for key, (expected_type, type_label, _desc) in schema.items():
+            for key, entry in schema.items():
+                expected_type, type_label, _desc = entry[:3]
+                validator = entry[3] if len(entry) > 3 else None
                 if key not in meta:
                     raise ValueError(
                         f"meta.{key} is required for "
                         f"modality_type={modality_type!r}"
                     )
-                if not isinstance(meta[key], expected_type):
+                value = meta[key]
+                if validator is not None:
+                    err = validator(value)
+                    if err is not None:
+                        raise ValueError(f"meta.{key} must be {err}")
+                elif not isinstance(value, expected_type):
                     raise ValueError(f"meta.{key} must be {type_label}")
 
         self._root = Path(root)

@@ -9,11 +9,24 @@ from typing import Any
 
 import pytest
 
-from ds_crawler.config import Config, DatasetConfig
+from ds_crawler.config import Config, DatasetConfig, _MODALITY_META_SCHEMAS
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 EXAMPLE_CONFIG_PATH = EXAMPLES_DIR / "config.json"
 EXAMPLE_OUTPUT_PATH = EXAMPLES_DIR / "example_output.json"
+
+# Default meta values used by test helpers when auto-injecting meta for a
+# modality that requires it.
+_DEFAULT_META: dict[str, dict[str, Any]] = {
+    "depth": {"radial_depth": False, "scale_to_meters": 1.0},
+    "rgb": {"rgb_range": [0, 255]},
+    "semantic_segmentation": {"skyclass": [0, 0, 0]},
+}
+
+
+def default_meta_for_modality(modality: str) -> dict[str, Any] | None:
+    """Return a valid default ``meta`` dict for *modality*, or ``None``."""
+    return _DEFAULT_META.get(modality)
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +136,9 @@ def make_vkitti2_config(path: str) -> dict[str, Any]:
                 "slot": "demo.target.rgb",
                 "modality_type": "rgb",
             },
+            "meta": {
+                "rgb_range": [0, 255],
+            },
             "dataset": {
                 "license": "CC BY-NC-SA 4.0",
                 "source": "https://europe.naverlabs.com/research/computer-vision/proxy-virtual-worlds-vkitti-2/",
@@ -153,6 +169,9 @@ def make_ddad_config(path: str) -> dict[str, Any]:
                 "used_as": "target",
                 "slot": "demo.target.rgb",
                 "modality_type": "rgb",
+            },
+            "meta": {
+                "rgb_range": [0, 255],
             },
         },
     }

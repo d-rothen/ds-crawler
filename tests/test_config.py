@@ -84,7 +84,7 @@ class TestDatasetConfigValidation:
 
     def _minimal_kwargs(self, **overrides) -> dict:
         """Return minimal valid kwargs for DatasetConfig."""
-        from ds_crawler.config import _MODALITY_META_SCHEMAS
+        from .conftest import default_meta_for_modality
 
         defaults = {
             "name": "test",
@@ -105,8 +105,9 @@ class TestDatasetConfigValidation:
                 "used_as": "input",
                 "modality_type": modality,
             }
-            if modality in _MODALITY_META_SCHEMAS and "meta" not in props:
-                props["meta"] = {"radial_depth": False, "scale_to_meters": 1.0}
+            meta = default_meta_for_modality(modality)
+            if meta is not None and "meta" not in props:
+                props["meta"] = meta
             defaults["properties"] = props
         return defaults
 
@@ -177,7 +178,10 @@ class TestDatasetConfigValidation:
                     "euler_train": {
                         "used_as": "target",
                         "modality_type": "rgb",
-                    }
+                    },
+                    "meta": {
+                        "rgb_range": [0, 255],
+                    },
                 }
             )
         )
@@ -303,18 +307,198 @@ class TestDatasetConfigValidation:
         )
         assert ds.properties["meta"]["scale_to_meters"] == 1
 
-    def test_non_depth_modality_does_not_require_meta(self) -> None:
+    def test_unknown_modality_does_not_require_meta(self) -> None:
+        ds = DatasetConfig(
+            **self._minimal_kwargs(
+                properties={
+                    "euler_train": {
+                        "used_as": "input",
+                        "modality_type": "flow",
+                    }
+                }
+            )
+        )
+        assert "meta" not in ds.properties
+
+    def test_semseg_modality_requires_meta(self) -> None:
+        with pytest.raises(ValueError, match="properties.meta is required"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "semantic_segmentation",
+                        }
+                    }
+                )
+            )
+
+    def test_semseg_modality_meta_missing_skyclass(self) -> None:
+        with pytest.raises(ValueError, match="meta.skyclass is required"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "semantic_segmentation",
+                        },
+                        "meta": {},
+                    }
+                )
+            )
+
+    def test_semseg_skyclass_not_a_list(self) -> None:
+        with pytest.raises(ValueError, match="meta.skyclass must be"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "semantic_segmentation",
+                        },
+                        "meta": {"skyclass": "red"},
+                    }
+                )
+            )
+
+    def test_semseg_skyclass_wrong_length(self) -> None:
+        with pytest.raises(ValueError, match="meta.skyclass must be"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "semantic_segmentation",
+                        },
+                        "meta": {"skyclass": [0, 128]},
+                    }
+                )
+            )
+
+    def test_semseg_skyclass_out_of_range(self) -> None:
+        with pytest.raises(ValueError, match="meta.skyclass must be"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "semantic_segmentation",
+                        },
+                        "meta": {"skyclass": [0, 128, 300]},
+                    }
+                )
+            )
+
+    def test_semseg_skyclass_valid(self) -> None:
+        ds = DatasetConfig(
+            **self._minimal_kwargs(
+                properties={
+                    "euler_train": {
+                        "used_as": "input",
+                        "modality_type": "semantic_segmentation",
+                    },
+                    "meta": {"skyclass": [135, 206, 235]},
+                }
+            )
+        )
+        assert ds.properties["meta"]["skyclass"] == [135, 206, 235]
+
+    def test_rgb_modality_requires_meta(self) -> None:
+        with pytest.raises(ValueError, match="properties.meta is required"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "rgb",
+                        }
+                    }
+                )
+            )
+
+    def test_rgb_modality_meta_missing_rgb_range(self) -> None:
+        with pytest.raises(ValueError, match="meta.rgb_range is required"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "rgb",
+                        },
+                        "meta": {},
+                    }
+                )
+            )
+
+    def test_rgb_modality_meta_wrong_type(self) -> None:
+        with pytest.raises(ValueError, match="meta.rgb_range must be"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "rgb",
+                        },
+                        "meta": {"rgb_range": "0-255"},
+                    }
+                )
+            )
+
+    def test_rgb_modality_meta_wrong_length(self) -> None:
+        with pytest.raises(ValueError, match="meta.rgb_range must be"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "rgb",
+                        },
+                        "meta": {"rgb_range": [0, 128, 255]},
+                    }
+                )
+            )
+
+    def test_rgb_modality_meta_min_greater_than_max(self) -> None:
+        with pytest.raises(ValueError, match="meta.rgb_range must be"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "rgb",
+                        },
+                        "meta": {"rgb_range": [255, 0]},
+                    }
+                )
+            )
+
+    def test_rgb_modality_meta_valid(self) -> None:
         ds = DatasetConfig(
             **self._minimal_kwargs(
                 properties={
                     "euler_train": {
                         "used_as": "input",
                         "modality_type": "rgb",
-                    }
+                    },
+                    "meta": {"rgb_range": [0, 255]},
                 }
             )
         )
-        assert "meta" not in ds.properties
+        assert ds.properties["meta"]["rgb_range"] == [0, 255]
+
+    def test_rgb_modality_meta_normalised_range(self) -> None:
+        ds = DatasetConfig(
+            **self._minimal_kwargs(
+                properties={
+                    "euler_train": {
+                        "used_as": "input",
+                        "modality_type": "rgb",
+                    },
+                    "meta": {"rgb_range": [0, 1]},
+                }
+            )
+        )
+        assert ds.properties["meta"]["rgb_range"] == [0, 1]
 
     def test_id_override_accepted(self) -> None:
         ds = DatasetConfig(**self._minimal_kwargs(id_override="calibration"))
@@ -420,17 +604,25 @@ class TestFileExtensions:
                 "euler_train": {
                     "used_as": "input",
                     "modality_type": "rgb",
-                }
+                },
+                "meta": {
+                    "rgb_range": [0, 255],
+                },
             },
         }
         defaults.update(overrides)
         props = defaults.get("properties")
         if isinstance(props, dict) and "euler_train" not in props:
             props = props.copy()
+            modality = defaults["type"]
             props["euler_train"] = {
                 "used_as": "input",
-                "modality_type": defaults["type"],
+                "modality_type": modality,
             }
+            from .conftest import default_meta_for_modality
+            meta = default_meta_for_modality(modality)
+            if meta is not None and "meta" not in props:
+                props["meta"] = meta
             defaults["properties"] = props
         return defaults
 
@@ -509,7 +701,10 @@ class TestConfigFromFile:
                         "euler_train": {
                             "used_as": "input",
                             "modality_type": "rgb",
-                        }
+                        },
+                        "meta": {
+                            "rgb_range": [0, 255],
+                        },
                     },
                 }
             ]
@@ -532,7 +727,10 @@ class TestConfigFromFile:
                         "euler_train": {
                             "used_as": "input",
                             "modality_type": "rgb",
-                        }
+                        },
+                        "meta": {
+                            "rgb_range": [0, 255],
+                        },
                     },
                 }
             ]
@@ -551,7 +749,10 @@ class TestConfigFromFile:
                 "euler_train": {
                     "used_as": "input",
                     "modality_type": "rgb",
-                }
+                },
+                "meta": {
+                    "rgb_range": [0, 255],
+                },
             },
         }
         data = {
@@ -580,7 +781,10 @@ class TestConfigFromFile:
                         "euler_train": {
                             "used_as": "input",
                             "modality_type": "rgb",
-                        }
+                        },
+                        "meta": {
+                            "rgb_range": [0, 255],
+                        },
                     },
                 }
             ]
@@ -599,7 +803,10 @@ class TestConfigFromFile:
             "euler_train": {
                 "used_as": "input",
                 "modality_type": "rgb",
-            }
+            },
+            "meta": {
+                "rgb_range": [0, 255],
+            },
         }
         assert ds.output_json is None
         assert ds.file_extensions is None

@@ -61,7 +61,10 @@ def _rgb_config(path: str) -> dict[str, Any]:
             "euler_train": {
                 "used_as": "input",
                 "modality_type": "rgb",
-            }
+            },
+            "meta": {
+                "rgb_range": [0, 255],
+            },
         },
     }
 

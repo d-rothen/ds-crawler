@@ -37,9 +37,41 @@ _RESERVED_TOP_LEVEL_PROPERTIES: frozenset[str] = frozenset({
 _SLOT_PATTERN = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+){2,}$")
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 
+# ---------------------------------------------------------------------------
+# Modality-specific meta validators
+# ---------------------------------------------------------------------------
+
+
+def _validate_rgb_array(value: Any) -> str | None:
+    """Return an error message if *value* is not a valid ``[R, G, B]`` array."""
+    if (
+        not isinstance(value, list)
+        or len(value) != 3
+        or not all(isinstance(v, int) and 0 <= v <= 255 for v in value)
+    ):
+        return "an array of 3 integers (0-255)"
+    return None
+
+
+def _validate_numeric_range(value: Any) -> str | None:
+    """Return an error message if *value* is not a ``[min, max]`` pair."""
+    if (
+        not isinstance(value, list)
+        or len(value) != 2
+        or not all(isinstance(v, (int, float)) for v in value)
+    ):
+        return "an array of 2 numbers [min, max]"
+    if value[0] > value[1]:
+        return "an array of 2 numbers [min, max] where min <= max"
+    return None
+
+
 # Modality-specific required fields in ``properties.meta``.
-# Maps modality_type -> {field_name: (accepted_types, type_label, description)}.
-_MODALITY_META_SCHEMAS: dict[str, dict[str, tuple[type | tuple[type, ...], str, str]]] = {
+# Each entry is a tuple of 3 or 4 elements:
+#   (accepted_type, type_label, description[, validator])
+# The optional *validator* is a callable(value) -> str | None that returns
+# an error message when the value is invalid, or None when valid.
+_MODALITY_META_SCHEMAS: dict[str, dict[str, tuple]] = {
     "depth": {
         "radial_depth": (
             bool,
@@ -52,6 +84,23 @@ _MODALITY_META_SCHEMAS: dict[str, dict[str, tuple[type | tuple[type, ...], str, 
             "a number",
             "Factor that converts raw depth values to meters "
             "(e.g. 0.001 when stored in millimetres).",
+        ),
+    },
+    "rgb": {
+        "rgb_range": (
+            list,
+            "an array of 2 numbers [min, max]",
+            "Value range of the colour channels (e.g. [0, 255] for 8-bit "
+            "or [0, 1] for normalised data).",
+            _validate_numeric_range,
+        ),
+    },
+    "semantic_segmentation": {
+        "skyclass": (
+            list,
+            "an array of 3 integers (0-255)",
+            "RGB colour value identifying the sky class in the segmentation map.",
+            _validate_rgb_array,
         ),
     },
 }
@@ -242,13 +291,22 @@ class DatasetConfig(DatasetDescriptor):
                 f"and must contain: {required_keys}"
             )
 
-        for key, (expected_type, type_label, _desc) in schema.items():
+        for key, entry in schema.items():
+            expected_type, type_label, _desc = entry[:3]
+            validator = entry[3] if len(entry) > 3 else None
             if key not in meta:
                 raise ValueError(
                     f"properties.meta.{key} is required for "
                     f"modality_type={modality_type!r}"
                 )
-            if not isinstance(meta[key], expected_type):
+            value = meta[key]
+            if validator is not None:
+                err = validator(value)
+                if err is not None:
+                    raise ValueError(
+                        f"properties.meta.{key} must be {err}"
+                    )
+            elif not isinstance(value, expected_type):
                 raise ValueError(
                     f"properties.meta.{key} must be {type_label}"
                 )

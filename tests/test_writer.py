@@ -85,6 +85,52 @@ class TestConstruction:
         writer = _make_writer(tmp_path)  # uses "semantic" modality
         assert len(writer) == 0
 
+    def test_semseg_modality_requires_meta(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="meta is required"):
+            _make_writer(
+                tmp_path,
+                euler_train={"used_as": "target", "modality_type": "semantic_segmentation"},
+            )
+
+    def test_semseg_skyclass_invalid(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="meta.skyclass must be"):
+            _make_writer(
+                tmp_path,
+                euler_train={"used_as": "target", "modality_type": "semantic_segmentation"},
+                meta={"skyclass": [0, 128]},
+            )
+
+    def test_semseg_skyclass_valid(self, tmp_path: Path) -> None:
+        writer = _make_writer(
+            tmp_path,
+            euler_train={"used_as": "target", "modality_type": "semantic_segmentation"},
+            meta={"skyclass": [135, 206, 235]},
+        )
+        assert len(writer) == 0
+
+    def test_rgb_modality_requires_meta(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="meta is required"):
+            _make_writer(
+                tmp_path,
+                euler_train={"used_as": "target", "modality_type": "rgb"},
+            )
+
+    def test_rgb_rgb_range_invalid(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="meta.rgb_range must be"):
+            _make_writer(
+                tmp_path,
+                euler_train={"used_as": "target", "modality_type": "rgb"},
+                meta={"rgb_range": [255, 0]},
+            )
+
+    def test_rgb_rgb_range_valid(self, tmp_path: Path) -> None:
+        writer = _make_writer(
+            tmp_path,
+            euler_train={"used_as": "target", "modality_type": "rgb"},
+            meta={"rgb_range": [0, 255]},
+        )
+        assert len(writer) == 0
+
 
 # ---------------------------------------------------------------------------
 # get_path — hierarchy + directory creation
@@ -274,7 +320,10 @@ class TestIntegrationWithAlignDatasets:
             "id_regex": self._ID_REGEX,
             "hierarchy_regex": self._HIERARCHY_REGEX,
             "named_capture_group_value_separator": ":",
-            "properties": {"euler_train": {"used_as": "input", "modality_type": "rgb"}},
+            "properties": {
+                "euler_train": {"used_as": "input", "modality_type": "rgb"},
+                "meta": {"rgb_range": [0, 255]},
+            },
         })
 
     def test_align_with_writer_output(self, tmp_path: Path) -> None:

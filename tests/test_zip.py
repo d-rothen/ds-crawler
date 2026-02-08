@@ -174,8 +174,10 @@ class TestZipHandler:
                 "used_as": "input",
                 "modality_type": modality,
             }
-            if modality == "depth" and "meta" not in props:
-                props["meta"] = {"radial_depth": False, "scale_to_meters": 1.0}
+            from .conftest import default_meta_for_modality
+            meta = default_meta_for_modality(modality)
+            if meta is not None and "meta" not in props:
+                props["meta"] = meta
             defaults["properties"] = props
         return DatasetConfig(**defaults)
 
@@ -316,7 +318,10 @@ class TestLoadConfigFromZip:
                 "euler_train": {
                     "used_as": "input",
                     "modality_type": "rgb",
-                }
+                },
+                "meta": {
+                    "rgb_range": [0, 255],
+                },
             },
         }
 
@@ -345,7 +350,10 @@ class TestLoadConfigFromZip:
                 "euler_train": {
                     "used_as": "input",
                     "modality_type": "rgb",
-                }
+                },
+                "meta": {
+                    "rgb_range": [0, 255],
+                },
             },
         })
         assert ds_config.name == "inline"
@@ -408,7 +416,10 @@ class TestIndexDatasetFromPathZip:
                 "euler_train": {
                     "used_as": "input",
                     "modality_type": "rgb",
-                }
+                },
+                "meta": {
+                    "rgb_range": [0, 255],
+                },
             },
         }
         zp = create_zip_from_tree_with_config(root, tmp_path / "ds.zip", config_dict)
@@ -433,7 +444,10 @@ class TestIndexDatasetFromPathZip:
                 "euler_train": {
                     "used_as": "input",
                     "modality_type": "rgb",
-                }
+                },
+                "meta": {
+                    "rgb_range": [0, 255],
+                },
             },
         }
         zp = create_zip_from_tree_with_config(root, tmp_path / "ds.zip", config_dict)
@@ -459,7 +473,10 @@ class TestIndexDatasetFromPathZip:
                 "euler_train": {
                     "used_as": "input",
                     "modality_type": "rgb",
-                }
+                },
+                "meta": {
+                    "rgb_range": [0, 255],
+                },
             },
         }
         zp = create_zip_from_tree_with_config(root, tmp_path / "ds.zip", config_dict)
@@ -486,7 +503,10 @@ class TestIndexDatasetFromPathZip:
                 "euler_train": {
                     "used_as": "input",
                     "modality_type": "rgb",
-                }
+                },
+                "meta": {
+                    "rgb_range": [0, 255],
+                },
             },
         }
         zp = create_zip_from_tree_with_config(root, tmp_path / "ds.zip", config_dict)
@@ -776,8 +796,10 @@ class TestZipHandlerWithPrefix:
                 "used_as": "input",
                 "modality_type": modality,
             }
-            if modality == "depth" and "meta" not in props:
-                props["meta"] = {"radial_depth": False, "scale_to_meters": 1.0}
+            from .conftest import default_meta_for_modality
+            meta = default_meta_for_modality(modality)
+            if meta is not None and "meta" not in props:
+                props["meta"] = meta
             defaults["properties"] = props
         return DatasetConfig(**defaults)
 
@@ -921,7 +943,10 @@ class TestPrefixedZipMatchesDirectory:
                 "euler_train": {
                     "used_as": "input",
                     "modality_type": "rgb",
-                }
+                },
+                "meta": {
+                    "rgb_range": [0, 255],
+                },
             },
         }
         # Zip name "mydata" matches prefix "mydata/"
@@ -949,7 +974,10 @@ class TestPrefixedZipMatchesDirectory:
                 "euler_train": {
                     "used_as": "input",
                     "modality_type": "rgb",
-                }
+                },
+                "meta": {
+                    "rgb_range": [0, 255],
+                },
             },
         }
         zp = create_zip_from_tree_with_config(
@@ -982,7 +1010,10 @@ class TestPrefixedZipMatchesDirectory:
                 "euler_train": {
                     "used_as": "input",
                     "modality_type": "rgb",
-                }
+                },
+                "meta": {
+                    "rgb_range": [0, 255],
+                },
             },
         }
         zp = create_zip_from_tree_with_config(

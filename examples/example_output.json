@@ -11,6 +11,9 @@
       "slot": "demo.target.rgb",
       "modality_type": "rgb"
     },
+    "meta": {
+      "rgb_range": [0, 255]
+    },
     "dataset": {
       "license": "CC BY-NC-SA 4.0",
       "source": "https://europe.naverlabs.com/research/computer-vision/proxy-virtual-worlds-vkitti-2/",
@@ -132,6 +135,9 @@
       "used_as": "target",
       "slot": "demo.target.rgb",
       "modality_type": "rgb"
+    },
+    "meta": {
+      "rgb_range": [0, 255]
     },
     "dataset": {
       "children": {

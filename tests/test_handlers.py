@@ -49,8 +49,10 @@ class TestGenericHandler:
                 "used_as": "input",
                 "modality_type": modality,
             }
-            if modality == "depth" and "meta" not in props:
-                props["meta"] = {"radial_depth": False, "scale_to_meters": 1.0}
+            from .conftest import default_meta_for_modality
+            meta = default_meta_for_modality(modality)
+            if meta is not None and "meta" not in props:
+                props["meta"] = meta
             defaults["properties"] = props
         return DatasetConfig(**defaults)
 
