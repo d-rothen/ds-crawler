@@ -4,3 +4,4 @@ __pycache__
 .claude/
 /.pytest_cache
 SHOULD_MATCH
+/cluster/

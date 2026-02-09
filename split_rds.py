@@ -2,13 +2,14 @@
 
 from ds_crawler import split_datasets
 
-rds_clear = "/path/to/rds_clear"
-rds_hazy = "/path/to/rds_hazy"
+rgb_clear = "/cluster/scratch/drothenpiele/data/real-drive-sim/sample_10_zips/rgb_10.zip"
+rgb_hazy = "/cluster/scratch/drothenpiele/data/real-drive-sim/sample_10_zips/radial_foggy_10.zip"
+depth_hazy = "/cluster/scratch/drothenpiele/data/real-drive-sim/sample_10_zips/depth_10.zip"
 
 result = split_datasets(
-    source_paths=[rds_clear, rds_hazy],
-    suffixes=["train", "val"],
-    ratios=[80, 20],
+    source_paths=[rgb_clear, rgb_hazy, depth_hazy],
+    suffixes=["train.zip", "val.zip", "test.zip"],
+    ratios=[80, 10, 10],
     seed=42,
 )
 

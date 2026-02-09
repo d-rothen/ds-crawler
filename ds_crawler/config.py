@@ -153,12 +153,12 @@ class DatasetConfig(DatasetDescriptor):
         reserved = sorted(
             key for key in self.properties if key in _RESERVED_TOP_LEVEL_PROPERTIES
         )
-        if reserved:
-            joined = ", ".join(reserved)
-            raise ValueError(
-                f"properties contains reserved top-level key(s): {joined}. "
-                "Use dedicated top-level config fields instead."
-            )
+        # if reserved:
+        #     joined = ", ".join(reserved)
+        #     raise ValueError(
+        #         f"properties contains reserved top-level key(s): {joined}. "
+        #         "Use dedicated top-level config fields instead."
+        #     )
 
     def _normalize_euler_train(self) -> dict[str, Any]:
         if "runlog" in self.properties:
