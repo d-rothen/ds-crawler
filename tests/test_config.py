@@ -180,7 +180,7 @@ class TestDatasetConfigValidation:
                         "modality_type": "rgb",
                     },
                     "meta": {
-                        "rgb_range": [0, 255],
+                        "range": [0, 255],
                     },
                 }
             )
@@ -416,8 +416,8 @@ class TestDatasetConfigValidation:
                 )
             )
 
-    def test_rgb_modality_meta_missing_rgb_range(self) -> None:
-        with pytest.raises(ValueError, match="meta.rgb_range is required"):
+    def test_rgb_modality_meta_missing_range(self) -> None:
+        with pytest.raises(ValueError, match="meta.range is required"):
             DatasetConfig(
                 **self._minimal_kwargs(
                     properties={
@@ -431,7 +431,7 @@ class TestDatasetConfigValidation:
             )
 
     def test_rgb_modality_meta_wrong_type(self) -> None:
-        with pytest.raises(ValueError, match="meta.rgb_range must be"):
+        with pytest.raises(ValueError, match="meta.range must be"):
             DatasetConfig(
                 **self._minimal_kwargs(
                     properties={
@@ -439,13 +439,13 @@ class TestDatasetConfigValidation:
                             "used_as": "input",
                             "modality_type": "rgb",
                         },
-                        "meta": {"rgb_range": "0-255"},
+                        "meta": {"range": "0-255"},
                     }
                 )
             )
 
     def test_rgb_modality_meta_wrong_length(self) -> None:
-        with pytest.raises(ValueError, match="meta.rgb_range must be"):
+        with pytest.raises(ValueError, match="meta.range must be"):
             DatasetConfig(
                 **self._minimal_kwargs(
                     properties={
@@ -453,13 +453,13 @@ class TestDatasetConfigValidation:
                             "used_as": "input",
                             "modality_type": "rgb",
                         },
-                        "meta": {"rgb_range": [0, 128, 255]},
+                        "meta": {"range": [0, 128, 255]},
                     }
                 )
             )
 
     def test_rgb_modality_meta_min_greater_than_max(self) -> None:
-        with pytest.raises(ValueError, match="meta.rgb_range must be"):
+        with pytest.raises(ValueError, match="meta.range must be"):
             DatasetConfig(
                 **self._minimal_kwargs(
                     properties={
@@ -467,7 +467,7 @@ class TestDatasetConfigValidation:
                             "used_as": "input",
                             "modality_type": "rgb",
                         },
-                        "meta": {"rgb_range": [255, 0]},
+                        "meta": {"range": [255, 0]},
                     }
                 )
             )
@@ -480,11 +480,11 @@ class TestDatasetConfigValidation:
                         "used_as": "input",
                         "modality_type": "rgb",
                     },
-                    "meta": {"rgb_range": [0, 255]},
+                    "meta": {"range": [0, 255]},
                 }
             )
         )
-        assert ds.properties["meta"]["rgb_range"] == [0, 255]
+        assert ds.properties["meta"]["range"] == [0, 255]
 
     def test_rgb_modality_meta_normalised_range(self) -> None:
         ds = DatasetConfig(
@@ -494,11 +494,11 @@ class TestDatasetConfigValidation:
                         "used_as": "input",
                         "modality_type": "rgb",
                     },
-                    "meta": {"rgb_range": [0, 1]},
+                    "meta": {"range": [0, 1]},
                 }
             )
         )
-        assert ds.properties["meta"]["rgb_range"] == [0, 1]
+        assert ds.properties["meta"]["range"] == [0, 1]
 
     def test_id_override_accepted(self) -> None:
         ds = DatasetConfig(**self._minimal_kwargs(id_override="calibration"))
@@ -606,7 +606,7 @@ class TestFileExtensions:
                     "modality_type": "rgb",
                 },
                 "meta": {
-                    "rgb_range": [0, 255],
+                    "range": [0, 255],
                 },
             },
         }
@@ -703,7 +703,7 @@ class TestConfigFromFile:
                             "modality_type": "rgb",
                         },
                         "meta": {
-                            "rgb_range": [0, 255],
+                            "range": [0, 255],
                         },
                     },
                 }
@@ -729,7 +729,7 @@ class TestConfigFromFile:
                             "modality_type": "rgb",
                         },
                         "meta": {
-                            "rgb_range": [0, 255],
+                            "range": [0, 255],
                         },
                     },
                 }
@@ -751,7 +751,7 @@ class TestConfigFromFile:
                     "modality_type": "rgb",
                 },
                 "meta": {
-                    "rgb_range": [0, 255],
+                    "range": [0, 255],
                 },
             },
         }
@@ -783,7 +783,7 @@ class TestConfigFromFile:
                             "modality_type": "rgb",
                         },
                         "meta": {
-                            "rgb_range": [0, 255],
+                            "range": [0, 255],
                         },
                     },
                 }
@@ -805,7 +805,7 @@ class TestConfigFromFile:
                 "modality_type": "rgb",
             },
             "meta": {
-                "rgb_range": [0, 255],
+                "range": [0, 255],
             },
         }
         assert ds.output_json is None

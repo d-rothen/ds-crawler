@@ -19,7 +19,7 @@
           "modality_type": "rgb"
         },
         "meta": {
-          "rgb_range": [0, 255]
+          "range": [0, 255]
         },
         "specifier": "whatever",
         "some_other_prop": 1234566

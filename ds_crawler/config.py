@@ -85,9 +85,15 @@ _MODALITY_META_SCHEMAS: dict[str, dict[str, tuple]] = {
             "Factor that converts raw depth values to meters "
             "(e.g. 0.001 when stored in millimetres).",
         ),
+        "range": (
+            list,
+            "an array of 2 numbers [min, max]",
+            "Value range of the depth values in meters (e.g. [0, 65535] for VKITTI2).",
+            _validate_numeric_range,
+        ),
     },
     "rgb": {
-        "rgb_range": (
+        "range": (
             list,
             "an array of 2 numbers [min, max]",
             "Value range of the colour channels (e.g. [0, 255] for 8-bit "
@@ -153,12 +159,12 @@ class DatasetConfig(DatasetDescriptor):
         reserved = sorted(
             key for key in self.properties if key in _RESERVED_TOP_LEVEL_PROPERTIES
         )
-        # if reserved:
-        #     joined = ", ".join(reserved)
-        #     raise ValueError(
-        #         f"properties contains reserved top-level key(s): {joined}. "
-        #         "Use dedicated top-level config fields instead."
-        #     )
+        if reserved:
+            joined = ", ".join(reserved)
+            raise ValueError(
+                f"properties contains reserved top-level key(s): {joined}. "
+                "Use dedicated top-level config fields instead."
+            )
 
     def _normalize_euler_train(self) -> dict[str, Any]:
         if "runlog" in self.properties:

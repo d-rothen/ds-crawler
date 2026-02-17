@@ -19,7 +19,7 @@ EXAMPLE_OUTPUT_PATH = EXAMPLES_DIR / "example_output.json"
 # modality that requires it.
 _DEFAULT_META: dict[str, dict[str, Any]] = {
     "depth": {"radial_depth": False, "scale_to_meters": 1.0},
-    "rgb": {"rgb_range": [0, 255]},
+    "rgb": {"range": [0, 255]},
     "semantic_segmentation": {"skyclass": [0, 0, 0]},
 }
 
@@ -137,7 +137,7 @@ def make_vkitti2_config(path: str) -> dict[str, Any]:
                 "modality_type": "rgb",
             },
             "meta": {
-                "rgb_range": [0, 255],
+                "range": [0, 255],
             },
             "dataset": {
                 "license": "CC BY-NC-SA 4.0",
@@ -171,7 +171,7 @@ def make_ddad_config(path: str) -> dict[str, Any]:
                 "modality_type": "rgb",
             },
             "meta": {
-                "rgb_range": [0, 255],
+                "range": [0, 255],
             },
         },
     }

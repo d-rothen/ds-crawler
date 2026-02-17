@@ -115,19 +115,19 @@ class TestConstruction:
                 euler_train={"used_as": "target", "modality_type": "rgb"},
             )
 
-    def test_rgb_rgb_range_invalid(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match="meta.rgb_range must be"):
+    def test_rgb_range_invalid(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="meta.range must be"):
             _make_writer(
                 tmp_path,
                 euler_train={"used_as": "target", "modality_type": "rgb"},
-                meta={"rgb_range": [255, 0]},
+                meta={"range": [255, 0]},
             )
 
-    def test_rgb_rgb_range_valid(self, tmp_path: Path) -> None:
+    def test_rgb_range_valid(self, tmp_path: Path) -> None:
         writer = _make_writer(
             tmp_path,
             euler_train={"used_as": "target", "modality_type": "rgb"},
-            meta={"rgb_range": [0, 255]},
+            meta={"range": [0, 255]},
         )
         assert len(writer) == 0
 
@@ -322,7 +322,7 @@ class TestIntegrationWithAlignDatasets:
             "named_capture_group_value_separator": ":",
             "properties": {
                 "euler_train": {"used_as": "input", "modality_type": "rgb"},
-                "meta": {"rgb_range": [0, 255]},
+                "meta": {"range": [0, 255]},
             },
         })
 

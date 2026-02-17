@@ -12,6 +12,10 @@
           "type": "boolean",
           "description": "Whether the depth values represent radial (euclidean) distance from the camera rather than perpendicular (z-buffer) depth."
         },
+        "range": {
+          "type": "array",
+          "description": "Value range of the depth values in meters (e.g. [0, 65535] for VKITTI2)."
+        },
         "scale_to_meters": {
           "type": "number",
           "description": "Factor that converts raw depth values to meters (e.g. 0.001 when stored in millimetres)."
@@ -19,6 +23,7 @@
       },
       "required": [
         "radial_depth",
+        "range",
         "scale_to_meters"
       ],
       "additionalProperties": true
@@ -27,18 +32,13 @@
       "type": "object",
       "description": "Required meta fields when euler_train.modality_type is 'rgb'.",
       "properties": {
-        "rgb_range": {
+        "range": {
           "type": "array",
-          "items": {
-            "type": "number"
-          },
-          "minItems": 2,
-          "maxItems": 2,
           "description": "Value range of the colour channels (e.g. [0, 255] for 8-bit or [0, 1] for normalised data)."
         }
       },
       "required": [
-        "rgb_range"
+        "range"
       ],
       "additionalProperties": true
     },

@@ -320,7 +320,7 @@ class TestLoadConfigFromZip:
                     "modality_type": "rgb",
                 },
                 "meta": {
-                    "rgb_range": [0, 255],
+                    "range": [0, 255],
                 },
             },
         }
@@ -352,7 +352,7 @@ class TestLoadConfigFromZip:
                     "modality_type": "rgb",
                 },
                 "meta": {
-                    "rgb_range": [0, 255],
+                    "range": [0, 255],
                 },
             },
         })
@@ -418,7 +418,7 @@ class TestIndexDatasetFromPathZip:
                     "modality_type": "rgb",
                 },
                 "meta": {
-                    "rgb_range": [0, 255],
+                    "range": [0, 255],
                 },
             },
         }
@@ -446,7 +446,7 @@ class TestIndexDatasetFromPathZip:
                     "modality_type": "rgb",
                 },
                 "meta": {
-                    "rgb_range": [0, 255],
+                    "range": [0, 255],
                 },
             },
         }
@@ -475,7 +475,7 @@ class TestIndexDatasetFromPathZip:
                     "modality_type": "rgb",
                 },
                 "meta": {
-                    "rgb_range": [0, 255],
+                    "range": [0, 255],
                 },
             },
         }
@@ -505,7 +505,7 @@ class TestIndexDatasetFromPathZip:
                     "modality_type": "rgb",
                 },
                 "meta": {
-                    "rgb_range": [0, 255],
+                    "range": [0, 255],
                 },
             },
         }
@@ -945,7 +945,7 @@ class TestPrefixedZipMatchesDirectory:
                     "modality_type": "rgb",
                 },
                 "meta": {
-                    "rgb_range": [0, 255],
+                    "range": [0, 255],
                 },
             },
         }
@@ -976,7 +976,7 @@ class TestPrefixedZipMatchesDirectory:
                     "modality_type": "rgb",
                 },
                 "meta": {
-                    "rgb_range": [0, 255],
+                    "range": [0, 255],
                 },
             },
         }
@@ -1012,7 +1012,7 @@ class TestPrefixedZipMatchesDirectory:
                     "modality_type": "rgb",
                 },
                 "meta": {
-                    "rgb_range": [0, 255],
+                    "range": [0, 255],
                 },
             },
         }

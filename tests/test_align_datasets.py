@@ -63,7 +63,7 @@ def _rgb_config(path: str) -> dict[str, Any]:
                 "modality_type": "rgb",
             },
             "meta": {
-                "rgb_range": [0, 255],
+                "range": [0, 255],
             },
         },
     }

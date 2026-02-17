@@ -12,7 +12,7 @@
       "modality_type": "rgb"
     },
     "meta": {
-      "rgb_range": [0, 255]
+      "range": [0, 255]
     },
     "dataset": {
       "license": "CC BY-NC-SA 4.0",
@@ -137,7 +137,7 @@
       "modality_type": "rgb"
     },
     "meta": {
-      "rgb_range": [0, 255]
+      "range": [0, 255]
     },
     "dataset": {
       "children": {

@@ -9,11 +9,7 @@ object for each ``euler_train.modality_type``.
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
-
-# Ensure the package is importable when running from the repo root.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ds_crawler.config import _MODALITY_META_SCHEMAS
 
@@ -29,7 +25,7 @@ _TYPE_MAP: dict[type, str] = {
 # Field-level JSON Schema overrides for fields that need a richer schema
 # than a bare {"type": ...} (e.g. array items, min/maxItems).
 _JSON_SCHEMA_OVERRIDES: dict[tuple[str, str], dict] = {
-    ("rgb", "rgb_range"): {
+    ("rgb", "range"): {
         "type": "array",
         "items": {"type": "number"},
         "minItems": 2,

@@ -485,7 +485,7 @@ class TestBuildOutput:
                     "modality_type": "rgb",
                 },
                 "meta": {
-                    "rgb_range": [0, 255],
+                    "range": [0, 255],
                 },
             },
         )
