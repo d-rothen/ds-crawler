@@ -517,6 +517,7 @@ class TestFullPipeline:
                 "meta": {
                     "radial_depth": False,
                     "scale_to_meters": 1.0,
+                    "range": [0, 65535],
                 },
             },
         }

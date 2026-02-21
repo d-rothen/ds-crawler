@@ -73,7 +73,8 @@
         },
         "meta": {
           "radial_depth": false,
-          "scale_to_meters": 1.0
+          "scale_to_meters": 1.0,
+          "range": [0, 65535]
         }
       }
     }

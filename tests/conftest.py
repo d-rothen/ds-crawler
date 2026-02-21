@@ -18,7 +18,7 @@ EXAMPLE_OUTPUT_PATH = EXAMPLES_DIR / "example_output.json"
 # Default meta values used by test helpers when auto-injecting meta for a
 # modality that requires it.
 _DEFAULT_META: dict[str, dict[str, Any]] = {
-    "depth": {"radial_depth": False, "scale_to_meters": 1.0},
+    "depth": {"radial_depth": False, "scale_to_meters": 1.0, "range": [0, 65535]},
     "rgb": {"range": [0, 255]},
     "semantic_segmentation": {"skyclass": [0, 0, 0]},
 }
@@ -200,6 +200,7 @@ def make_depth_predictions_config(path: str) -> dict[str, Any]:
             "meta": {
                 "radial_depth": False,
                 "scale_to_meters": 1.0,
+                "range": [0, 65535],
             },
         },
     }

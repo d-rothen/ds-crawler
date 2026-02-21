@@ -231,7 +231,7 @@ class TestDatasetConfigValidation:
                             "used_as": "input",
                             "modality_type": "depth",
                         },
-                        "meta": {"scale_to_meters": 1.0},
+                        "meta": {"scale_to_meters": 1.0, "range": [0, 65535]},
                     }
                 )
             )
@@ -245,7 +245,7 @@ class TestDatasetConfigValidation:
                             "used_as": "input",
                             "modality_type": "depth",
                         },
-                        "meta": {"radial_depth": True},
+                        "meta": {"radial_depth": True, "range": [0, 65535]},
                     }
                 )
             )
@@ -259,7 +259,7 @@ class TestDatasetConfigValidation:
                             "used_as": "input",
                             "modality_type": "depth",
                         },
-                        "meta": {"radial_depth": "yes", "scale_to_meters": 1.0},
+                        "meta": {"radial_depth": "yes", "scale_to_meters": 1.0, "range": [0, 65535]},
                     }
                 )
             )
@@ -273,7 +273,7 @@ class TestDatasetConfigValidation:
                             "used_as": "input",
                             "modality_type": "depth",
                         },
-                        "meta": {"radial_depth": False, "scale_to_meters": "one"},
+                        "meta": {"radial_depth": False, "scale_to_meters": "one", "range": [0, 65535]},
                     }
                 )
             )
@@ -286,7 +286,7 @@ class TestDatasetConfigValidation:
                         "used_as": "input",
                         "modality_type": "depth",
                     },
-                    "meta": {"radial_depth": True, "scale_to_meters": 0.001},
+                    "meta": {"radial_depth": True, "scale_to_meters": 0.001, "range": [0, 65535]},
                 }
             )
         )
@@ -301,7 +301,7 @@ class TestDatasetConfigValidation:
                         "used_as": "input",
                         "modality_type": "depth",
                     },
-                    "meta": {"radial_depth": False, "scale_to_meters": 1},
+                    "meta": {"radial_depth": False, "scale_to_meters": 1, "range": [0, 65535]},
                 }
             )
         )
@@ -831,6 +831,7 @@ class TestConfigFromFile:
                         "meta": {
                             "radial_depth": False,
                             "scale_to_meters": 1.0,
+                            "range": [0, 65535],
                         },
                     },
                 }
@@ -848,6 +849,7 @@ class TestConfigFromFile:
             "meta": {
                 "radial_depth": False,
                 "scale_to_meters": 1.0,
+                "range": [0, 65535],
             },
         }
 

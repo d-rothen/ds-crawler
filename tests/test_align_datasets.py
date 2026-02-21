@@ -86,6 +86,7 @@ def _depth_config(path: str) -> dict[str, Any]:
             "meta": {
                 "radial_depth": False,
                 "scale_to_meters": 1.0,
+                "range": [0, 65535],
             },
         },
     }

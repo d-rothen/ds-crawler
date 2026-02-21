@@ -62,7 +62,7 @@ class TestConstruction:
             _make_writer(
                 tmp_path,
                 euler_train={"used_as": "target", "modality_type": "depth"},
-                meta={"radial_depth": False},
+                meta={"radial_depth": False, "range": [0, 65535]},
             )
 
     def test_depth_modality_meta_wrong_type(self, tmp_path: Path) -> None:
@@ -70,14 +70,14 @@ class TestConstruction:
             _make_writer(
                 tmp_path,
                 euler_train={"used_as": "target", "modality_type": "depth"},
-                meta={"radial_depth": "yes", "scale_to_meters": 1.0},
+                meta={"radial_depth": "yes", "scale_to_meters": 1.0, "range": [0, 65535]},
             )
 
     def test_depth_modality_meta_valid(self, tmp_path: Path) -> None:
         writer = _make_writer(
             tmp_path,
             euler_train={"used_as": "target", "modality_type": "depth"},
-            meta={"radial_depth": False, "scale_to_meters": 0.001},
+            meta={"radial_depth": False, "scale_to_meters": 0.001, "range": [0, 65535]},
         )
         assert len(writer) == 0
 
