@@ -361,6 +361,15 @@ class DatasetConfig(DatasetDescriptor):
         if workdir is not None:
             ds_path = str(Path(workdir) / ds_path)
 
+        # Fold top-level namespace keys (e.g. "euler_train") into properties
+        # so that both layouts are supported:
+        #   {"properties": {"euler_train": {...}}}   (nested)
+        #   {"euler_train": {...}}                    (top-level shorthand)
+        # Explicit nested keys take precedence over top-level ones.
+        props = dict(data.get("properties", {}))
+        if "euler_train" in data and "euler_train" not in props:
+            props["euler_train"] = data["euler_train"]
+
         return cls(
             name=data["name"],
             path=ds_path,
@@ -377,7 +386,7 @@ class DatasetConfig(DatasetDescriptor):
             flat_ids_unique=data.get("flat_ids_unique", False),
             id_regex_join_char=data.get("id_regex_join_char", "+"),
             id_override=data.get("id_override"),
-            properties=data.get("properties", {}),
+            properties=props,
             output_json=data.get("output_json"),
             file_extensions=data.get("file_extensions"),
         )
