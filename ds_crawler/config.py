@@ -34,6 +34,10 @@ _RESERVED_TOP_LEVEL_PROPERTIES: frozenset[str] = frozenset({
     "sampled",
     "id_override",
 })
+_PROPERTY_NAMESPACE_KEYS: frozenset[str] = frozenset({
+    "euler_train",
+    "euler_loading",
+})
 _SLOT_PATTERN = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+){2,}$")
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 
@@ -361,14 +365,15 @@ class DatasetConfig(DatasetDescriptor):
         if workdir is not None:
             ds_path = str(Path(workdir) / ds_path)
 
-        # Fold top-level namespace keys (e.g. "euler_train") into properties
-        # so that both layouts are supported:
+        # Fold top-level namespace keys into properties so that both
+        # layouts are supported:
         #   {"properties": {"euler_train": {...}}}   (nested)
         #   {"euler_train": {...}}                    (top-level shorthand)
         # Explicit nested keys take precedence over top-level ones.
         props = dict(data.get("properties", {}))
-        if "euler_train" in data and "euler_train" not in props:
-            props["euler_train"] = data["euler_train"]
+        for ns in _PROPERTY_NAMESPACE_KEYS:
+            if ns in data and ns not in props:
+                props[ns] = data[ns]
 
         return cls(
             name=data["name"],
