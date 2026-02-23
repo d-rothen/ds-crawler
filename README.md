@@ -9,6 +9,7 @@ and writing multi-modal datasets.
 pip install .                 # core
 pip install ".[progress]"     # with tqdm progress bars
 pip install ".[dev]"          # with pytest + tqdm
+
 ```
 
 Requires Python >= 3.9. No runtime dependencies.

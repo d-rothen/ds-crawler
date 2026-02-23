@@ -18,6 +18,7 @@ from .traversal import (
 from .operations import (
     align_datasets,
     copy_dataset,
+    extract_datasets,
     split_dataset,
     split_datasets,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "align_datasets",
     "collect_qualified_ids",
     "copy_dataset",
+    "extract_datasets",
     "filter_index_by_qualified_ids",
     "get_files",
     "index_dataset",

@@ -545,3 +545,141 @@ def split_datasets(
         "qualified_id_splits": id_splits,
         "per_source": per_source_results,
     }
+
+
+# ---------------------------------------------------------------------------
+# Extract
+# ---------------------------------------------------------------------------
+
+
+def extract_datasets(
+    configs: list[dict[str, Any]],
+    output_paths: list[str | Path],
+    *,
+    strict: bool = False,
+    sample: int | None = None,
+    match_index: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Extract multiple datasets from source directories using per-config regex patterns.
+
+    Each config dict defines regex patterns that select specific files from
+    its ``path`` directory.  The matched files are indexed and then copied
+    to the corresponding output path.  An ``output.json`` is written in
+    each target so the extracted dataset is self-contained.
+
+    This is useful when a single source directory contains multiple
+    modalities (e.g. both RGB and depth files) and each config selects
+    one modality via different regex patterns.
+
+    After extraction, the function computes the intersection of qualified
+    IDs across all configs and logs a warning for any IDs that are present
+    in some configs but missing from others.
+
+    Args:
+        configs: List of dataset configuration dicts (same shape as
+            entries in ``config.json["datasets"]``).  Each must have a
+            ``path`` key.
+        output_paths: Destination directories (or ``.zip`` archives),
+            one per config entry.  Created if they do not exist.
+        strict: Abort on duplicate IDs or excessive regex misses during
+            indexing.
+        sample: Keep only every *sample*-th regex-matched file during
+            indexing (deterministic subsampling).
+        match_index: External filter -- only files whose ID appears in
+            this index are included.
+
+    Returns:
+        A dict with keys:
+
+        - ``extractions``: list of per-config result dicts, each with
+          ``config_name``, ``source``, ``target``, ``num_ids``,
+          ``copied``, ``missing``, ``missing_files``.
+        - ``per_config_ids``: list of sets of qualified IDs per config.
+        - ``common_ids``: the intersection of qualified IDs across all
+          configs.
+        - ``incomplete_ids``: dict mapping config name to the set of
+          qualified IDs that are in that config but not in the
+          intersection.  Empty when all configs match the same IDs.
+
+    Raises:
+        ValueError: If *configs* and *output_paths* have different
+            lengths, or if *configs* is empty.
+    """
+    if len(configs) != len(output_paths):
+        raise ValueError(
+            f"configs and output_paths must have the same length, "
+            f"got {len(configs)} and {len(output_paths)}"
+        )
+    if not configs:
+        raise ValueError("configs must be non-empty")
+
+    from .parser import index_dataset
+
+    # --- Index each config ---
+    indices: list[dict[str, Any]] = []
+    per_config_ids: list[set[tuple[str, ...]]] = []
+
+    for i, config in enumerate(configs):
+        config_name = config.get("name", "unnamed")
+        logger.info(
+            "extract_datasets: indexing config %d/%d ('%s') from %s",
+            i + 1, len(configs), config_name, config.get("path", "?"),
+        )
+        index = index_dataset(
+            config, strict=strict, sample=sample, match_index=match_index,
+        )
+        indices.append(index)
+        qids = _collect_qualified_ids(index)
+        per_config_ids.append(qids)
+        logger.info(
+            "extract_datasets: config '%s' matched %d qualified IDs",
+            config_name, len(qids),
+        )
+
+    # --- Compute intersection and warn about incomplete coverage ---
+    common_ids = per_config_ids[0].copy()
+    for qids in per_config_ids[1:]:
+        common_ids = common_ids & qids
+    logger.info(
+        "extract_datasets: intersection across %d configs: %d common "
+        "qualified IDs",
+        len(configs), len(common_ids),
+    )
+
+    incomplete_ids: dict[str, set[tuple[str, ...]]] = {}
+    for config, qids in zip(configs, per_config_ids):
+        config_name = config.get("name", "unnamed")
+        diff = qids - common_ids
+        if diff:
+            incomplete_ids[config_name] = diff
+            logger.warning(
+                "extract_datasets: config '%s' has %d IDs not present in "
+                "all other configs (incomplete intersection)",
+                config_name, len(diff),
+            )
+
+    # --- Copy each indexed dataset to its output path ---
+    extraction_results: list[dict[str, Any]] = []
+
+    for config, index, output_path, qids in zip(
+        configs, indices, output_paths, per_config_ids,
+    ):
+        config_name = config.get("name", "unnamed")
+        source_path = config["path"]
+        logger.info(
+            "extract_datasets: copying '%s' from %s to %s",
+            config_name, source_path, output_path,
+        )
+        result = copy_dataset(source_path, output_path, index=index)
+        result["config_name"] = config_name
+        result["source"] = str(source_path)
+        result["target"] = str(output_path)
+        result["num_ids"] = len(qids)
+        extraction_results.append(result)
+
+    return {
+        "extractions": extraction_results,
+        "per_config_ids": per_config_ids,
+        "common_ids": common_ids,
+        "incomplete_ids": incomplete_ids,
+    }
