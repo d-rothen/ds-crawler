@@ -1,14 +1,15 @@
-"""Tests for DatasetWriter."""
+"""Tests for DatasetWriter and ZipDatasetWriter."""
 
 from __future__ import annotations
 
 import json
+import zipfile
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from ds_crawler import DatasetWriter, align_datasets, index_dataset
+from ds_crawler import DatasetWriter, ZipDatasetWriter, align_datasets, index_dataset
 from .conftest import touch
 
 
@@ -349,3 +350,185 @@ class TestIntegrationWithAlignDatasets:
         for file_id, modalities in aligned.items():
             assert "rgb" in modalities
             assert "seg" in modalities
+
+
+# ---------------------------------------------------------------------------
+# ZipDatasetWriter
+# ---------------------------------------------------------------------------
+
+
+def _make_zip_writer(tmp_path: Path, **overrides: Any) -> ZipDatasetWriter:
+    defaults: dict[str, Any] = {
+        "root": tmp_path / "output.zip",
+        "name": "segmentation",
+        "type": "segmentation",
+        "euler_train": _EULER_TRAIN,
+        "separator": ":",
+    }
+    defaults.update(overrides)
+    return ZipDatasetWriter(**defaults)
+
+
+class TestZipDatasetWriterConstruction:
+    def test_basic(self, tmp_path: Path) -> None:
+        writer = _make_zip_writer(tmp_path)
+        assert len(writer) == 0
+        assert writer.root == tmp_path / "output.zip"
+        writer.close()
+
+    def test_non_zip_path_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match=r"\.zip"):
+            _make_zip_writer(tmp_path, root=tmp_path / "output")
+
+    def test_creates_parent_dirs(self, tmp_path: Path) -> None:
+        writer = _make_zip_writer(
+            tmp_path, root=tmp_path / "nested" / "dir" / "out.zip",
+        )
+        assert (tmp_path / "nested" / "dir").is_dir()
+        writer.close()
+
+
+class TestZipOpen:
+    def test_open_returns_writable_filelike(self, tmp_path: Path) -> None:
+        writer = _make_zip_writer(tmp_path)
+        with writer.open("/scene:S1/001", "001.npy") as f:
+            f.write(b"fake npy data")
+        assert len(writer) == 1
+        writer.close()
+
+    def test_open_data_appears_in_zip(self, tmp_path: Path) -> None:
+        zip_path = tmp_path / "output.zip"
+        writer = _make_zip_writer(tmp_path)
+        with writer.open("/scene:S1/001", "001.bin") as f:
+            f.write(b"hello world")
+        writer.save_index()
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            assert zf.read("S1/001.bin") == b"hello world"
+
+    def test_open_after_close_raises(self, tmp_path: Path) -> None:
+        writer = _make_zip_writer(tmp_path)
+        writer.close()
+        with pytest.raises(RuntimeError, match="closed"):
+            writer.open("/001", "001.bin")
+
+
+class TestZipWrite:
+    def test_write_bytes(self, tmp_path: Path) -> None:
+        zip_path = tmp_path / "output.zip"
+        writer = _make_zip_writer(tmp_path)
+        writer.write("/scene:S1/001", "001.bin", b"some data")
+        writer.save_index()
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            assert zf.read("S1/001.bin") == b"some data"
+
+    def test_write_after_close_raises(self, tmp_path: Path) -> None:
+        writer = _make_zip_writer(tmp_path)
+        writer.close()
+        with pytest.raises(RuntimeError, match="closed"):
+            writer.write("/001", "001.bin", b"data")
+
+
+class TestZipSaveIndex:
+    def test_creates_zip_with_index(self, tmp_path: Path) -> None:
+        zip_path = tmp_path / "output.zip"
+        writer = _make_zip_writer(tmp_path)
+        writer.write("/scene:S1/001", "001.png", b"img")
+        result = writer.save_index()
+
+        assert result == zip_path
+        assert zip_path.is_file()
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            names = zf.namelist()
+            assert "S1/001.png" in names
+            assert ".ds_crawler/output.json" in names
+
+    def test_index_content_matches_build_output(self, tmp_path: Path) -> None:
+        zip_path = tmp_path / "output.zip"
+        writer = _make_zip_writer(tmp_path)
+        writer.write("/scene:S1/001", "001.png", b"img")
+        expected = writer.build_output()
+        writer.save_index()
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            actual = json.loads(zf.read(".ds_crawler/output.json"))
+        assert actual == expected
+
+    def test_custom_filename(self, tmp_path: Path) -> None:
+        zip_path = tmp_path / "output.zip"
+        writer = _make_zip_writer(tmp_path)
+        writer.write("/001", "001.bin", b"x")
+        writer.save_index(filename="custom.json")
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            assert ".ds_crawler/custom.json" in zf.namelist()
+
+    def test_save_index_after_close_raises(self, tmp_path: Path) -> None:
+        writer = _make_zip_writer(tmp_path)
+        writer.close()
+        with pytest.raises(RuntimeError, match="closed"):
+            writer.save_index()
+
+
+class TestZipCompression:
+    def test_compressed_extensions_use_stored(self, tmp_path: Path) -> None:
+        zip_path = tmp_path / "output.zip"
+        writer = _make_zip_writer(tmp_path)
+        writer.write("/001", "001.png", b"png data")
+        writer.write("/002", "002.jpg", b"jpg data")
+        writer.write("/003", "003.npy", b"npy data")
+        writer.write("/004", "004.bin", b"bin data")
+        writer.save_index()
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            for info in zf.infolist():
+                if info.filename.endswith((".png", ".jpg")):
+                    assert info.compress_type == zipfile.ZIP_STORED
+                elif info.filename.endswith((".npy", ".bin")):
+                    assert info.compress_type == zipfile.ZIP_DEFLATED
+
+
+class TestZipContextManager:
+    def test_context_manager_closes_zip(self, tmp_path: Path) -> None:
+        zip_path = tmp_path / "output.zip"
+        with _make_zip_writer(tmp_path) as writer:
+            writer.write("/001", "001.bin", b"data")
+            writer.save_index()
+        assert zip_path.is_file()
+        # Writer is closed — further writes should fail
+        with pytest.raises(RuntimeError, match="closed"):
+            writer.write("/002", "002.bin", b"more")
+
+    def test_context_manager_without_save_index(self, tmp_path: Path) -> None:
+        """Exiting without save_index still closes the zip cleanly."""
+        zip_path = tmp_path / "output.zip"
+        with _make_zip_writer(tmp_path) as writer:
+            writer.write("/001", "001.bin", b"data")
+        # The zip was created (opened in __init__) and closed
+        assert zip_path.is_file()
+
+
+class TestZipBuildOutput:
+    def test_hierarchy_structure(self, tmp_path: Path) -> None:
+        writer = _make_zip_writer(tmp_path)
+        writer.write("/scene:S1/cam:C0/001", "001.png", b"a")
+        writer.write("/scene:S1/cam:C0/002", "002.png", b"b")
+
+        output = writer.build_output()
+        assert output["name"] == "segmentation"
+        files = output["dataset"]["children"]["scene:S1"]["children"]["cam:C0"]["files"]
+        assert len(files) == 2
+        assert {f["id"] for f in files} == {"001", "002"}
+        writer.close()
+
+    def test_flat_dataset(self, tmp_path: Path) -> None:
+        writer = _make_zip_writer(tmp_path)
+        writer.write("/001", "001.png", b"a")
+        writer.write("/002", "002.png", b"b")
+
+        output = writer.build_output()
+        files = output["dataset"]["files"]
+        assert len(files) == 2
+        assert files[0]["path"] == "001.png"
+        writer.close()

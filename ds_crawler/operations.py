@@ -23,6 +23,7 @@ from .traversal import (
     split_qualified_ids,
 )
 from .zip_utils import (
+    COMPRESSED_EXTENSIONS,
     METADATA_DIR,
     OUTPUT_FILENAME,
     is_zip_path,
@@ -32,12 +33,8 @@ from .zip_utils import (
 
 logger = logging.getLogger(__name__)
 
-# File extensions whose contents are already compressed.  Writing these
-# with ZIP_STORED instead of ZIP_DEFLATED avoids a costly recompression
-# pass that yields virtually no size reduction.
-_COMPRESSED_EXTENSIONS: frozenset[str] = frozenset({
-    ".png", ".jpg", ".jpeg", ".exr", ".webp",
-})
+# Backwards-compatible alias
+_COMPRESSED_EXTENSIONS = COMPRESSED_EXTENSIONS
 
 
 # ---------------------------------------------------------------------------

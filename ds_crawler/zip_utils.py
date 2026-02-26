@@ -13,6 +13,13 @@ from typing import Any
 METADATA_DIR = ".ds_crawler"
 OUTPUT_FILENAME = "output.json"
 
+# File extensions whose contents are already compressed.  Writing these
+# with ZIP_STORED instead of ZIP_DEFLATED avoids a costly recompression
+# pass that yields virtually no size reduction.
+COMPRESSED_EXTENSIONS: frozenset[str] = frozenset({
+    ".png", ".jpg", ".jpeg", ".exr", ".webp",
+})
+
 
 def is_zip_path(path: str | Path) -> bool:
     """Return True if *path* points to an existing ``.zip`` file."""

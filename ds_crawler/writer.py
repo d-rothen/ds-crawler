@@ -1,9 +1,8 @@
-"""Dataset writer for constructing output directories and index files.
+"""Dataset writers for constructing output directories/archives and index files.
 
-Provides :class:`DatasetWriter`, a stateful helper that turns
-``(full_id, basename)`` pairs into filesystem paths while accumulating
-the metadata needed to produce a valid ``output.json`` — the same format
-that :func:`~ds_crawler.parser.index_dataset_from_path` returns.
+Provides :class:`DatasetWriter` (filesystem) and :class:`ZipDatasetWriter`
+(ZIP archive), both backed by :class:`_BaseDatasetWriter` which handles
+index accumulation and ``output.json`` generation.
 
 Typical usage with ``euler-loading``::
 
@@ -26,16 +25,39 @@ Typical usage with ``euler-loading``::
         save_image(prediction, out_path)
 
     writer.save_index()  # writes .ds_crawler/output.json
+
+ZIP output::
+
+    from ds_crawler import ZipDatasetWriter
+
+    with ZipDatasetWriter(
+        "/output/segmentation.zip",
+        name="segmentation",
+        type="segmentation",
+        euler_train={"used_as": "target", "modality_type": "semantic"},
+        separator=":",
+    ) as writer:
+        for sample in dataloader:
+            with writer.open(
+                full_id=sample["full_id"],
+                basename=f"{sample['id']}.png",
+            ) as f:
+                save_image(prediction, f)
+
+        writer.save_index()
 """
 
 from __future__ import annotations
 
+import io
+import json
 import logging
+import zipfile
 from pathlib import Path
 from typing import Any
 
 from .config import _MODALITY_META_SCHEMAS
-from .zip_utils import write_metadata_json
+from .zip_utils import COMPRESSED_EXTENSIONS, METADATA_DIR, write_metadata_json
 
 logger = logging.getLogger(__name__)
 
@@ -70,30 +92,16 @@ def _split_hierarchy_key(
     return None, key
 
 
-class DatasetWriter:
-    """Accumulates file entries and produces ``output.json``-compatible output.
+# ======================================================================
+# Base class — shared index-building logic
+# ======================================================================
 
-    Each call to :meth:`get_path` registers a file entry and returns the
-    absolute path where the caller should write the actual data.  When all
-    files have been written, :meth:`save_index` persists the accumulated
-    index as ``.ds_crawler/output.json`` — ready for consumption by
-    :func:`~ds_crawler.parser.index_dataset_from_path`,
-    :func:`~ds_crawler.parser.align_datasets`, or
-    ``euler_loading.MultiModalDataset``.
 
-    Args:
-        root: Output directory.  Subdirectories are created as needed.
-        name: Dataset name (written to the index).
-        type: Semantic label for the data modality (e.g. ``"rgb"``,
-            ``"depth"``).
-        euler_train: Training metadata dict.  Must contain at least
-            ``used_as`` and ``modality_type``.
-        separator: The character used to join hierarchy key names and
-            values (e.g. ``":"`` for ``"scene:Scene01"``).  Should match
-            the ``named_capture_group_value_separator`` of the source
-            datasets.  Pass ``None`` for unnamed hierarchy keys.
-        **properties: Arbitrary extra metadata written to the index
-            (e.g. ``gt=False``, ``model="MyModel"``).
+class _BaseDatasetWriter:
+    """Shared logic for accumulating file entries and building ``output.json``.
+
+    Not intended for direct use.  Subclass and provide a storage-specific
+    write interface (filesystem paths or ZIP entries).
     """
 
     def __init__(
@@ -152,7 +160,7 @@ class DatasetWriter:
 
     @property
     def root(self) -> Path:
-        """The output root directory."""
+        """The output root (directory or ``.zip`` path)."""
         return self._root
 
     def __len__(self) -> int:
@@ -160,36 +168,20 @@ class DatasetWriter:
         return self._count
 
     # ------------------------------------------------------------------
-    # Path generation
+    # Entry registration (shared)
     # ------------------------------------------------------------------
 
-    def get_path(
+    def _register_entry(
         self,
         full_id: str,
         basename: str,
         *,
         source_meta: dict[str, Any] | None = None,
-    ) -> Path:
-        """Register a file entry and return the absolute path to write to.
+    ) -> tuple[str, list[str]]:
+        """Parse *full_id*, record the entry, return ``(rel_path_str, hierarchy_keys)``.
 
-        Parses *full_id* (e.g. ``"/scene:Scene01/camera:Cam0/00001"``)
-        into hierarchy keys + leaf ID, builds the directory tree under
-        :attr:`root`, and records the entry for later :meth:`save_index`.
-
-        Args:
-            full_id: Hierarchical identifier as produced by
-                ``euler_loading.MultiModalDataset`` (``sample["full_id"]``).
-                Leading slash is optional.
-            basename: Filename including extension (e.g. ``"00001.png"``).
-            source_meta: Optional source file entry dict (e.g.
-                ``sample["meta"]["rgb"]``).  When provided, its
-                ``path_properties`` and ``basename_properties`` are
-                copied verbatim into the new entry instead of being
-                reconstructed from the hierarchy keys.
-
-        Returns:
-            Absolute :class:`~pathlib.Path` to the file.  Parent
-            directories are created automatically.
+        This is the shared core of both :meth:`DatasetWriter.get_path` and
+        :meth:`ZipDatasetWriter.open` / :meth:`ZipDatasetWriter.write`.
         """
         hierarchy_keys, file_id = _parse_full_id(full_id)
 
@@ -208,11 +200,9 @@ class DatasetWriter:
             if "path_properties" in source_meta:
                 path_properties = dict(source_meta["path_properties"])
 
-        # --- Compute paths ----------------------------------------------
+        # --- Compute relative path --------------------------------------
         rel_dir = Path(*dir_parts) if dir_parts else Path()
         rel_path = rel_dir / basename
-        abs_path = self._root / rel_path
-        abs_path.parent.mkdir(parents=True, exist_ok=True)
 
         # --- Build basename_properties ----------------------------------
         if source_meta is not None and "basename_properties" in source_meta:
@@ -247,7 +237,7 @@ class DatasetWriter:
         node["files"].append(entry)
         self._count += 1
 
-        return abs_path
+        return str(rel_path), hierarchy_keys
 
     # ------------------------------------------------------------------
     # Index output
@@ -271,6 +261,81 @@ class DatasetWriter:
             output["named_capture_group_value_separator"] = self._separator
         return output
 
+
+# ======================================================================
+# Filesystem writer
+# ======================================================================
+
+
+class DatasetWriter(_BaseDatasetWriter):
+    """Accumulates file entries and produces ``output.json``-compatible output.
+
+    Each call to :meth:`get_path` registers a file entry and returns the
+    absolute path where the caller should write the actual data.  When all
+    files have been written, :meth:`save_index` persists the accumulated
+    index as ``.ds_crawler/output.json`` — ready for consumption by
+    :func:`~ds_crawler.parser.index_dataset_from_path`,
+    :func:`~ds_crawler.parser.align_datasets`, or
+    ``euler_loading.MultiModalDataset``.
+
+    Args:
+        root: Output directory.  Subdirectories are created as needed.
+        name: Dataset name (written to the index).
+        type: Semantic label for the data modality (e.g. ``"rgb"``,
+            ``"depth"``).
+        euler_train: Training metadata dict.  Must contain at least
+            ``used_as`` and ``modality_type``.
+        separator: The character used to join hierarchy key names and
+            values (e.g. ``":"`` for ``"scene:Scene01"``).  Should match
+            the ``named_capture_group_value_separator`` of the source
+            datasets.  Pass ``None`` for unnamed hierarchy keys.
+        **properties: Arbitrary extra metadata written to the index
+            (e.g. ``gt=False``, ``model="MyModel"``).
+    """
+
+    # ------------------------------------------------------------------
+    # Path generation
+    # ------------------------------------------------------------------
+
+    def get_path(
+        self,
+        full_id: str,
+        basename: str,
+        *,
+        source_meta: dict[str, Any] | None = None,
+    ) -> Path:
+        """Register a file entry and return the absolute path to write to.
+
+        Parses *full_id* (e.g. ``"/scene:Scene01/camera:Cam0/00001"``)
+        into hierarchy keys + leaf ID, builds the directory tree under
+        :attr:`root`, and records the entry for later :meth:`save_index`.
+
+        Args:
+            full_id: Hierarchical identifier as produced by
+                ``euler_loading.MultiModalDataset`` (``sample["full_id"]``).
+                Leading slash is optional.
+            basename: Filename including extension (e.g. ``"00001.png"``).
+            source_meta: Optional source file entry dict (e.g.
+                ``sample["meta"]["rgb"]``).  When provided, its
+                ``path_properties`` and ``basename_properties`` are
+                copied verbatim into the new entry instead of being
+                reconstructed from the hierarchy keys.
+
+        Returns:
+            Absolute :class:`~pathlib.Path` to the file.  Parent
+            directories are created automatically.
+        """
+        rel_path_str, _hierarchy_keys = self._register_entry(
+            full_id, basename, source_meta=source_meta,
+        )
+        abs_path = self._root / rel_path_str
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        return abs_path
+
+    # ------------------------------------------------------------------
+    # Index output
+    # ------------------------------------------------------------------
+
     def save_index(self, filename: str = "output.json") -> Path:
         """Write the accumulated index to ``.ds_crawler/{filename}``.
 
@@ -289,3 +354,203 @@ class DatasetWriter:
             path,
         )
         return path
+
+
+# ======================================================================
+# ZIP writer
+# ======================================================================
+
+
+class _ZipEntryFile(io.BytesIO):
+    """A writable file-like that flushes its contents into a ZIP on close."""
+
+    def __init__(self, zf: zipfile.ZipFile, entry_name: str, compress_type: int):
+        super().__init__()
+        self._zf = zf
+        self._entry_name = entry_name
+        self._compress_type = compress_type
+        self._flushed = False
+
+    def close(self) -> None:
+        if not self._flushed:
+            self._zf.writestr(
+                self._entry_name,
+                self.getvalue(),
+                compress_type=self._compress_type,
+            )
+            self._flushed = True
+        super().close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+
+class ZipDatasetWriter(_BaseDatasetWriter):
+    """Write dataset files directly into a ``.zip`` archive.
+
+    Unlike :class:`DatasetWriter`, which writes to the filesystem,
+    this class keeps a :class:`zipfile.ZipFile` open and provides
+    :meth:`open` (returns a writable file-like) and :meth:`write`
+    (accepts raw bytes) for storing data entries.
+
+    Use as a context manager to ensure the archive is closed even
+    when :meth:`save_index` is not called::
+
+        with ZipDatasetWriter("output.zip", ...) as writer:
+            with writer.open(full_id, basename) as f:
+                np.save(f, array)
+            writer.save_index()
+
+    Args:
+        root: Output ``.zip`` file path.  Parent directories are
+            created if needed.  The file must not already exist.
+        name: Dataset name (written to the index).
+        type: Semantic label for the data modality.
+        euler_train: Training metadata dict (must contain ``used_as``
+            and ``modality_type``).
+        separator: Hierarchy key separator (see :class:`DatasetWriter`).
+        **properties: Extra metadata written to the index.
+    """
+
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        name: str,
+        type: str,
+        euler_train: dict[str, Any],
+        separator: str | None = ":",
+        **properties: Any,
+    ) -> None:
+        super().__init__(
+            root, name=name, type=type, euler_train=euler_train,
+            separator=separator, **properties,
+        )
+        if self._root.suffix.lower() != ".zip":
+            raise ValueError(
+                f"ZipDatasetWriter root must be a .zip path, got: {self._root}"
+            )
+        self._root.parent.mkdir(parents=True, exist_ok=True)
+        self._zf = zipfile.ZipFile(self._root, "w", zipfile.ZIP_STORED)
+        self._closed = False
+
+    # ------------------------------------------------------------------
+    # Context manager
+    # ------------------------------------------------------------------
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    # ------------------------------------------------------------------
+    # Writing
+    # ------------------------------------------------------------------
+
+    def _compress_type_for(self, basename: str) -> int:
+        suffix = Path(basename).suffix.lower()
+        if suffix in COMPRESSED_EXTENSIONS:
+            return zipfile.ZIP_STORED
+        return zipfile.ZIP_DEFLATED
+
+    def open(
+        self,
+        full_id: str,
+        basename: str,
+        *,
+        source_meta: dict[str, Any] | None = None,
+    ) -> _ZipEntryFile:
+        """Register a file entry and return a writable file-like object.
+
+        Data written to the returned object is flushed into the ZIP
+        archive when the object is closed.  Works with any API that
+        accepts a file-like (``np.save``, ``PIL.Image.save``, etc.)::
+
+            with writer.open(full_id, basename) as f:
+                np.save(f, array)
+
+        Args:
+            full_id: Hierarchical identifier (see :meth:`DatasetWriter.get_path`).
+            basename: Filename including extension.
+            source_meta: Optional source file entry dict.
+
+        Returns:
+            A writable :class:`io.BytesIO` subclass that writes into
+            the ZIP on ``.close()``.
+        """
+        if self._closed:
+            raise RuntimeError("ZipDatasetWriter is closed")
+        rel_path_str, _ = self._register_entry(
+            full_id, basename, source_meta=source_meta,
+        )
+        entry_name = rel_path_str.replace("\\", "/")
+        compress = self._compress_type_for(basename)
+        return _ZipEntryFile(self._zf, entry_name, compress)
+
+    def write(
+        self,
+        full_id: str,
+        basename: str,
+        data: bytes,
+        *,
+        source_meta: dict[str, Any] | None = None,
+    ) -> None:
+        """Register a file entry and write raw bytes into the archive.
+
+        Convenience method for when the data is already available as
+        bytes.  For streaming writes, use :meth:`open` instead.
+
+        Args:
+            full_id: Hierarchical identifier.
+            basename: Filename including extension.
+            data: Raw file contents.
+            source_meta: Optional source file entry dict.
+        """
+        if self._closed:
+            raise RuntimeError("ZipDatasetWriter is closed")
+        rel_path_str, _ = self._register_entry(
+            full_id, basename, source_meta=source_meta,
+        )
+        entry_name = rel_path_str.replace("\\", "/")
+        compress = self._compress_type_for(basename)
+        self._zf.writestr(entry_name, data, compress_type=compress)
+
+    # ------------------------------------------------------------------
+    # Index output
+    # ------------------------------------------------------------------
+
+    def save_index(self, filename: str = "output.json") -> Path:
+        """Write the index into the archive and close it.
+
+        Args:
+            filename: Name of the JSON metadata file.
+
+        Returns:
+            The ``.zip`` :class:`~pathlib.Path`.
+        """
+        if self._closed:
+            raise RuntimeError("ZipDatasetWriter is closed")
+        output = self.build_output()
+        self._zf.writestr(
+            f"{METADATA_DIR}/{filename}",
+            json.dumps(output, indent=2),
+            compress_type=zipfile.ZIP_DEFLATED,
+        )
+        self._zf.close()
+        self._closed = True
+        logger.info(
+            "ZipDatasetWriter: saved index with %d entries to %s",
+            self._count,
+            self._root,
+        )
+        return self._root
+
+    def close(self) -> None:
+        """Close the underlying ZIP archive (idempotent)."""
+        if not self._closed:
+            self._zf.close()
+            self._closed = True

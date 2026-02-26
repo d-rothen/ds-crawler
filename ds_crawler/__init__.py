@@ -22,11 +22,12 @@ from .operations import (
     split_dataset,
     split_datasets,
 )
-from .writer import DatasetWriter
+from .writer import DatasetWriter, ZipDatasetWriter
 
 __all__ = [
     "DatasetDescriptor",
     "DatasetWriter",
+    "ZipDatasetWriter",
     "Config",
     "DatasetConfig",
     "DatasetParser",
