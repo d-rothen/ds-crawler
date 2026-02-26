@@ -508,6 +508,45 @@ class TestDatasetConfigValidation:
         ds = DatasetConfig(**self._minimal_kwargs())
         assert ds.id_override is None
 
+    def test_path_filters_terms_are_normalized(self) -> None:
+        ds = DatasetConfig(
+            **self._minimal_kwargs(
+                path_filters={
+                    "include_terms": ["fog", "scene06"],
+                    "exclude_terms": ["night"],
+                    "term_match_mode": "path_segment",
+                }
+            )
+        )
+        assert ds.path_filters == {
+            "include_terms": ["fog", "scene06"],
+            "exclude_terms": ["night"],
+            "term_match_mode": "path_segment",
+        }
+
+    def test_path_filters_invalid_type_raises(self) -> None:
+        with pytest.raises(ValueError, match="path_filters must be an object"):
+            DatasetConfig(**self._minimal_kwargs(path_filters="fog"))
+
+    def test_path_filters_invalid_regex_raises(self) -> None:
+        with pytest.raises(
+            ValueError,
+            match=r"path_filters\.include_regex\[0\] is not a valid regex",
+        ):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    path_filters={"include_regex": ["[invalid"]},
+                )
+            )
+
+    def test_path_filters_invalid_term_mode_raises(self) -> None:
+        with pytest.raises(ValueError, match="path_filters.term_match_mode"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    path_filters={"term_match_mode": "contains"},
+                )
+            )
+
     def test_invalid_basename_regex_raises(self) -> None:
         with pytest.raises(ValueError, match="Invalid basename_regex"):
             DatasetConfig(**self._minimal_kwargs(basename_regex="[invalid"))
@@ -810,6 +849,7 @@ class TestConfigFromFile:
         }
         assert ds.output_json is None
         assert ds.file_extensions is None
+        assert ds.path_filters is None
 
     def test_properties_loaded(self, tmp_path: Path) -> None:
         config_path = tmp_path / "cfg.json"

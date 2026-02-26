@@ -117,12 +117,56 @@ dict). Minimal example:
 | `named_capture_group_value_separator` | no | Character joining group name and value in hierarchy keys (default `":"`) |
 | `basename_regex` | no | Regex applied to basename only; properties stored per file |
 | `path_regex` | no | Regex applied to full relative path; properties stored per file |
+| `path_filters` | no | Path-level include/exclude rules (regex and/or term whitelist/blacklist) |
 | `intrinsics_regex` | no | Regex matching camera intrinsics files |
 | `extrinsics_regex` | no | Regex matching camera extrinsics files |
 | `id_regex_join_char` | no | Join character for multi-group IDs (default `"+"`) |
 | `file_extensions` | no | Restrict to these extensions (e.g. `[".png", ".jpg"]`) |
 | `flat_ids_unique` | no | If `true`, IDs must be globally unique (not just within hierarchy node) |
 | `output_json` | no | Path to a pre-existing `output.json` to load instead of crawling |
+
+#### Path filters (`path_filters`)
+
+Use `path_filters` when you want to include/exclude files by relative path
+without changing your `id_regex`:
+
+```json
+"path_filters": {
+  "include_terms": ["fog"],
+  "exclude_terms": ["night"],
+  "term_match_mode": "path_segment"
+}
+```
+
+Supported keys:
+
+- `include_regex`: list of regexes, at least one must match when provided
+- `exclude_regex`: list of regexes, none may match
+- `include_terms`: term whitelist, at least one must match when provided
+- `exclude_terms`: term blacklist, none may match
+- `term_match_mode`: `"substring"` (default) or `"path_segment"`
+- `case_sensitive`: `true` (default) or `false`
+
+These filters apply to both data files and camera metadata paths
+(`intrinsics_regex` / `extrinsics_regex` matches).
+
+Example: keep only VKITTI fog frames:
+
+```json
+"path_filters": {
+  "include_terms": ["fog"],
+  "term_match_mode": "path_segment"
+}
+```
+
+Example: exclude all fog frames:
+
+```json
+"path_filters": {
+  "exclude_terms": ["fog"],
+  "term_match_mode": "path_segment"
+}
+```
 
 ### Multi-dataset config
 
@@ -149,6 +193,10 @@ The index produced by the crawler:
   "type": "rgb",
   "id_regex": "...",
   "id_regex_join_char": "+",
+  "path_filters": {
+    "include_terms": ["fog"],
+    "term_match_mode": "path_segment"
+  },
   "euler_train": { "used_as": "input", "modality_type": "rgb" },
   "named_capture_group_value_separator": ":",
   "dataset": {

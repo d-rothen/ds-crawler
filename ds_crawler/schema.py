@@ -24,6 +24,7 @@ _OUTPUT_KEYS = frozenset({
     "hierarchy_regex",
     "named_capture_group_value_separator",
     "sampled",
+    "path_filters",
 })
 
 

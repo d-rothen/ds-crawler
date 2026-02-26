@@ -560,6 +560,26 @@ class TestBuildOutput:
         output = parser._build_output(ds, {})
         assert "id_override" not in output
 
+    def test_path_filters_included_in_output(self, tmp_path: Path) -> None:
+        ds = make_dataset_config(
+            name="test",
+            path=str(tmp_path),
+            type="rgb",
+            basename_regex=r"^(?P<f>.+)\.png$",
+            id_regex=r"^(?P<f>.+)\.png$",
+            path_filters={
+                "include_terms": ["fog"],
+                "term_match_mode": "path_segment",
+            },
+        )
+        parser = self._make_parser(ds)
+        output = parser._build_output(ds, {})
+
+        assert output["path_filters"] == {
+            "include_terms": ["fog"],
+            "term_match_mode": "path_segment",
+        }
+
     def test_dataset_properties_deep_merged(self, tmp_path: Path) -> None:
         ds = make_dataset_config(
             name="test",
@@ -1479,6 +1499,60 @@ class TestSampling:
 
         result = index_dataset_from_files(cfg, files, sample=2)
         assert result["sampled"] == 2
+
+
+# ===================================================================
+# Path filters
+# ===================================================================
+
+
+class TestPathFilters:
+    def _make_config(self, path: str, **extra: Any) -> dict[str, Any]:
+        cfg = {
+            "name": "weather_rgb",
+            "path": path,
+            "type": "rgb",
+            "file_extensions": [".png"],
+            "id_regex": r"^(?P<scene>[^/]+)/(?P<weather>[^/]+)/(?P<frame>\d+)\.png$",
+        }
+        cfg.update(extra)
+        return with_euler_train(cfg)
+
+    def test_include_terms_path_segment_keeps_only_matching_branch(
+        self, tmp_path: Path
+    ) -> None:
+        root = tmp_path / "vkitti_like"
+        touch(root / "Scene06" / "fog" / "0000.png")
+        touch(root / "Scene06" / "fog" / "0001.png")
+        touch(root / "Scene06" / "rain" / "0000.png")
+
+        cfg = self._make_config(
+            str(root),
+            path_filters={
+                "include_terms": ["fog"],
+                "term_match_mode": "path_segment",
+            },
+        )
+        result = index_dataset(cfg)
+
+        assert sorted(get_files(result)) == [
+            "Scene06/fog/0000.png",
+            "Scene06/fog/0001.png",
+        ]
+
+    def test_exclude_regex_removes_matching_paths(self, tmp_path: Path) -> None:
+        root = tmp_path / "vkitti_like"
+        touch(root / "Scene06" / "fog" / "0000.png")
+        touch(root / "Scene06" / "clone" / "0000.png")
+        touch(root / "Scene07" / "fog" / "0000.png")
+
+        cfg = self._make_config(
+            str(root),
+            path_filters={"exclude_regex": [r"/fog/"]},
+        )
+        result = index_dataset(cfg)
+
+        assert get_files(result) == ["Scene06/clone/0000.png"]
 
 
 # ===================================================================

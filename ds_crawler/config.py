@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .schema import DatasetDescriptor
+from .path_filters import PathFilters
 
 
 CONFIG_FILENAME = "ds-crawler.json"
@@ -33,6 +34,7 @@ _RESERVED_TOP_LEVEL_PROPERTIES: frozenset[str] = frozenset({
     "named_capture_group_value_separator",
     "sampled",
     "id_override",
+    "path_filters",
 })
 _PROPERTY_NAMESPACE_KEYS: frozenset[str] = frozenset({
     "euler_train",
@@ -142,15 +144,18 @@ class DatasetConfig(DatasetDescriptor):
     flat_ids_unique: bool = False
     id_regex_join_char: str = "+"
     id_override: str | None = None
+    path_filters: dict[str, Any] | None = None
     output_json: str | None = None
     file_extensions: list[str] | None = None
     euler_train: dict[str, Any] = field(init=False)
+    compiled_path_filters: PathFilters = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Validate configuration and compile regex patterns."""
         if not self.id_regex:
             raise ValueError("id_regex is required")
         self._normalize_file_extensions()
+        self._normalize_path_filters()
         self._compile_and_validate_regexes()
         self._validate_properties()
         self.euler_train = self._normalize_euler_train()
@@ -342,6 +347,16 @@ class DatasetConfig(DatasetDescriptor):
                 for ext in self.file_extensions
             ]
 
+    def _normalize_path_filters(self) -> None:
+        """Validate and normalize optional path filter rules."""
+        self.compiled_path_filters = PathFilters.from_raw(self.path_filters)
+        normalized = self.compiled_path_filters.to_dict()
+        self.path_filters = normalized or None
+
+    def matches_path_filters(self, path: str) -> bool:
+        """Return whether *path* should be kept by path filter rules."""
+        return self.compiled_path_filters.matches(path)
+
     def get_file_extensions(self) -> set[str] | None:
         """Return the file extensions to filter by, or ``None`` to skip filtering.
 
@@ -391,6 +406,7 @@ class DatasetConfig(DatasetDescriptor):
             flat_ids_unique=data.get("flat_ids_unique", False),
             id_regex_join_char=data.get("id_regex_join_char", "+"),
             id_override=data.get("id_override"),
+            path_filters=data.get("path_filters"),
             properties=props,
             output_json=data.get("output_json"),
             file_extensions=data.get("file_extensions"),

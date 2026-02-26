@@ -96,6 +96,29 @@ class TestValidateOutput:
         validated = validate_output(output)
         assert validated is output
 
+    def test_path_filters_are_validated_when_present(self, tmp_path: Path) -> None:
+        root = tmp_path / "depth_predictions"
+        create_depth_predictions_tree(root)
+        config = make_depth_predictions_config(str(root))
+        config["path_filters"] = {"include_terms": ["scene01"]}
+        output = index_dataset(config)
+
+        validated = validate_output(output)
+        assert validated is output
+
+    def test_invalid_path_filters_raise(self, tmp_path: Path) -> None:
+        root = tmp_path / "depth_predictions"
+        create_depth_predictions_tree(root)
+        config = make_depth_predictions_config(str(root))
+        output = index_dataset(config)
+        output["path_filters"] = {"exclude_regex": ["[invalid"]}
+
+        with pytest.raises(
+            ValueError,
+            match=r"path_filters\.exclude_regex\[0\] is not a valid regex",
+        ):
+            validate_output(output)
+
 
 class TestValidateDataset:
     def _build_dataset_files(self, root: Path) -> tuple[dict[str, Any], dict[str, Any]]:

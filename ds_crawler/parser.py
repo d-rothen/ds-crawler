@@ -161,6 +161,8 @@ class DatasetParser:
         }
         if ds_config.id_override is not None:
             output["id_override"] = ds_config.id_override
+        if ds_config.path_filters:
+            output["path_filters"] = ds_config.path_filters
         if ds_config.hierarchy_regex:
             output["hierarchy_regex"] = ds_config.hierarchy_regex
         if ds_config.named_capture_group_value_separator:
@@ -290,6 +292,7 @@ class DatasetParser:
         skipped_hierarchy = 0
         skipped_match_index = 0
         skipped_sample = 0
+        skipped_path_filter = 0
         id_misses = 0
         warned_id_miss = False
         id_miss_threshold = max(1, int(len(files) * ID_MISS_WARN_RATIO))
@@ -419,6 +422,9 @@ class DatasetParser:
             elif skip_reason == "path_regex":
                 skipped_path_regex += 1
                 logger.debug(f"Skipped (path regex): {file_path}")
+            elif skip_reason == "path_filter":
+                skipped_path_filter += 1
+                logger.debug(f"Skipped (path filters): {file_path}")
 
         logger.info(f"Processing complete. Matched {matched_entries}/{len(files)} entries into hierarchy")
         if duplicate_occurrences:
@@ -437,6 +443,8 @@ class DatasetParser:
             logger.warning(f"Skipped {skipped_no_id} files: capture group was empty")
         if skipped_path_regex:
             logger.warning(f"Skipped {skipped_path_regex} files: path regex did not match")
+        if skipped_path_filter:
+            logger.info(f"Skipped {skipped_path_filter} files: path_filters did not match")
         if skipped_hierarchy:
             logger.error(
                 f"Skipped {skipped_hierarchy} files: hierarchy_regex did not match "
@@ -535,6 +543,8 @@ class DatasetParser:
         for file_path in files:
             relative_path = file_path.relative_to(base_path)
             path_str = str(relative_path)
+            if not ds_config.matches_path_filters(path_str):
+                continue
 
             match = regex.match(path_str)
             if not match:
@@ -562,9 +572,14 @@ class DatasetParser:
 
         Returns:
             Tuple of (entry_dict, skip_reason). If entry_dict is None,
-            skip_reason indicates why: "basename", "id_regex", "no_id", or "path_regex".
+            skip_reason indicates why: "path_filter", "basename", "id_regex",
+            "no_id", or "path_regex".
         """
         relative_path = file_path.relative_to(base_path)
+        path_str = str(relative_path)
+        if not ds_config.matches_path_filters(path_str):
+            return None, "path_filter"
+
         basename = file_path.name
 
         # Extract entry properties from basename
@@ -574,8 +589,6 @@ class DatasetParser:
             if not basename_match:
                 return None, "basename"
             entry_properties = basename_match.groupdict()
-
-        path_str = str(relative_path)
 
         # Extract id from relative path
         id_match = ds_config.compiled_id_regex.match(path_str)

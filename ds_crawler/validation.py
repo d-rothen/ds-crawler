@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import _MODALITY_META_SCHEMAS, CONFIG_FILENAME, DatasetConfig
+from .path_filters import PathFilters
 from .zip_utils import OUTPUT_FILENAME, read_metadata_json
 
 _EULER_TRAIN_ALLOWED_USED_AS: frozenset[str] = frozenset({
@@ -213,6 +214,10 @@ def _validate_output_dataset(value: Any, context: str) -> None:
     sampled = value.get("sampled")
     if sampled is not None and (not isinstance(sampled, int) or sampled <= 0):
         raise ValueError(f"{context}.sampled must be a positive integer")
+
+    path_filters = value.get("path_filters")
+    if path_filters is not None:
+        PathFilters.from_raw(path_filters, context=f"{context}.path_filters")
 
     id_override = value.get("id_override")
     if id_override is not None:
