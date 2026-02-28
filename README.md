@@ -10,7 +10,6 @@ pip install .                 # core
 pip install ".[progress]"     # with tqdm progress bars
 pip install ".[dev]"          # with pytest + tqdm
 uv pip install "ds-crawler @ git+https://github.com/d-rothen/ds-crawler"
-
 ```
 
 Requires Python >= 3.9. No runtime dependencies.
