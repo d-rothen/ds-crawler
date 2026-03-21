@@ -62,15 +62,19 @@ def build_schema() -> dict:
 
         for field_name, entry in sorted(fields.items()):
             _accepted_type, _type_label, description = entry[:3]
+            default = entry[4] if len(entry) > 4 else None
             override = _JSON_SCHEMA_OVERRIDES.get((modality_type, field_name))
             if override is not None:
                 type_clause = override
             else:
                 type_clause = _json_schema_type(_accepted_type)
-            properties[field_name] = {
+            prop: dict = {
                 **type_clause,
                 "description": description,
             }
+            if default is not None:
+                prop["default"] = default
+            properties[field_name] = prop
             required.append(field_name)
 
         modality_schemas[modality_type] = {

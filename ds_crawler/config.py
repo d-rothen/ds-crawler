@@ -73,10 +73,12 @@ def _validate_numeric_range(value: Any) -> str | None:
 
 
 # Modality-specific required fields in ``properties.meta``.
-# Each entry is a tuple of 3 or 4 elements:
-#   (accepted_type, type_label, description[, validator])
+# Each entry is a tuple of 3, 4, or 5 elements:
+#   (accepted_type, type_label, description[, validator[, default]])
 # The optional *validator* is a callable(value) -> str | None that returns
 # an error message when the value is invalid, or None when valid.
+# The optional *default* provides a sensible default value for the field
+# (emitted in the generated JSON Schema).
 _MODALITY_META_SCHEMAS: dict[str, dict[str, tuple]] = {
     "depth": {
         "radial_depth": (
@@ -84,18 +86,23 @@ _MODALITY_META_SCHEMAS: dict[str, dict[str, tuple]] = {
             "a bool",
             "Whether the depth values represent radial (euclidean) distance "
             "from the camera rather than perpendicular (z-buffer) depth.",
+            None,
+            False,
         ),
         "scale_to_meters": (
             (int, float),
             "a number",
             "Factor that converts raw depth values to meters "
             "(e.g. 0.001 when stored in millimetres).",
+            None,
+            1.0,
         ),
         "range": (
             list,
             "an array of 2 numbers [min, max]",
             "Value range of the depth values in meters (e.g. [0, 65535] for VKITTI2).",
             _validate_numeric_range,
+            [0, 65535],
         ),
     },
     "rgb": {
@@ -105,6 +112,7 @@ _MODALITY_META_SCHEMAS: dict[str, dict[str, tuple]] = {
             "Value range of the colour channels (e.g. [0, 255] for 8-bit "
             "or [0, 1] for normalised data).",
             _validate_numeric_range,
+            [0, 255],
         ),
     },
     "semantic_segmentation": {
@@ -113,6 +121,7 @@ _MODALITY_META_SCHEMAS: dict[str, dict[str, tuple]] = {
             "an array of 3 integers (0-255)",
             "RGB colour value identifying the sky class in the segmentation map.",
             _validate_rgb_array,
+            [0, 0, 0],
         ),
     },
 }
