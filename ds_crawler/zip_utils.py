@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import tempfile
 import zipfile
@@ -12,6 +13,8 @@ from typing import Any
 
 METADATA_DIR = ".ds_crawler"
 OUTPUT_FILENAME = "output.json"
+SPLIT_FILENAME_PREFIX = "split_"
+_SPLIT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 # File extensions whose contents are already compressed.  Writing these
 # with ZIP_STORED instead of ZIP_DEFLATED avoids a costly recompression
@@ -19,6 +22,26 @@ OUTPUT_FILENAME = "output.json"
 COMPRESSED_EXTENSIONS: frozenset[str] = frozenset({
     ".png", ".jpg", ".jpeg", ".exr", ".webp",
 })
+
+
+def validate_split_name(split_name: str) -> str:
+    """Validate and normalize a split name used for metadata filenames."""
+    if not isinstance(split_name, str):
+        raise ValueError("split_name must be a string")
+    normalized = split_name.strip()
+    if not normalized:
+        raise ValueError("split_name must be a non-empty string")
+    if not _SPLIT_NAME_PATTERN.match(normalized):
+        raise ValueError(
+            "split_name may only contain letters, digits, '.', '-', or '_'"
+        )
+    return normalized
+
+
+def get_split_filename(split_name: str) -> str:
+    """Return the metadata filename for a named split."""
+    normalized = validate_split_name(split_name)
+    return f"{SPLIT_FILENAME_PREFIX}{normalized}.json"
 
 
 def is_zip_path(path: str | Path) -> bool:
@@ -198,6 +221,50 @@ def read_metadata_json(
             return json.load(f)
 
     return None
+
+
+def list_metadata_json_filenames(dataset_path: Path) -> list[str]:
+    """List JSON metadata filenames stored under ``.ds_crawler/``."""
+    if is_zip_path(dataset_path):
+        with zipfile.ZipFile(dataset_path, "r") as zf:
+            names = zf.namelist()
+        prefix = _detect_root_prefix(names)
+        if prefix and _matches_zip_stem(prefix, dataset_path):
+            names = [
+                name[len(prefix):] if name.startswith(prefix) else name
+                for name in names
+            ]
+        metadata_prefix = f"{METADATA_DIR}/"
+        filenames = {
+            name[len(metadata_prefix):]
+            for name in names
+            if name.startswith(metadata_prefix) and name.endswith(".json")
+        }
+        return sorted(filenames)
+
+    metadata_dir = dataset_path / METADATA_DIR
+    if not metadata_dir.is_dir():
+        return []
+    return sorted(
+        path.name
+        for path in metadata_dir.glob("*.json")
+        if path.is_file()
+    )
+
+
+def list_split_names(dataset_path: Path) -> list[str]:
+    """List split names available under ``.ds_crawler/``."""
+    suffix = ".json"
+    result: list[str] = []
+    for filename in list_metadata_json_filenames(dataset_path):
+        if (
+            filename.startswith(SPLIT_FILENAME_PREFIX)
+            and filename.endswith(suffix)
+        ):
+            split_name = filename[len(SPLIT_FILENAME_PREFIX):-len(suffix)]
+            if split_name:
+                result.append(split_name)
+    return sorted(result)
 
 
 def write_metadata_json(

@@ -60,6 +60,21 @@ result = split_datasets(
 )
 ```
 
+### Store split indices inline
+
+```python
+from ds_crawler import create_aligned_dataset_splits, load_dataset_split
+
+create_aligned_dataset_splits(
+    source_paths=["/data/rgb", "/data/depth"],
+    split_names=["train", "val"],
+    ratios=[80, 20],
+    seed=42,
+)
+
+rgb_train = load_dataset_split("/data/rgb", "train")
+```
+
 ### Write model outputs back to disk
 
 ```python
@@ -215,6 +230,11 @@ The index produced by the crawler:
 `dataset` is a recursive node: each node has `files` (leaf entries) and
 `children` (named sub-nodes). Hierarchy keys follow the pattern
 `<group_name><separator><value>` (e.g. `scene:Scene01`).
+
+Inline splits can be stored alongside the full index as
+`.ds_crawler/split_<name>.json`. These files contain only the JSON object
+that normally appears under `output["dataset"]`, so they can be overlaid on
+top of the canonical `output.json` metadata at load time.
 
 ---
 

@@ -17,8 +17,12 @@ from .traversal import (
 )
 from .operations import (
     align_datasets,
+    create_aligned_dataset_splits,
+    create_dataset_splits,
     copy_dataset,
     extract_datasets,
+    list_dataset_splits,
+    load_dataset_split,
     split_dataset,
     split_datasets,
 )
@@ -32,6 +36,8 @@ __all__ = [
     "DatasetConfig",
     "DatasetParser",
     "align_datasets",
+    "create_aligned_dataset_splits",
+    "create_dataset_splits",
     "collect_qualified_ids",
     "copy_dataset",
     "extract_datasets",
@@ -40,7 +46,9 @@ __all__ = [
     "index_dataset",
     "index_dataset_from_files",
     "index_dataset_from_path",
+    "list_dataset_splits",
     "load_dataset_config",
+    "load_dataset_split",
     "split_dataset",
     "split_datasets",
     "split_qualified_ids",

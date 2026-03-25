@@ -26,8 +26,11 @@ from .zip_utils import (
     COMPRESSED_EXTENSIONS,
     METADATA_DIR,
     OUTPUT_FILENAME,
+    get_split_filename,
     is_zip_path,
+    list_split_names,
     read_metadata_json,
+    validate_split_name,
     write_metadata_json,
 )
 
@@ -38,11 +41,244 @@ _COMPRESSED_EXTENSIONS = COMPRESSED_EXTENSIONS
 
 
 # ---------------------------------------------------------------------------
+# Inline splits
+# ---------------------------------------------------------------------------
+
+
+def _normalize_split_names(split_names: list[str]) -> list[str]:
+    """Validate split names and reject duplicates."""
+    normalized = [validate_split_name(name) for name in split_names]
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("split_names must be unique")
+    return normalized
+
+
+def _ensure_output_index(
+    dataset_path: Path,
+    index: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return a full output index, indexing and saving it when needed."""
+    if index is not None:
+        if read_metadata_json(dataset_path, OUTPUT_FILENAME) is None:
+            write_metadata_json(dataset_path, OUTPUT_FILENAME, index)
+        return index
+
+    cached = read_metadata_json(dataset_path, OUTPUT_FILENAME)
+    if cached is not None:
+        return cached
+
+    from .parser import index_dataset_from_path
+
+    logger.info(
+        "No %s found at %s, indexing dataset before writing splits",
+        OUTPUT_FILENAME,
+        dataset_path,
+    )
+    return index_dataset_from_path(dataset_path, save_index=True)
+
+
+def _write_split_index(
+    dataset_path: Path,
+    index: dict[str, Any],
+    split_name: str,
+    split_ids: set[tuple[str, ...]],
+    *,
+    ratio: int | None = None,
+) -> dict[str, Any]:
+    """Persist a single split dataset node under ``.ds_crawler/``."""
+    filename = get_split_filename(split_name)
+    filtered_index = filter_index_by_qualified_ids(index, split_ids)
+    output_path = write_metadata_json(
+        dataset_path,
+        filename,
+        filtered_index.get("dataset", {}),
+    )
+    result: dict[str, Any] = {
+        "split": split_name,
+        "filename": filename,
+        "metadata_file": f"{METADATA_DIR}/{filename}",
+        "path": str(output_path),
+        "num_ids": len(split_ids),
+    }
+    if ratio is not None:
+        result["ratio"] = ratio
+    return result
+
+
+def list_dataset_splits(dataset_path: str | Path) -> list[str]:
+    """Return sorted split names available for a dataset."""
+    return list_split_names(Path(dataset_path))
+
+
+def load_dataset_split(
+    dataset_path: str | Path,
+    split_name: str,
+    *,
+    strict: bool = False,
+    save_index: bool = False,
+    force_reindex: bool = False,
+) -> dict[str, Any]:
+    """Load a named split as a full output dict.
+
+    The returned object has the same top-level metadata as ``output.json``,
+    but its ``dataset`` payload is replaced by the contents of
+    ``.ds_crawler/split_<name>.json``.
+    """
+    dataset_path = Path(dataset_path)
+
+    from .parser import index_dataset_from_path
+
+    base_output = index_dataset_from_path(
+        dataset_path,
+        strict=strict,
+        save_index=save_index,
+        force_reindex=force_reindex,
+    )
+    split_node = _load_required_index(dataset_path, get_split_filename(split_name))
+
+    result = dict(base_output)
+    result["dataset"] = split_node
+    return result
+
+
+def create_dataset_splits(
+    source_path: str | Path,
+    split_names: list[str],
+    ratios: list[int],
+    *,
+    index: dict[str, Any] | None = None,
+    qualified_ids: set[tuple[str, ...]] | None = None,
+    seed: int | None = None,
+) -> dict[str, Any]:
+    """Create inline split metadata files for a single dataset.
+
+    The full index remains stored as ``output.json``. Each split is written
+    as ``.ds_crawler/split_<name>.json`` and contains only the dataset-node
+    payload that would normally live under ``output["dataset"]``.
+    """
+    if len(split_names) != len(ratios):
+        raise ValueError(
+            f"split_names and ratios must have the same length, "
+            f"got {len(split_names)} and {len(ratios)}"
+        )
+
+    normalized_names = _normalize_split_names(split_names)
+    source_path = Path(source_path)
+    output_index = _ensure_output_index(source_path, index=index)
+
+    source_ids = _collect_qualified_ids(output_index)
+    if qualified_ids is not None:
+        effective_ids = source_ids & qualified_ids
+    else:
+        effective_ids = source_ids
+
+    id_splits = split_qualified_ids(effective_ids, ratios, seed=seed)
+
+    split_results: list[dict[str, Any]] = []
+    for split_name, ratio, split_ids in zip(normalized_names, ratios, id_splits):
+        split_results.append(
+            _write_split_index(
+                source_path,
+                output_index,
+                split_name,
+                split_ids,
+                ratio=ratio,
+            )
+        )
+
+    return {
+        "source": str(source_path),
+        "total_ids": len(source_ids),
+        "selected_ids": len(effective_ids),
+        "excluded_ids": len(source_ids - effective_ids),
+        "qualified_id_splits": id_splits,
+        "splits": split_results,
+    }
+
+
+def create_aligned_dataset_splits(
+    source_paths: list[str | Path],
+    split_names: list[str],
+    ratios: list[int],
+    *,
+    seed: int | None = None,
+) -> dict[str, Any]:
+    """Create matching inline split metadata across multiple datasets.
+
+    Only IDs present in every source are included, so each split name maps
+    to the same qualified-ID partition across all datasets.
+    """
+    if len(split_names) != len(ratios):
+        raise ValueError(
+            f"split_names and ratios must have the same length, "
+            f"got {len(split_names)} and {len(ratios)}"
+        )
+    if not source_paths:
+        raise ValueError("source_paths must be non-empty")
+
+    normalized_names = _normalize_split_names(split_names)
+    sources = [Path(p) for p in source_paths]
+
+    indices: list[dict[str, Any]] = []
+    per_source_ids: list[set[tuple[str, ...]]] = []
+    for src in sources:
+        index = _ensure_output_index(src)
+        indices.append(index)
+        qids = _collect_qualified_ids(index)
+        per_source_ids.append(qids)
+        logger.info(
+            "Loaded index for %s: %d qualified IDs", src, len(qids),
+        )
+
+    common_ids = per_source_ids[0]
+    for qids in per_source_ids[1:]:
+        common_ids = common_ids & qids
+    logger.info(
+        "Inline split intersection across %d sources: %d common qualified IDs",
+        len(sources), len(common_ids),
+    )
+
+    id_splits = split_qualified_ids(common_ids, ratios, seed=seed)
+
+    per_source_results: list[dict[str, Any]] = []
+    for src, index, qids in zip(sources, indices, per_source_ids):
+        split_results: list[dict[str, Any]] = []
+        for split_name, ratio, split_ids in zip(normalized_names, ratios, id_splits):
+            split_results.append(
+                _write_split_index(
+                    src,
+                    index,
+                    split_name,
+                    split_ids,
+                    ratio=ratio,
+                )
+            )
+
+        per_source_results.append({
+            "source": str(src),
+            "total_ids": len(qids),
+            "selected_ids": len(common_ids),
+            "excluded_ids": len(qids - common_ids),
+            "splits": split_results,
+        })
+
+    return {
+        "common_ids": common_ids,
+        "qualified_id_splits": id_splits,
+        "per_source": per_source_results,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Alignment
 # ---------------------------------------------------------------------------
 
 
-def _resolve_dataset_source(source: str | Path | dict[str, Any]) -> dict[str, Any]:
+def _resolve_dataset_source(
+    source: str | Path | dict[str, Any],
+    *,
+    split: str | None = None,
+) -> dict[str, Any]:
     """Resolve a dataset source to an output JSON dict.
 
     When *source* is already a dict it is returned as-is (assumed to be a
@@ -54,8 +290,10 @@ def _resolve_dataset_source(source: str | Path | dict[str, Any]) -> dict[str, An
         return source
     # Lazy import to avoid circular dependency (parser → traversal is fine,
     # but operations → parser closes the loop).
-    from .parser import index_dataset_from_path
+    if split is not None:
+        return load_dataset_split(source, split)
 
+    from .parser import index_dataset_from_path
     return index_dataset_from_path(source)
 
 
@@ -70,6 +308,8 @@ def align_datasets(
       ``"depth"``).
     - ``source``: Either a filesystem path (``str`` or ``Path``) to a
       dataset root, or an already-loaded output JSON dict.
+    - ``split`` (str, optional): Load ``source`` through a named inline
+      split stored as ``.ds_crawler/split_<name>.json``.
 
     When *source* is a path, the function first looks for an existing
     ``output.json``.  If none is found it looks for a ``ds-crawler.json``
@@ -100,7 +340,7 @@ def align_datasets(
     for arg in args:
         modality = arg["modality"]
         source = arg["source"]
-        output = _resolve_dataset_source(source)
+        output = _resolve_dataset_source(source, split=arg.get("split"))
         entries = _collect_file_entries_by_id(output.get("dataset", {}))
         per_modality[modality] = entries
         logger.info(
