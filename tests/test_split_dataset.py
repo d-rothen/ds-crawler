@@ -314,6 +314,16 @@ class TestSplitQualifiedIds:
             all_assigned |= s
         assert all_assigned == ids
 
+    def test_fractional_ratios_allow_float_rounding(self) -> None:
+        ids = {(str(i),) for i in range(100)}
+        splits = split_qualified_ids(ids, [0.3, 0.6, 0.1])
+
+        assert len(splits) == 3
+        assert len(splits[0]) == 30
+        assert len(splits[1]) == 60
+        assert len(splits[2]) == 10
+        assert splits[0] | splits[1] | splits[2] == ids
+
     def test_deterministic_without_seed(self) -> None:
         ids = {("scene:A", str(i)) for i in range(50)}
         s1 = split_qualified_ids(ids, [60, 40])
@@ -345,6 +355,19 @@ class TestSplitQualifiedIds:
         assert splits[0] | splits[1] == ids
         assert len(splits[0]) + len(splits[1]) == 101
 
+    def test_partial_coverage_is_allowed(self) -> None:
+        ids = {(str(i),) for i in range(100)}
+        splits = split_qualified_ids(ids, [50, 40])
+        assigned = splits[0] | splits[1]
+        assert len(assigned) == 90
+        assert assigned <= ids
+
+    def test_sample_applied_before_split(self) -> None:
+        ids = {(f"{i:02d}",) for i in range(20)}
+        splits = split_qualified_ids(ids, [50, 50], sample=5)
+        expected = {(f"{i:02d}",) for i in (0, 5, 10, 15)}
+        assert splits[0] | splits[1] == expected
+
     def test_empty_set(self) -> None:
         splits = split_qualified_ids(set(), [50, 50])
         assert len(splits) == 2
@@ -362,9 +385,13 @@ class TestSplitQualifiedIds:
         assert len(splits) == 1
         assert splits[0] == ids
 
-    def test_raises_on_sum_not_100(self) -> None:
-        with pytest.raises(ValueError, match="sum to 100"):
-            split_qualified_ids(set(), [50, 40])
+    def test_raises_when_percentage_ratios_exceed_100(self) -> None:
+        with pytest.raises(ValueError, match="<= 100"):
+            split_qualified_ids(set(), [70, 40])
+
+    def test_raises_when_fractional_ratios_exceed_one(self) -> None:
+        with pytest.raises(ValueError, match="<= 1"):
+            split_qualified_ids(set(), [0.6, 0.5])
 
     def test_raises_on_empty_ratios(self) -> None:
         with pytest.raises(ValueError, match="non-empty"):
@@ -377,6 +404,10 @@ class TestSplitQualifiedIds:
     def test_raises_on_negative_ratio(self) -> None:
         with pytest.raises(ValueError, match="positive"):
             split_qualified_ids(set(), [110, -10])
+
+    def test_raises_on_invalid_sample(self) -> None:
+        with pytest.raises(ValueError, match="positive integer"):
+            split_qualified_ids(set(), [100], sample=0)
 
 
 # ---------------------------------------------------------------------------
@@ -497,6 +528,47 @@ class TestSplitDataset:
             result["qualified_id_splits"][0] | result["qualified_id_splits"][1]
         )
         assert total_split_ids == subset
+
+    def test_partial_coverage_returns_unassigned_ids(self, tmp_path: Path) -> None:
+        root = tmp_path / "src"
+        idx = self._prepare_indexed_dataset(
+            root, create_depth_predictions_tree, make_depth_predictions_config,
+        )
+        all_qids = collect_qualified_ids(idx)
+
+        result = split_dataset(
+            root,
+            [50, 25],
+            [tmp_path / "a", tmp_path / "b"],
+        )
+
+        assigned = (
+            result["qualified_id_splits"][0] | result["qualified_id_splits"][1]
+        )
+        assert assigned | result["unassigned_qualified_ids"] == all_qids
+        assert assigned & result["unassigned_qualified_ids"] == set()
+
+    def test_sample_argument_applies_before_split(self, tmp_path: Path) -> None:
+        root = tmp_path / "src"
+        idx = self._prepare_indexed_dataset(
+            root, create_depth_predictions_tree, make_depth_predictions_config,
+        )
+        all_qids = collect_qualified_ids(idx)
+
+        result = split_dataset(
+            root,
+            [50, 50],
+            [tmp_path / "a", tmp_path / "b"],
+            sample=2,
+        )
+
+        expected_selected = set(sorted(all_qids)[::2])
+        assigned = (
+            result["qualified_id_splits"][0] | result["qualified_id_splits"][1]
+        )
+        assert result["selected_qualified_ids"] == expected_selected
+        assert assigned == expected_selected
+        assert result["unassigned_qualified_ids"] == set()
 
     def test_split_preserves_camera_files(self, tmp_path: Path) -> None:
         """Camera intrinsics/extrinsics are copied in each split."""
@@ -1106,6 +1178,23 @@ class TestSplitDatasets:
         all_qids = collect_qualified_ids(idx)
         assert result["common_ids"] == all_qids
         assert result["per_source"][0]["excluded_ids"] == 0
+
+    def test_partial_coverage_tracks_unassigned_common_ids(self, tmp_path: Path) -> None:
+        rgb_root = tmp_path / "rgb"
+        depth_root = tmp_path / "depth"
+        scenes = {"s:A": [str(i) for i in range(4)]}
+        self._build_source(rgb_root, scenes)
+        self._build_source(depth_root, scenes)
+
+        result = split_datasets(
+            [rgb_root, depth_root],
+            ["train", "val"],
+            [50, 25],
+        )
+
+        assigned = result["qualified_id_splits"][0] | result["qualified_id_splits"][1]
+        assert assigned | result["unassigned_qualified_ids"] == result["selected_qualified_ids"]
+        assert result["selected_qualified_ids"] <= result["common_ids"]
 
     # -- logging of excluded IDs --
 

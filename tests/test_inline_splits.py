@@ -80,6 +80,26 @@ def test_load_dataset_split_returns_full_output(
     assert loaded["dataset"] == expected["dataset"]
 
 
+def test_create_dataset_splits_supports_sampling_and_float_ratios(
+    depth_predictions_root: Path,
+) -> None:
+    cfg = make_depth_predictions_config(str(depth_predictions_root))
+    full_index = index_dataset(cfg, save_index=True)
+
+    result = create_dataset_splits(
+        depth_predictions_root,
+        ["subset"],
+        [0.5],
+        sample=2,
+    )
+
+    expected_selected = set(sorted(collect_qualified_ids(full_index))[::2])
+    assigned = result["qualified_id_splits"][0]
+
+    assert result["selected_qualified_ids"] == expected_selected
+    assert assigned | result["unassigned_qualified_ids"] == expected_selected
+
+
 def test_create_dataset_splits_indexes_and_saves_output_when_missing(
     tmp_path: Path,
 ) -> None:

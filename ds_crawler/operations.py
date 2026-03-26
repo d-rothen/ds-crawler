@@ -18,6 +18,7 @@ from .traversal import (
     _collect_file_entries_by_id,
     _collect_qualified_ids,
     _filter_index_by_paths,
+    _prepare_split_candidates,
     filter_index_by_qualified_ids,
     get_files,
     split_qualified_ids,
@@ -144,11 +145,12 @@ def load_dataset_split(
 def create_dataset_splits(
     source_path: str | Path,
     split_names: list[str],
-    ratios: list[int],
+    ratios: list[int | float],
     *,
     index: dict[str, Any] | None = None,
     qualified_ids: set[tuple[str, ...]] | None = None,
     seed: int | None = None,
+    sample: int | None = None,
 ) -> dict[str, Any]:
     """Create inline split metadata files for a single dataset.
 
@@ -172,7 +174,17 @@ def create_dataset_splits(
     else:
         effective_ids = source_ids
 
-    id_splits = split_qualified_ids(effective_ids, ratios, seed=seed)
+    selected_qualified_ids = set(
+        _prepare_split_candidates(effective_ids, sample=sample)
+    )
+    id_splits = split_qualified_ids(
+        effective_ids,
+        ratios,
+        seed=seed,
+        sample=sample,
+    )
+    assigned_qualified_ids = set().union(*id_splits) if id_splits else set()
+    unassigned_qualified_ids = selected_qualified_ids - assigned_qualified_ids
 
     split_results: list[dict[str, Any]] = []
     for split_name, ratio, split_ids in zip(normalized_names, ratios, id_splits):
@@ -189,8 +201,10 @@ def create_dataset_splits(
     return {
         "source": str(source_path),
         "total_ids": len(source_ids),
-        "selected_ids": len(effective_ids),
+        "selected_ids": len(selected_qualified_ids),
         "excluded_ids": len(source_ids - effective_ids),
+        "selected_qualified_ids": selected_qualified_ids,
+        "unassigned_qualified_ids": unassigned_qualified_ids,
         "qualified_id_splits": id_splits,
         "splits": split_results,
     }
@@ -199,9 +213,10 @@ def create_dataset_splits(
 def create_aligned_dataset_splits(
     source_paths: list[str | Path],
     split_names: list[str],
-    ratios: list[int],
+    ratios: list[int | float],
     *,
     seed: int | None = None,
+    sample: int | None = None,
 ) -> dict[str, Any]:
     """Create matching inline split metadata across multiple datasets.
 
@@ -238,7 +253,17 @@ def create_aligned_dataset_splits(
         len(sources), len(common_ids),
     )
 
-    id_splits = split_qualified_ids(common_ids, ratios, seed=seed)
+    selected_qualified_ids = set(
+        _prepare_split_candidates(common_ids, sample=sample)
+    )
+    id_splits = split_qualified_ids(
+        common_ids,
+        ratios,
+        seed=seed,
+        sample=sample,
+    )
+    assigned_qualified_ids = set().union(*id_splits) if id_splits else set()
+    unassigned_qualified_ids = selected_qualified_ids - assigned_qualified_ids
 
     per_source_results: list[dict[str, Any]] = []
     for src, index, qids in zip(sources, indices, per_source_ids):
@@ -257,13 +282,15 @@ def create_aligned_dataset_splits(
         per_source_results.append({
             "source": str(src),
             "total_ids": len(qids),
-            "selected_ids": len(common_ids),
+            "selected_ids": len(selected_qualified_ids),
             "excluded_ids": len(qids - common_ids),
             "splits": split_results,
         })
 
     return {
         "common_ids": common_ids,
+        "selected_qualified_ids": selected_qualified_ids,
+        "unassigned_qualified_ids": unassigned_qualified_ids,
         "qualified_id_splits": id_splits,
         "per_source": per_source_results,
     }
@@ -576,13 +603,14 @@ def _derive_split_path(source: Path, suffix: str) -> Path:
 
 def split_dataset(
     source_path: str | Path,
-    ratios: list[int],
+    ratios: list[int | float],
     target_paths: list[str | Path],
     *,
     qualified_ids: set[tuple[str, ...]] | None = None,
     seed: int | None = None,
+    sample: int | None = None,
 ) -> dict[str, Any]:
-    """Split a dataset into multiple targets according to percentages.
+    """Split a dataset into multiple targets according to numeric ratios.
 
     Loads ``output.json`` from *source_path* (raises ``FileNotFoundError``
     if absent), partitions the file entries by their hierarchy-qualified
@@ -595,9 +623,9 @@ def split_dataset(
     Args:
         source_path: Root directory or ``.zip`` archive of the source
             dataset.  Must contain an ``output.json``.
-        ratios: List of positive integers summing to 100.  Position *i*
-            determines the percentage of IDs that go to
-            ``target_paths[i]``.
+        ratios: Positive percentages (e.g. ``[80, 20]``) or fractions
+            (e.g. ``[0.8, 0.2]``). Totals may be less than full coverage,
+            leaving some selected IDs unassigned.
         target_paths: Destination directories (or ``.zip`` archives),
             one per ratio entry.
         qualified_ids: When provided, only these IDs are considered
@@ -606,6 +634,8 @@ def split_dataset(
             of their IDs.
         seed: Random seed for shuffling IDs before splitting.  ``None``
             means deterministic sorted order without shuffling.
+        sample: Optional stride applied before splitting. ``sample=5``
+            keeps every fifth eligible ID from the sorted candidate pool.
 
     Returns:
         A dict with keys:
@@ -616,6 +646,10 @@ def split_dataset(
         - ``qualified_id_splits``: list of sets (one per target)
           containing the qualified IDs assigned to that split.  Useful
           for applying the same split to other aligned datasets.
+        - ``selected_qualified_ids``: the eligible IDs after optional
+          filtering and sampling, before ratio coverage is applied.
+        - ``unassigned_qualified_ids``: selected IDs left out because the
+          ratios sum to less than full coverage.
 
     Raises:
         FileNotFoundError: If ``output.json`` is missing in the source.
@@ -640,7 +674,17 @@ def split_dataset(
         effective_ids = source_ids
 
     # Split the IDs
-    id_splits = split_qualified_ids(effective_ids, ratios, seed=seed)
+    selected_qualified_ids = set(
+        _prepare_split_candidates(effective_ids, sample=sample)
+    )
+    id_splits = split_qualified_ids(
+        effective_ids,
+        ratios,
+        seed=seed,
+        sample=sample,
+    )
+    assigned_qualified_ids = set().union(*id_splits) if id_splits else set()
+    unassigned_qualified_ids = selected_qualified_ids - assigned_qualified_ids
 
     # Copy each split
     split_results: list[dict[str, Any]] = []
@@ -654,6 +698,8 @@ def split_dataset(
 
     return {
         "splits": split_results,
+        "selected_qualified_ids": selected_qualified_ids,
+        "unassigned_qualified_ids": unassigned_qualified_ids,
         "qualified_id_splits": id_splits,
     }
 
@@ -661,9 +707,10 @@ def split_dataset(
 def split_datasets(
     source_paths: list[str | Path],
     suffixes: list[str],
-    ratios: list[int],
+    ratios: list[int | float],
     *,
     seed: int | None = None,
+    sample: int | None = None,
 ) -> dict[str, Any]:
     """Split multiple aligned datasets using a common ID intersection.
 
@@ -688,16 +735,23 @@ def split_datasets(
             Each must contain an ``output.json``.
         suffixes: One label per split (e.g. ``["train", "val"]``).
             Must have the same length as *ratios*.
-        ratios: Positive integers summing to 100 (e.g. ``[80, 20]``).
-            Must have the same length as *suffixes*.
+        ratios: Positive percentages (e.g. ``[80, 20]``) or fractions
+            (e.g. ``[0.8, 0.2]``). Totals may be less than full coverage,
+            leaving some selected common IDs unassigned.
         seed: Random seed for shuffling IDs before splitting.  ``None``
             means deterministic sorted order without shuffling.
+        sample: Optional stride applied before splitting. ``sample=5``
+            keeps every fifth common ID from the sorted candidate pool.
 
     Returns:
         A dict with keys:
 
         - ``common_ids``: the set of qualified IDs present in every
           source (the intersection).
+        - ``selected_qualified_ids``: the common IDs after optional
+          sampling, before ratio coverage is applied.
+        - ``unassigned_qualified_ids``: selected common IDs left out
+          because the ratios sum to less than full coverage.
         - ``qualified_id_splits``: list of sets (one per suffix)
           partitioning the common IDs.
         - ``per_source``: list of per-source result dicts (same order
@@ -754,7 +808,17 @@ def split_datasets(
             )
 
     # --- Split the common IDs ---
-    id_splits = split_qualified_ids(common_ids, ratios, seed=seed)
+    selected_qualified_ids = set(
+        _prepare_split_candidates(common_ids, sample=sample)
+    )
+    id_splits = split_qualified_ids(
+        common_ids,
+        ratios,
+        seed=seed,
+        sample=sample,
+    )
+    assigned_qualified_ids = set().union(*id_splits) if id_splits else set()
+    unassigned_qualified_ids = selected_qualified_ids - assigned_qualified_ids
 
     # --- Copy each split for each source ---
     per_source_results: list[dict[str, Any]] = []
@@ -779,6 +843,8 @@ def split_datasets(
 
     return {
         "common_ids": common_ids,
+        "selected_qualified_ids": selected_qualified_ids,
+        "unassigned_qualified_ids": unassigned_qualified_ids,
         "qualified_id_splits": id_splits,
         "per_source": per_source_results,
     }

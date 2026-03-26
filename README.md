@@ -303,10 +303,11 @@ files that share the same raw ID but live at different hierarchy levels.
 
 Return a pruned copy of the output dict keeping only the given IDs.
 
-#### `split_qualified_ids(qualified_ids, ratios, *, seed=None) -> list[set]`
+#### `split_qualified_ids(qualified_ids, ratios, *, seed=None, sample=None) -> list[set]`
 
-Partition qualified IDs by percentage (e.g. `[80, 20]`). Deterministic
-when `seed` is `None` (sorted order) or fixed.
+Partition qualified IDs by percentages or fractions (e.g. `[80, 20]` or
+`[0.8, 0.2]`). Totals may be below full coverage, and `sample=N` keeps
+every Nth candidate before splitting.
 
 ---
 
@@ -323,11 +324,30 @@ with `"modality"` (label) and `"source"` (path or output dict). Returns
 Copy dataset files to a new location (directory or `.zip`), preserving
 structure. Returns `{"copied": int, "missing": int, "missing_files": [...]}`.
 
-#### `split_dataset(source_path, ratios, target_paths, *, qualified_ids, seed) -> dict`
+#### `split_dataset(source_path, ratios, target_paths, *, qualified_ids, seed, sample) -> dict`
 
-Split a single dataset into multiple targets by percentage.
+Split a single dataset into multiple targets by percentages or fractions.
+Totals below full coverage leave some selected IDs unassigned.
 
-#### `split_datasets(source_paths, suffixes, ratios, *, seed) -> dict`
+#### `create_dataset_splits(source_path, split_names, ratios, *, index=None, qualified_ids=None, seed=None, sample=None) -> dict`
+
+Write inline split metadata files (`.ds_crawler/split_<name>.json`) for a
+single dataset without copying data files.
+
+#### `create_aligned_dataset_splits(source_paths, split_names, ratios, *, seed=None, sample=None) -> dict`
+
+Write matching inline split metadata across multiple aligned datasets.
+
+#### `list_dataset_splits(dataset_path) -> list[str]`
+
+List named inline splits available for a dataset.
+
+#### `load_dataset_split(dataset_path, split_name, *, strict=False, save_index=False, force_reindex=False) -> dict`
+
+Load a named inline split as a full output dict by overlaying its
+dataset node on top of the canonical `output.json`.
+
+#### `split_datasets(source_paths, suffixes, ratios, *, seed, sample) -> dict`
 
 Split multiple aligned datasets using their common ID intersection.
 Target paths are derived by appending the suffix

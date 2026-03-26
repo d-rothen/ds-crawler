@@ -8,8 +8,13 @@ rest of the package — they operate on plain dicts.
 
 from __future__ import annotations
 
+import math
 import random
+from numbers import Real
 from typing import Any
+
+
+_RATIO_EPSILON = 1e-9
 
 
 # ---------------------------------------------------------------------------
@@ -269,51 +274,112 @@ def _filter_node_by_qualified_ids(
 # ---------------------------------------------------------------------------
 
 
-def split_qualified_ids(
-    qualified_ids: set[tuple[str, ...]],
-    ratios: list[int],
-    *,
-    seed: int | None = None,
-) -> list[set[tuple[str, ...]]]:
-    """Split qualified IDs into groups according to integer percentages.
+def _validate_split_sample(sample: int | None) -> int | None:
+    """Validate optional split sampling stride."""
+    if sample is None:
+        return None
+    if isinstance(sample, bool) or not isinstance(sample, int) or sample <= 0:
+        raise ValueError(f"sample must be a positive integer, got {sample!r}")
+    return sample
 
-    Args:
-        qualified_ids: Set of ``(*hierarchy_keys, file_id)`` tuples.
-        ratios: List of integers that must sum to 100.  Each entry
-            specifies what percentage of IDs goes into that group.
-        seed: Random seed for shuffling before splitting.  When ``None``
-            the IDs are split in sorted order (deterministic but not
-            randomised).
 
-    Returns:
-        A list of sets (one per ratio) partitioning *qualified_ids*.
-
-    Raises:
-        ValueError: If *ratios* do not sum to 100 or contain non-positive
-            values.
-    """
+def _normalize_split_ratios(ratios: list[int | float]) -> list[float]:
+    """Normalize ratios to fractions of the selected candidate pool."""
     if not ratios:
         raise ValueError("ratios must be non-empty")
-    if any(r <= 0 for r in ratios):
-        raise ValueError(f"All ratios must be positive, got {ratios}")
-    if sum(ratios) != 100:
+
+    values: list[float] = []
+    for ratio in ratios:
+        if isinstance(ratio, bool) or not isinstance(ratio, Real):
+            raise ValueError(f"All ratios must be finite numbers, got {ratios}")
+        value = float(ratio)
+        if not math.isfinite(value):
+            raise ValueError(f"All ratios must be finite numbers, got {ratios}")
+        if value <= 0:
+            raise ValueError(f"All ratios must be positive, got {ratios}")
+        values.append(value)
+
+    total = sum(values)
+    if all(value <= 1.0 + _RATIO_EPSILON for value in values):
+        if total > 1.0 + _RATIO_EPSILON:
+            raise ValueError(
+                f"Fractional ratios must sum to <= 1, got {total} from {ratios}"
+            )
+        return values
+
+    if total > 100.0 + _RATIO_EPSILON:
         raise ValueError(
-            f"Ratios must sum to 100, got {sum(ratios)} from {ratios}"
+            f"Percentage ratios must sum to <= 100, got {total} from {ratios}"
         )
+    return [value / 100.0 for value in values]
+
+
+def _prepare_split_candidates(
+    qualified_ids: set[tuple[str, ...]],
+    *,
+    sample: int | None = None,
+    seed: int | None = None,
+) -> list[tuple[str, ...]]:
+    """Return ordered candidates after optional stride sampling and shuffling."""
+    validated_sample = _validate_split_sample(sample)
 
     ordered = sorted(qualified_ids)
+    if validated_sample is not None and validated_sample > 1:
+        ordered = ordered[::validated_sample]
+
     if seed is not None:
         rng = random.Random(seed)
         rng.shuffle(ordered)
 
+    return ordered
+
+
+def split_qualified_ids(
+    qualified_ids: set[tuple[str, ...]],
+    ratios: list[int | float],
+    *,
+    seed: int | None = None,
+    sample: int | None = None,
+) -> list[set[tuple[str, ...]]]:
+    """Split qualified IDs into groups according to numeric ratios.
+
+    Args:
+        qualified_ids: Set of ``(*hierarchy_keys, file_id)`` tuples.
+        ratios: Positive percentages (e.g. ``[80, 20]``) or fractions
+            (e.g. ``[0.8, 0.2]``). Totals may be less than full coverage,
+            in which case some sampled IDs remain unassigned.
+        seed: Random seed for shuffling before splitting.  When ``None``
+            the IDs are split in sorted order (deterministic but not
+            randomised).
+        sample: Optional stride applied before splitting. ``sample=5``
+            keeps every fifth qualified ID from the sorted candidate pool,
+            then applies the split ratios to that sampled subset.
+
+    Returns:
+        A list of sets (one per ratio) partitioning the sampled candidate
+        pool. IDs not covered by the ratios are left out of every split.
+
+    Raises:
+        ValueError: If *ratios* are invalid or *sample* is not a positive
+            integer.
+    """
+    fractions = _normalize_split_ratios(ratios)
+    ordered = _prepare_split_candidates(
+        qualified_ids,
+        sample=sample,
+        seed=seed,
+    )
+
     total = len(ordered)
-    # Compute cumulative boundaries to avoid rounding drift
     boundaries: list[int] = []
-    cumsum = 0
-    for ratio in ratios[:-1]:
-        cumsum += ratio
-        boundaries.append(round(total * cumsum / 100))
-    boundaries.append(total)
+    cumsum = 0.0
+    for fraction in fractions:
+        cumsum += fraction
+        if math.isclose(cumsum, 1.0, rel_tol=0.0, abs_tol=_RATIO_EPSILON):
+            boundary = total
+        else:
+            boundary = round(total * cumsum)
+        boundaries.append(min(boundary, total))
 
     splits: list[set[tuple[str, ...]]] = []
     start = 0
