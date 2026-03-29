@@ -500,6 +500,100 @@ class TestDatasetConfigValidation:
         )
         assert ds.properties["meta"]["range"] == [0, 1]
 
+    def test_meta_dimensions_valid(self) -> None:
+        ds = DatasetConfig(
+            **self._minimal_kwargs(
+                properties={
+                    "euler_train": {
+                        "used_as": "input",
+                        "modality_type": "rgb",
+                    },
+                    "meta": {
+                        "range": [0, 255],
+                        "dimensions": {
+                            "height": 375,
+                            "width": 1242,
+                            "channels": 3,
+                        },
+                    },
+                }
+            )
+        )
+        assert ds.properties["meta"]["dimensions"] == {
+            "height": 375,
+            "width": 1242,
+            "channels": 3,
+        }
+
+    def test_meta_dimensions_rejects_empty_object(self) -> None:
+        with pytest.raises(ValueError, match=r"properties\.meta\.dimensions must be a non-empty object"):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "rgb",
+                        },
+                        "meta": {
+                            "range": [0, 255],
+                            "dimensions": {},
+                        },
+                    }
+                )
+            )
+
+    def test_meta_dimensions_rejects_non_positive_axis_size(self) -> None:
+        with pytest.raises(
+            ValueError,
+            match=r"properties\.meta\.dimensions\['height'\] must be a positive integer",
+        ):
+            DatasetConfig(
+                **self._minimal_kwargs(
+                    properties={
+                        "euler_train": {
+                            "used_as": "input",
+                            "modality_type": "rgb",
+                        },
+                        "meta": {
+                            "range": [0, 255],
+                            "dimensions": {
+                                "height": 0,
+                                "width": 1242,
+                            },
+                        },
+                    }
+                )
+            )
+
+    def test_top_level_meta_shorthand_is_folded_into_properties(self) -> None:
+        ds = DatasetConfig.from_dict({
+            "name": "test",
+            "path": "/tmp/test",
+            "type": "rgb",
+            "basename_regex": r"^(?P<name>.+)\.(?P<ext>png)$",
+            "id_regex": r"^(?P<name>.+)\.png$",
+            "meta": {
+                "range": [0, 255],
+                "dimensions": {
+                    "height": 375,
+                    "width": 1242,
+                    "channels": 3,
+                },
+            },
+            "properties": {
+                "euler_train": {
+                    "used_as": "input",
+                    "modality_type": "rgb",
+                },
+            },
+        })
+
+        assert ds.properties["meta"]["dimensions"] == {
+            "height": 375,
+            "width": 1242,
+            "channels": 3,
+        }
+
     def test_id_override_accepted(self) -> None:
         ds = DatasetConfig(**self._minimal_kwargs(id_override="calibration"))
         assert ds.id_override == "calibration"

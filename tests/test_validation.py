@@ -119,6 +119,28 @@ class TestValidateOutput:
         ):
             validate_output(output)
 
+    def test_meta_dimensions_are_validated_when_present(self, tmp_path: Path) -> None:
+        root = tmp_path / "depth_predictions"
+        create_depth_predictions_tree(root)
+        config = make_depth_predictions_config(str(root))
+        output = index_dataset(config)
+
+        validated = validate_output(output)
+        assert validated is output
+
+    def test_invalid_meta_dimensions_raise(self, tmp_path: Path) -> None:
+        root = tmp_path / "depth_predictions"
+        create_depth_predictions_tree(root)
+        config = make_depth_predictions_config(str(root))
+        output = index_dataset(config)
+        output["meta"]["dimensions"]["height"] = 0
+
+        with pytest.raises(
+            ValueError,
+            match=r"output\.meta\.dimensions\['height'\] must be a positive integer",
+        ):
+            validate_output(output)
+
 
 class TestValidateDataset:
     def _build_dataset_files(self, root: Path) -> tuple[dict[str, Any], dict[str, Any]]:

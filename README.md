@@ -127,6 +127,7 @@ dict). Minimal example:
 | `id_regex` | yes | Regex applied to each file's relative path. Capture groups form the file ID (joined by `id_regex_join_char`). |
 | `properties.euler_train.used_as` | yes | `"input"`, `"target"`, or `"condition"` |
 | `properties.euler_train.modality_type` | yes | Identifier token (e.g. `"rgb"`, `"depth"`) |
+| `properties.meta.dimensions` | no | Dataset-wide nominal sample dimensions keyed by semantic axis names (e.g. `{"height": 375, "width": 1242, "channels": 3}`). |
 | `hierarchy_regex` | no | Regex with named groups to build a hierarchy tree |
 | `named_capture_group_value_separator` | no | Character joining group name and value in hierarchy keys (default `":"`) |
 | `basename_regex` | no | Regex applied to basename only; properties stored per file |
@@ -182,6 +183,36 @@ Example: exclude all fog frames:
 }
 ```
 
+#### Shared dimensions (`properties.meta.dimensions`)
+
+Use `properties.meta.dimensions` when a dataset has a known dataset-wide
+sample layout that downstream tooling should be aware of, for example to
+compare a prediction dataset against its ground truth counterpart:
+
+```json
+"properties": {
+  "euler_train": {
+    "used_as": "input",
+    "modality_type": "depth"
+  },
+  "meta": {
+    "radial_depth": false,
+    "scale_to_meters": 1.0,
+    "range": [0, 65535],
+    "dimensions": {
+      "height": 192,
+      "width": 640
+    }
+  }
+}
+```
+
+This field is intentionally declarative: the crawler does not inspect
+file contents to infer shapes. Recommended axis names are
+`height`, `width`, `channels`, `depth`, and `time`. Omit the field when
+sample sizes vary across the dataset and there is no single nominal
+shape to publish.
+
 ### Multi-dataset config
 
 For the CLI, wrap multiple dataset configs in:
@@ -212,6 +243,10 @@ The index produced by the crawler:
     "term_match_mode": "path_segment"
   },
   "euler_train": { "used_as": "input", "modality_type": "rgb" },
+  "meta": {
+    "range": [0, 255],
+    "dimensions": { "height": 375, "width": 1242, "channels": 3 }
+  },
   "named_capture_group_value_separator": ":",
   "dataset": {
     "files": [

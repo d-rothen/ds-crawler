@@ -56,7 +56,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from .config import _MODALITY_META_SCHEMAS
+from .config import _validate_meta_dict
 from .zip_utils import COMPRESSED_EXTENSIONS, METADATA_DIR, write_metadata_json
 
 logger = logging.getLogger(__name__)
@@ -120,30 +120,7 @@ class _BaseDatasetWriter:
             raise ValueError("euler_train must contain 'modality_type'")
 
         modality_type = euler_train["modality_type"]
-        schema = _MODALITY_META_SCHEMAS.get(modality_type)
-        if schema is not None:
-            meta = properties.get("meta")
-            if meta is None or not isinstance(meta, dict):
-                required_keys = ", ".join(sorted(schema))
-                raise ValueError(
-                    f"meta is required for modality_type={modality_type!r} "
-                    f"and must contain: {required_keys}"
-                )
-            for key, entry in schema.items():
-                expected_type, type_label, _desc = entry[:3]
-                validator = entry[3] if len(entry) > 3 else None
-                if key not in meta:
-                    raise ValueError(
-                        f"meta.{key} is required for "
-                        f"modality_type={modality_type!r}"
-                    )
-                value = meta[key]
-                if validator is not None:
-                    err = validator(value)
-                    if err is not None:
-                        raise ValueError(f"meta.{key} must be {err}")
-                elif not isinstance(value, expected_type):
-                    raise ValueError(f"meta.{key} must be {type_label}")
+        _validate_meta_dict(properties.get("meta"), modality_type, "meta")
 
         self._root = Path(root)
         self._name = name

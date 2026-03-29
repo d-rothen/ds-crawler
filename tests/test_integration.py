@@ -123,6 +123,11 @@ class TestExampleOutputStructure:
         assert vk["id_regex_join_char"] == "+"
         assert "hierarchy_regex" in vk
         assert vk["named_capture_group_value_separator"] == ":"
+        assert vk["meta"]["dimensions"] == {
+            "height": 375,
+            "width": 1242,
+            "channels": 3,
+        }
 
     def test_vkitti2_dataset_metadata(
         self, example_output_data: list[dict]
@@ -232,6 +237,10 @@ class TestExampleOutputStructure:
         assert dp["model"] == "DepthAnythingV2"
         assert dp["euler_train"]["used_as"] == "input"
         assert dp["euler_train"]["slot"] == "demo.input.depth"
+        assert dp["meta"]["dimensions"] == {
+            "height": 192,
+            "width": 640,
+        }
 
         dp_ds = dp["dataset"]
         frame01 = get_node_at_path(dp_ds, ["scene:Scene01", "frame:00001"])

@@ -138,6 +138,11 @@ def make_vkitti2_config(path: str) -> dict[str, Any]:
             },
             "meta": {
                 "range": [0, 255],
+                "dimensions": {
+                    "height": 375,
+                    "width": 1242,
+                    "channels": 3,
+                },
             },
             "dataset": {
                 "license": "CC BY-NC-SA 4.0",
@@ -201,6 +206,10 @@ def make_depth_predictions_config(path: str) -> dict[str, Any]:
                 "radial_depth": False,
                 "scale_to_meters": 1.0,
                 "range": [0, 65535],
+                "dimensions": {
+                    "height": 192,
+                    "width": 640,
+                },
             },
         },
     }

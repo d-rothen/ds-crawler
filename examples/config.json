@@ -22,7 +22,12 @@
           "modality_type": "rgb"
         },
         "meta": {
-          "range": [0, 255]
+          "range": [0, 255],
+          "dimensions": {
+            "height": 375,
+            "width": 1242,
+            "channels": 3
+          }
         },
         "dataset": {
           "license": "CC BY-NC-SA 4.0",
@@ -74,7 +79,11 @@
         "meta": {
           "radial_depth": false,
           "scale_to_meters": 1.0,
-          "range": [0, 65535]
+          "range": [0, 65535],
+          "dimensions": {
+            "height": 192,
+            "width": 640
+          }
         }
       }
     }

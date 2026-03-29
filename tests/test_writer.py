@@ -132,6 +132,17 @@ class TestConstruction:
         )
         assert len(writer) == 0
 
+    def test_meta_dimensions_invalid(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match=r"meta\.dimensions\['height'\] must be a positive integer"):
+            _make_writer(
+                tmp_path,
+                euler_train={"used_as": "target", "modality_type": "rgb"},
+                meta={
+                    "range": [0, 255],
+                    "dimensions": {"height": 0, "width": 1242, "channels": 3},
+                },
+            )
+
 
 # ---------------------------------------------------------------------------
 # get_path — hierarchy + directory creation
@@ -255,6 +266,23 @@ class TestBuildOutput:
         output = writer.build_output()
         assert output["gt"] is False
         assert output["model"] == "MyModel"
+
+    def test_meta_dimensions_included(self, tmp_path: Path) -> None:
+        writer = _make_writer(
+            tmp_path,
+            euler_train={"used_as": "target", "modality_type": "rgb"},
+            meta={
+                "range": [0, 255],
+                "dimensions": {"height": 375, "width": 1242, "channels": 3},
+            },
+        )
+
+        output = writer.build_output()
+        assert output["meta"]["dimensions"] == {
+            "height": 375,
+            "width": 1242,
+            "channels": 3,
+        }
 
     def test_flat_dataset(self, tmp_path: Path) -> None:
         writer = _make_writer(tmp_path)

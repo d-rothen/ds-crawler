@@ -39,6 +39,7 @@ _RESERVED_TOP_LEVEL_PROPERTIES: frozenset[str] = frozenset({
 _PROPERTY_NAMESPACE_KEYS: frozenset[str] = frozenset({
     "euler_train",
     "euler_loading",
+    "meta",
 })
 _SLOT_PATTERN = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+){2,}$")
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
@@ -69,6 +70,13 @@ def _validate_numeric_range(value: Any) -> str | None:
         return "an array of 2 numbers [min, max]"
     if value[0] > value[1]:
         return "an array of 2 numbers [min, max] where min <= max"
+    return None
+
+
+def _validate_positive_int(value: Any) -> str | None:
+    """Return an error message if *value* is not a positive integer."""
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return "a positive integer"
     return None
 
 
@@ -125,6 +133,61 @@ _MODALITY_META_SCHEMAS: dict[str, dict[str, tuple]] = {
         ),
     },
 }
+
+
+def _validate_meta_dict(
+    value: Any, modality_type: str, context: str,
+) -> None:
+    """Validate a ``meta`` object, including shared and modality-specific keys."""
+    schema = _MODALITY_META_SCHEMAS.get(modality_type)
+
+    if value is None:
+        if schema is None:
+            return
+        required_keys = ", ".join(sorted(schema))
+        raise ValueError(
+            f"{context} is required for modality_type={modality_type!r} "
+            f"and must contain: {required_keys}"
+        )
+    if not isinstance(value, dict):
+        raise ValueError(f"{context} must be an object")
+
+    if schema is not None:
+        for key, entry in schema.items():
+            expected_type, type_label, _desc = entry[:3]
+            validator = entry[3] if len(entry) > 3 else None
+            if key not in value:
+                raise ValueError(
+                    f"{context}.{key} is required for modality_type={modality_type!r}"
+                )
+            item = value[key]
+            if validator is not None:
+                err = validator(item)
+                if err is not None:
+                    raise ValueError(f"{context}.{key} must be {err}")
+            elif not isinstance(item, expected_type):
+                raise ValueError(f"{context}.{key} must be {type_label}")
+
+    dimensions = value.get("dimensions")
+    if dimensions is not None:
+        _validate_dimensions_dict(dimensions, f"{context}.dimensions")
+
+
+def _validate_dimensions_dict(value: Any, context: str) -> None:
+    """Validate a ``meta.dimensions`` mapping of axis names to sizes."""
+    if not isinstance(value, dict) or not value:
+        raise ValueError(f"{context} must be a non-empty object")
+
+    for axis, size in value.items():
+        if not isinstance(axis, str) or not axis:
+            raise ValueError(f"{context} keys must be non-empty strings")
+        if not _TOKEN_PATTERN.match(axis):
+            raise ValueError(
+                f"{context}[{axis!r}] must contain only letters, digits, or underscores"
+            )
+        err = _validate_positive_int(size)
+        if err is not None:
+            raise ValueError(f"{context}[{axis!r}] must be {err}")
 
 
 def _as_non_empty_str(value: Any) -> str | None:
@@ -303,37 +366,11 @@ class DatasetConfig(DatasetDescriptor):
     def _validate_modality_meta(self) -> None:
         """Validate ``properties.meta`` against modality-specific schemas."""
         modality_type = self.euler_train["modality_type"]
-        schema = _MODALITY_META_SCHEMAS.get(modality_type)
-        if schema is None:
-            return
-
-        meta = self.properties.get("meta")
-        if meta is None or not isinstance(meta, dict):
-            required_keys = ", ".join(sorted(schema))
-            raise ValueError(
-                f"properties.meta is required for modality_type={modality_type!r} "
-                f"and must contain: {required_keys}"
-            )
-
-        for key, entry in schema.items():
-            expected_type, type_label, _desc = entry[:3]
-            validator = entry[3] if len(entry) > 3 else None
-            if key not in meta:
-                raise ValueError(
-                    f"properties.meta.{key} is required for "
-                    f"modality_type={modality_type!r}"
-                )
-            value = meta[key]
-            if validator is not None:
-                err = validator(value)
-                if err is not None:
-                    raise ValueError(
-                        f"properties.meta.{key} must be {err}"
-                    )
-            elif not isinstance(value, expected_type):
-                raise ValueError(
-                    f"properties.meta.{key} must be {type_label}"
-                )
+        _validate_meta_dict(
+            self.properties.get("meta"),
+            modality_type,
+            "properties.meta",
+        )
 
     def _validate_slot(self, value: str) -> None:
         if not _SLOT_PATTERN.match(value):

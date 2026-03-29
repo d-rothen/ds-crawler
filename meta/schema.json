@@ -1,13 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "ds-crawler modality meta schemas",
-  "description": "Defines the required properties.meta object for each euler_train.modality_type value.",
+  "title": "ds-crawler meta schemas",
+  "description": "Defines shared and modality-specific properties.meta fields for each euler_train.modality_type value.",
   "type": "object",
   "properties": {
     "depth": {
       "type": "object",
       "description": "Required meta fields when euler_train.modality_type is 'depth'.",
       "properties": {
+        "dimensions": {
+          "type": "object",
+          "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape.",
+          "patternProperties": {
+            "^[A-Za-z0-9_]+$": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "minProperties": 1,
+          "additionalProperties": false
+        },
         "radial_depth": {
           "type": "boolean",
           "description": "Whether the depth values represent radial (euclidean) distance from the camera rather than perpendicular (z-buffer) depth.",
@@ -38,6 +50,18 @@
       "type": "object",
       "description": "Required meta fields when euler_train.modality_type is 'rgb'.",
       "properties": {
+        "dimensions": {
+          "type": "object",
+          "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape.",
+          "patternProperties": {
+            "^[A-Za-z0-9_]+$": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "minProperties": 1,
+          "additionalProperties": false
+        },
         "range": {
           "type": "array",
           "items": {
@@ -61,6 +85,18 @@
       "type": "object",
       "description": "Required meta fields when euler_train.modality_type is 'semantic_segmentation'.",
       "properties": {
+        "dimensions": {
+          "type": "object",
+          "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape.",
+          "patternProperties": {
+            "^[A-Za-z0-9_]+$": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "minProperties": 1,
+          "additionalProperties": false
+        },
         "skyclass": {
           "type": "array",
           "items": {

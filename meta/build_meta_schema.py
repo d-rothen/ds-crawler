@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Generate ``schema.json`` from the modality meta schemas defined in config.
+"""Generate ``schema.json`` from the meta schemas defined in config.
 
 Reads ``_MODALITY_META_SCHEMAS`` and writes a JSON Schema file to
 ``meta/schema.json`` that documents the expected ``properties.meta``
-object for each ``euler_train.modality_type``.
+object for each ``euler_train.modality_type``, including shared optional
+fields such as ``meta.dimensions``.
 """
 
 from __future__ import annotations
@@ -39,6 +40,25 @@ _JSON_SCHEMA_OVERRIDES: dict[tuple[str, str], dict] = {
     },
 }
 
+_SHARED_META_PROPERTIES: dict[str, dict] = {
+    "dimensions": {
+        "type": "object",
+        "description": (
+            "Dataset-wide nominal sample dimensions keyed by semantic axis "
+            "names (for example {'height': 375, 'width': 1242, 'channels': 3}). "
+            "Omit this field when there is no single dataset-wide shape."
+        ),
+        "patternProperties": {
+            "^[A-Za-z0-9_]+$": {
+                "type": "integer",
+                "minimum": 1,
+            },
+        },
+        "minProperties": 1,
+        "additionalProperties": False,
+    },
+}
+
 
 def _json_schema_type(accepted: type | tuple[type, ...]) -> dict:
     """Convert a Python type (or tuple of types) to a JSON Schema type clause."""
@@ -57,7 +77,7 @@ def build_schema() -> dict:
     modality_schemas: dict[str, dict] = {}
 
     for modality_type, fields in sorted(_MODALITY_META_SCHEMAS.items()):
-        properties: dict[str, dict] = {}
+        properties: dict[str, dict] = dict(_SHARED_META_PROPERTIES)
         required: list[str] = []
 
         for field_name, entry in sorted(fields.items()):
@@ -90,10 +110,10 @@ def build_schema() -> dict:
 
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "ds-crawler modality meta schemas",
+        "title": "ds-crawler meta schemas",
         "description": (
-            "Defines the required properties.meta object for each "
-            "euler_train.modality_type value."
+            "Defines shared and modality-specific properties.meta fields for "
+            "each euler_train.modality_type value."
         ),
         "type": "object",
         "properties": modality_schemas,

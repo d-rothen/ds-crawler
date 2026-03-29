@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .config import _MODALITY_META_SCHEMAS, CONFIG_FILENAME, DatasetConfig
+from .config import CONFIG_FILENAME, DatasetConfig, _validate_meta_dict
 from .path_filters import PathFilters
 from .zip_utils import OUTPUT_FILENAME, read_metadata_json
 
@@ -114,33 +114,7 @@ def _validate_euler_train(value: Any, context: str) -> None:
 def _validate_modality_meta(
     value: dict[str, Any], modality_type: str, context: str,
 ) -> None:
-    schema = _MODALITY_META_SCHEMAS.get(modality_type)
-    if schema is None:
-        return
-
-    meta = value.get("meta")
-    if meta is None or not isinstance(meta, dict):
-        required_keys = ", ".join(sorted(schema))
-        raise ValueError(
-            f"{context}.meta is required for modality_type={modality_type!r} "
-            f"and must contain: {required_keys}"
-        )
-
-    for key, entry in schema.items():
-        expected_type, type_label, _desc = entry[:3]
-        validator = entry[3] if len(entry) > 3 else None
-        if key not in meta:
-            raise ValueError(
-                f"{context}.meta.{key} is required for "
-                f"modality_type={modality_type!r}"
-            )
-        value = meta[key]
-        if validator is not None:
-            err = validator(value)
-            if err is not None:
-                raise ValueError(f"{context}.meta.{key} must be {err}")
-        elif not isinstance(value, expected_type):
-            raise ValueError(f"{context}.meta.{key} must be {type_label}")
+    _validate_meta_dict(value.get("meta"), modality_type, f"{context}.meta")
 
 
 def _validate_string_dict(value: Any, label: str) -> None:
