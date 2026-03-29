@@ -26,6 +26,12 @@ _TYPE_MAP: dict[type, str] = {
 # Field-level JSON Schema overrides for fields that need a richer schema
 # than a bare {"type": ...} (e.g. array items, min/maxItems).
 _JSON_SCHEMA_OVERRIDES: dict[tuple[str, str], dict] = {
+    ("depth", "range"): {
+        "type": "array",
+        "items": {"type": "number"},
+        "minItems": 2,
+        "maxItems": 2,
+    },
     ("rgb", "range"): {
         "type": "array",
         "items": {"type": "number"},
@@ -48,14 +54,33 @@ _SHARED_META_PROPERTIES: dict[str, dict] = {
             "names (for example {'height': 375, 'width': 1242, 'channels': 3}). "
             "Omit this field when there is no single dataset-wide shape."
         ),
-        "patternProperties": {
-            "^[A-Za-z0-9_]+$": {
-                "type": "integer",
-                "minimum": 1,
-            },
+        "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
         },
         "minProperties": 1,
-        "additionalProperties": False,
+        "additionalProperties": {
+            "type": "integer",
+            "minimum": 1,
+        },
+        "examples": [
+            {"height": 375, "width": 1242, "channels": 3},
+            {"time": 16, "features": 512},
+            {"x": 256, "y": 256, "z": 64},
+        ],
+        "x-ui": {
+            "widget": "keyValueTable",
+            "keyLabel": "Axis",
+            "valueLabel": "Size",
+            "allowCustomKeys": True,
+            "suggestedKeys": [
+                "height",
+                "width",
+                "channels",
+                "depth",
+                "time",
+                "features",
+            ],
+        },
     },
 }
 
