@@ -11,14 +11,44 @@
         "dimensions": {
           "type": "object",
           "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape.",
-          "patternProperties": {
-            "^[A-Za-z0-9_]+$": {
-              "type": "integer",
-              "minimum": 1
-            }
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
           },
           "minProperties": 1,
-          "additionalProperties": false
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "examples": [
+            {
+              "height": 375,
+              "width": 1242,
+              "channels": 3
+            },
+            {
+              "time": 16,
+              "features": 512
+            },
+            {
+              "x": 256,
+              "y": 256,
+              "z": 64
+            }
+          ],
+          "x-ui": {
+            "widget": "keyValueTable",
+            "keyLabel": "Axis",
+            "valueLabel": "Size",
+            "allowCustomKeys": true,
+            "suggestedKeys": [
+              "height",
+              "width",
+              "channels",
+              "depth",
+              "time",
+              "features"
+            ]
+          }
         },
         "radial_depth": {
           "type": "boolean",
@@ -27,6 +57,11 @@
         },
         "range": {
           "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
           "description": "Value range of the depth values in meters (e.g. [0, 65535] for VKITTI2).",
           "default": [
             0,
@@ -53,14 +88,44 @@
         "dimensions": {
           "type": "object",
           "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape.",
-          "patternProperties": {
-            "^[A-Za-z0-9_]+$": {
-              "type": "integer",
-              "minimum": 1
-            }
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
           },
           "minProperties": 1,
-          "additionalProperties": false
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "examples": [
+            {
+              "height": 375,
+              "width": 1242,
+              "channels": 3
+            },
+            {
+              "time": 16,
+              "features": 512
+            },
+            {
+              "x": 256,
+              "y": 256,
+              "z": 64
+            }
+          ],
+          "x-ui": {
+            "widget": "keyValueTable",
+            "keyLabel": "Axis",
+            "valueLabel": "Size",
+            "allowCustomKeys": true,
+            "suggestedKeys": [
+              "height",
+              "width",
+              "channels",
+              "depth",
+              "time",
+              "features"
+            ]
+          }
         },
         "range": {
           "type": "array",
@@ -88,14 +153,44 @@
         "dimensions": {
           "type": "object",
           "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape.",
-          "patternProperties": {
-            "^[A-Za-z0-9_]+$": {
-              "type": "integer",
-              "minimum": 1
-            }
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
           },
           "minProperties": 1,
-          "additionalProperties": false
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "examples": [
+            {
+              "height": 375,
+              "width": 1242,
+              "channels": 3
+            },
+            {
+              "time": 16,
+              "features": 512
+            },
+            {
+              "x": 256,
+              "y": 256,
+              "z": 64
+            }
+          ],
+          "x-ui": {
+            "widget": "keyValueTable",
+            "keyLabel": "Axis",
+            "valueLabel": "Size",
+            "allowCustomKeys": true,
+            "suggestedKeys": [
+              "height",
+              "width",
+              "channels",
+              "depth",
+              "time",
+              "features"
+            ]
+          }
         },
         "skyclass": {
           "type": "array",
