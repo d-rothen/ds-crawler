@@ -8,7 +8,11 @@ import sys
 from pathlib import Path
 
 from ds_crawler.config import Config
-from ds_crawler.migration import migrate_dataset_metadata
+from ds_crawler.migration import (
+    migrate_dataset_metadata,
+    migrate_dataset_zip,
+    migrate_dataset_zips_in_folder,
+)
 from ds_crawler.parser import DatasetParser
 
 
@@ -142,21 +146,56 @@ def _run_migrate(argv: list[str]) -> int:
         help="Do not rewrite output.json; only write dataset-head.json and ds-crawler.json.",
     )
     parser.add_argument(
+        "--scan-zips",
+        action="store_true",
+        help="When a path is a directory, scan it for .zip archives and attempt migration on each archive.",
+    )
+    parser.add_argument(
+        "--top-level-only",
+        action="store_true",
+        help="When used with --scan-zips, only scan the provided directory itself.",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
         help="Enable verbose output.",
     )
     args = parser.parse_args(argv)
+    if args.top_level_only and not args.scan_zips:
+        parser.error("--top-level-only requires --scan-zips")
     setup_logging(args.verbose)
 
     failed = False
     logger = logging.getLogger(__name__)
     for path in args.paths:
         try:
-            result = migrate_dataset_metadata(
+            if path.is_dir() and args.scan_zips:
+                result = migrate_dataset_zips_in_folder(
+                    path,
+                    recursive=not args.top_level_only,
+                    write_output=not args.no_output,
+                    logger=logger,
+                )
+                if result["failed"]:
+                    failed = True
+                logger.info(
+                    "Scanned %s (archives=%d, migrated=%d, failed=%d)",
+                    result["path"],
+                    result["scanned"],
+                    len(result["migrated"]),
+                    len(result["failed"]),
+                )
+                continue
+
+            if path.suffix.lower() == ".zip":
+                migrate_fn = migrate_dataset_zip
+            else:
+                migrate_fn = migrate_dataset_metadata
+            result = migrate_fn(
                 path,
                 write_output=not args.no_output,
+                logger=logger,
             )
         except Exception as exc:
             failed = True

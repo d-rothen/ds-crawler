@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,8 @@ from .validation import DATASET_INDEX_KIND, DATASET_INDEX_VERSION, validate_outp
 from .zip_utils import (
     DATASET_HEAD_FILENAME,
     OUTPUT_FILENAME,
+    METADATA_DIR,
+    is_zip_path,
     list_metadata_json_filenames,
     read_metadata_json,
     write_metadata_json,
@@ -42,6 +45,10 @@ _LEGACY_STRUCTURAL_KEYS = frozenset({
     "sampled",
     "dataset",
 })
+
+
+def _get_logger(logger: logging.Logger | None) -> logging.Logger:
+    return logger or logging.getLogger(__name__)
 
 
 def _slugify(value: str) -> str:
@@ -322,29 +329,99 @@ def _build_output_from_legacy(
     return output
 
 
+def _read_metadata_mapping(
+    dataset_root: Path,
+    filename: str,
+    *,
+    allowed_filenames: set[str] | None = None,
+) -> dict[str, Any] | None:
+    if allowed_filenames is not None and filename not in allowed_filenames:
+        return None
+    return _unwrap_single_output(
+        read_metadata_json(dataset_root, filename),
+        filename,
+    )
+
+
+def _require_metadata_dir_entries(
+    dataset_root: Path,
+    *,
+    logger: logging.Logger,
+) -> set[str]:
+    metadata_filenames = set(list_metadata_json_filenames(dataset_root))
+    if not metadata_filenames:
+        message = (
+            f"No metadata JSON files found under {METADATA_DIR}/ at {dataset_root}"
+        )
+        logger.warning(message)
+        raise FileNotFoundError(message)
+    if CONFIG_FILENAME not in metadata_filenames and OUTPUT_FILENAME not in metadata_filenames:
+        message = (
+            f"Metadata under {METADATA_DIR}/ at {dataset_root} must include "
+            f"{CONFIG_FILENAME} or {OUTPUT_FILENAME}"
+        )
+        logger.warning(message)
+        raise FileNotFoundError(message)
+    return metadata_filenames
+
+
+def _iter_zip_paths(folder_path: Path, *, recursive: bool) -> list[Path]:
+    if not folder_path.is_dir():
+        raise NotADirectoryError(f"Not a directory: {folder_path}")
+
+    candidates = folder_path.rglob("*") if recursive else folder_path.iterdir()
+    return sorted(
+        path
+        for path in candidates
+        if path.is_file() and path.suffix.lower() == ".zip"
+    )
+
+
 def migrate_dataset_metadata(
     dataset_path: str | Path,
     *,
     write_output: bool = True,
+    logger: logging.Logger | None = None,
+    require_metadata_dir: bool = False,
 ) -> dict[str, Any]:
     """Rewrite one legacy dataset's metadata into the new schema."""
+    logger = _get_logger(logger)
     dataset_root = Path(dataset_path)
-    raw_config = _unwrap_single_output(
-        read_metadata_json(dataset_root, CONFIG_FILENAME),
+    logger.info("Migrating dataset metadata for %s", dataset_root)
+
+    allowed_filenames: set[str] | None = None
+    if require_metadata_dir:
+        allowed_filenames = _require_metadata_dir_entries(
+            dataset_root,
+            logger=logger,
+        )
+        logger.debug(
+            "Found %s metadata files for %s: %s",
+            METADATA_DIR,
+            dataset_root,
+            ", ".join(sorted(allowed_filenames)),
+        )
+
+    raw_config = _read_metadata_mapping(
+        dataset_root,
         CONFIG_FILENAME,
+        allowed_filenames=allowed_filenames,
     )
-    raw_output = _unwrap_single_output(
-        read_metadata_json(dataset_root, OUTPUT_FILENAME),
+    raw_output = _read_metadata_mapping(
+        dataset_root,
         OUTPUT_FILENAME,
+        allowed_filenames=allowed_filenames,
     )
 
     legacy_config = None if _is_new_config(raw_config) else raw_config
     legacy_output = None if _is_new_output(raw_output) else raw_output
 
     if legacy_config is None and legacy_output is None:
-        raise FileNotFoundError(
+        message = (
             f"No legacy {CONFIG_FILENAME} or {OUTPUT_FILENAME} found at {dataset_root}"
         )
+        logger.warning(message)
+        raise FileNotFoundError(message)
 
     head = _build_head_from_legacy(
         dataset_root,
@@ -363,7 +440,9 @@ def migrate_dataset_metadata(
         dataset_head=head,
     )
 
+    logger.debug("Writing %s for %s", DATASET_HEAD_FILENAME, dataset_root)
     write_metadata_json(dataset_root, DATASET_HEAD_FILENAME, head)
+    logger.debug("Writing %s for %s", CONFIG_FILENAME, dataset_root)
     write_metadata_json(dataset_root, CONFIG_FILENAME, config)
 
     output_written = False
@@ -374,6 +453,7 @@ def migrate_dataset_metadata(
             legacy_output=legacy_output,
         )
         validate_output(output)
+        logger.debug("Writing %s for %s", OUTPUT_FILENAME, dataset_root)
         write_metadata_json(dataset_root, OUTPUT_FILENAME, output)
         output_written = True
 
@@ -391,10 +471,102 @@ def migrate_dataset_metadata(
         write_metadata_json(dataset_root, filename, migrated_node)
         migrated_splits.append(filename)
 
-    return {
+    result = {
         "path": str(dataset_root),
         "wrote_head": True,
         "wrote_config": True,
         "wrote_output": output_written,
         "migrated_splits": migrated_splits,
+    }
+    logger.info(
+        "Migrated dataset metadata for %s (output=%s, splits=%d)",
+        dataset_root,
+        output_written,
+        len(migrated_splits),
+    )
+    return result
+
+
+def migrate_dataset_zip(
+    zip_path: str | Path,
+    *,
+    write_output: bool = True,
+    logger: logging.Logger | None = None,
+) -> dict[str, Any]:
+    """Migrate one dataset archive in-place.
+
+    ZIP migrations are strict: legacy metadata must already live under
+    ``.ds_crawler/`` inside the archive.
+    """
+    logger = _get_logger(logger)
+    archive_path = Path(zip_path)
+    if archive_path.suffix.lower() != ".zip":
+        raise ValueError(f"Dataset archive must be a .zip file, got: {archive_path}")
+    if not archive_path.is_file():
+        raise FileNotFoundError(f"Dataset archive not found: {archive_path}")
+    if not is_zip_path(archive_path):
+        raise ValueError(f"Dataset archive is not a readable .zip file: {archive_path}")
+
+    logger.info("Migrating dataset archive %s", archive_path)
+    return migrate_dataset_metadata(
+        archive_path,
+        write_output=write_output,
+        logger=logger,
+        require_metadata_dir=True,
+    )
+
+
+def migrate_dataset_zips_in_folder(
+    folder_path: str | Path,
+    *,
+    recursive: bool = True,
+    write_output: bool = True,
+    logger: logging.Logger | None = None,
+) -> dict[str, Any]:
+    """Scan a folder for dataset ZIPs and attempt migration on each archive."""
+    logger = _get_logger(logger)
+    folder = Path(folder_path)
+    zip_paths = _iter_zip_paths(folder, recursive=recursive)
+
+    logger.info(
+        "Scanning %s for dataset archives (%s)",
+        folder,
+        "recursive" if recursive else "top-level",
+    )
+    if not zip_paths:
+        logger.warning("No .zip archives found in %s", folder)
+
+    migrated: list[dict[str, Any]] = []
+    failed: list[dict[str, str]] = []
+
+    for archive_path in zip_paths:
+        logger.info("Attempting archive migration for %s", archive_path)
+        try:
+            result = migrate_dataset_zip(
+                archive_path,
+                write_output=write_output,
+                logger=logger,
+            )
+        except Exception as exc:
+            logger.warning("Archive migration failed for %s: %s", archive_path, exc)
+            failed.append({
+                "path": str(archive_path),
+                "error": str(exc),
+            })
+            continue
+        migrated.append(result)
+
+    logger.info(
+        "Archive migration scan complete for %s (scanned=%d, migrated=%d, failed=%d)",
+        folder,
+        len(zip_paths),
+        len(migrated),
+        len(failed),
+    )
+    return {
+        "path": str(folder),
+        "recursive": recursive,
+        "scanned": len(zip_paths),
+        "migrated": migrated,
+        "failed": failed,
     }
