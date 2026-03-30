@@ -186,6 +186,60 @@ def write_json_to_zip(
             pass
 
 
+def write_json_entries_to_zip(
+    zip_path: Path,
+    entries: dict[str, Any],
+) -> None:
+    """Write or replace multiple JSON entries inside a ZIP archive in one pass."""
+    if not entries:
+        return
+
+    resolved_entries = dict(entries)
+    if zip_path.exists():
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            prefix = _detect_root_prefix(zf.namelist())
+        if prefix and _matches_zip_stem(prefix, zip_path):
+            resolved_entries = {
+                prefix + entry_name: data
+                for entry_name, data in entries.items()
+            }
+
+    json_bytes = {
+        entry_name: json.dumps(data, indent=2).encode("utf-8")
+        for entry_name, data in resolved_entries.items()
+    }
+
+    if not zip_path.exists():
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for entry_name, payload in json_bytes.items():
+                zf.writestr(entry_name, payload)
+        return
+
+    replace_names = set(json_bytes)
+    fd, tmp_name = tempfile.mkstemp(suffix=".zip")
+    tmp_path = Path(tmp_name)
+    try:
+        with zipfile.ZipFile(zip_path, "r") as src, zipfile.ZipFile(
+            tmp_path, "w", zipfile.ZIP_DEFLATED
+        ) as dst:
+            for item in src.infolist():
+                if item.filename not in replace_names:
+                    dst.writestr(item, src.read(item.filename))
+            for entry_name, payload in json_bytes.items():
+                dst.writestr(entry_name, payload)
+        shutil.move(str(tmp_path), str(zip_path))
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    finally:
+        import os
+
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
 def read_metadata_json(
     dataset_path: Path, filename: str
 ) -> dict | None:
@@ -300,3 +354,29 @@ def write_metadata_json(
     with open(output_path, "w") as f:
         json.dump(data, f, indent=2)
     return output_path
+
+
+def write_metadata_json_batch(
+    dataset_path: Path,
+    entries: dict[str, Any],
+) -> Path:
+    """Write multiple metadata JSON files under ``.ds_crawler/``."""
+    if not entries:
+        return dataset_path
+
+    metadata_entries = {
+        f"{METADATA_DIR}/{filename}": data
+        for filename, data in entries.items()
+    }
+
+    if is_zip_path(dataset_path):
+        write_json_entries_to_zip(dataset_path, metadata_entries)
+        return dataset_path
+
+    output_dir = dataset_path / METADATA_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for filename, data in entries.items():
+        output_path = output_dir / filename
+        with open(output_path, "w") as f:
+            json.dump(data, f, indent=2)
+    return output_dir

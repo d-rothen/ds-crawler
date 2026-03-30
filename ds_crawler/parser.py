@@ -17,7 +17,7 @@ from .zip_utils import (
     DATASET_HEAD_FILENAME,
     OUTPUT_FILENAME,
     read_metadata_json,
-    write_metadata_json,
+    write_metadata_json_batch,
 )
 
 try:
@@ -684,8 +684,13 @@ class DatasetParser:
             output = self._build_output(ds_config, dataset_node)
 
             ds_path = Path(ds_config.dataset_root)
-            write_metadata_json(ds_path, ds_config.head_file, output["head"])
-            output_path = write_metadata_json(ds_path, filename, output)
+            output_path = write_metadata_json_batch(
+                ds_path,
+                {
+                    ds_config.head_file: output["head"],
+                    filename: output,
+                },
+            )
 
             output_paths.append(output_path)
 
@@ -881,5 +886,7 @@ def _save_output(
     When *dataset_path* is a ``.zip`` file the entry is written inside
     the archive.
     """
-    write_metadata_json(dataset_path, head_file, output["head"])
-    write_metadata_json(dataset_path, filename, output)
+    write_metadata_json_batch(dataset_path, {
+        head_file: output["head"],
+        filename: output,
+    })
