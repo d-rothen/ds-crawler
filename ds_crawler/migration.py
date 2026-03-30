@@ -215,14 +215,17 @@ def _build_crawler_config_from_legacy(
         raise ValueError("Cannot migrate crawler config without legacy metadata")
 
     indexing: dict[str, Any] = {
-        "id": {
-            "regex": source.get("id_regex"),
-            "join_char": source.get("id_regex_join_char", "+"),
-        },
         "constraints": {
             "flat_ids_unique": bool(source.get("flat_ids_unique", False)),
         },
     }
+    id_regex = source.get("id_regex")
+    has_id_regex = isinstance(id_regex, str) and bool(id_regex)
+    if has_id_regex:
+        indexing["id"] = {
+            "regex": id_regex,
+            "join_char": source.get("id_regex_join_char", "+"),
+        }
 
     hierarchy_regex = source.get("hierarchy_regex")
     if isinstance(hierarchy_regex, str) and hierarchy_regex:
@@ -252,7 +255,7 @@ def _build_crawler_config_from_legacy(
         indexing["files"] = files_cfg
 
     id_override = source.get("id_override")
-    if isinstance(id_override, str) and id_override:
+    if has_id_regex and isinstance(id_override, str) and id_override:
         indexing["id"]["override"] = id_override
 
     source_cfg: dict[str, Any] = {
@@ -261,6 +264,8 @@ def _build_crawler_config_from_legacy(
     legacy_output_json = legacy_config.get("output_json") if legacy_config else None
     if isinstance(legacy_output_json, str) and legacy_output_json:
         source_cfg["prebuilt_index_file"] = legacy_output_json
+    elif legacy_output is not None and not has_id_regex:
+        source_cfg["prebuilt_index_file"] = OUTPUT_FILENAME
 
     config = {
         "contract": {

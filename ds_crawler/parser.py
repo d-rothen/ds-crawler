@@ -269,6 +269,12 @@ class DatasetParser:
         match_index: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Core file-processing loop shared by all parse entry-points."""
+        if ds_config.compiled_id_regex is None:
+            raise ValueError(
+                "Cannot reindex dataset without config.indexing.id.regex; "
+                "use the configured prebuilt index instead."
+            )
+
         # Sort files for deterministic ordering (important for sampling)
         files = sorted(files)
 
@@ -813,8 +819,7 @@ def index_dataset_from_path(
 
     ds_config = load_dataset_config({"path": str(path)})
     if ds_config.prebuilt_index_file is not None and sample is None and match_index is None:
-        with open(ds_config.prebuilt_index_file) as f:
-            return json.load(f)
+        return _read_prebuilt_index(ds_config)
     parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
     dataset_node = parser.parse_dataset(
         ds_config, sample=sample, match_index=match_index,
@@ -840,6 +845,28 @@ def _read_cached_output(
             dataset_path,
         )
     return cached
+
+
+def _read_prebuilt_index(ds_config: DatasetConfig) -> dict[str, Any]:
+    """Read a configured prebuilt index for a dataset."""
+    if ds_config.prebuilt_index_file is None:
+        raise FileNotFoundError("Dataset config has no prebuilt index file")
+
+    prebuilt_path = Path(ds_config.prebuilt_index_file)
+    if prebuilt_path.is_file():
+        with open(prebuilt_path) as f:
+            return json.load(f)
+
+    cached = read_metadata_json(
+        Path(ds_config.dataset_root),
+        prebuilt_path.name,
+    )
+    if cached is not None:
+        return cached
+
+    raise FileNotFoundError(
+        f"No prebuilt index found at {ds_config.prebuilt_index_file}"
+    )
 
 
 def _save_output(

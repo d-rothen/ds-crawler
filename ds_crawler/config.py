@@ -71,7 +71,7 @@ class DatasetConfig:
     dataset_head: DatasetHeadContract
     head_file: str = DATASET_HEAD_FILENAME
     basename_regex: str | None = None
-    id_regex: str = ""
+    id_regex: str | None = None
     path_regex: str | None = None
     hierarchy_regex: str | None = None
     named_capture_group_value_separator: str | None = None
@@ -84,8 +84,11 @@ class DatasetConfig:
     compiled_path_filters: PathFilters = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if not self.id_regex:
-            raise ValueError("indexing.id.regex is required")
+        if not self.id_regex and self.prebuilt_index_file is None:
+            raise ValueError(
+                "indexing.id.regex is required unless "
+                "config.source.prebuilt_index_file is set"
+            )
         self._normalize_file_extensions()
         self._normalize_path_filters()
         self._compile_and_validate_regexes()
@@ -112,20 +115,21 @@ class DatasetConfig:
     def to_indexing_dict(self) -> dict[str, Any]:
         indexing: dict[str, Any] = {
             "files": {},
-            "id": {
-                "regex": self.id_regex,
-                "join_char": self.id_regex_join_char,
-            },
             "properties": {},
             "constraints": {
                 "flat_ids_unique": self.flat_ids_unique,
             },
         }
+        if self.id_regex is not None:
+            indexing["id"] = {
+                "regex": self.id_regex,
+                "join_char": self.id_regex_join_char,
+            }
         if self.file_extensions is not None:
             indexing["files"]["extensions"] = list(self.file_extensions)
         if self.path_filters is not None:
             indexing["files"]["path_filters"] = dict(self.path_filters)
-        if self.id_override is not None:
+        if self.id_override is not None and "id" in indexing:
             indexing["id"]["override"] = self.id_override
         if self.hierarchy_regex is not None:
             indexing["hierarchy"] = {
@@ -141,6 +145,8 @@ class DatasetConfig:
             indexing["properties"]["basename"] = {"regex": self.basename_regex}
         if not indexing["files"]:
             indexing.pop("files")
+        if "id" in indexing and not indexing["id"]:
+            indexing.pop("id")
         if not indexing["properties"]:
             indexing.pop("properties")
         if not indexing["constraints"]:
@@ -191,12 +197,16 @@ class DatasetConfig:
             except re.error as e:
                 raise ValueError(f"Invalid indexing.properties.basename.regex: {e}")
 
-        try:
-            self.compiled_id_regex: re.Pattern = re.compile(self.id_regex)
-        except re.error as e:
-            raise ValueError(f"Invalid indexing.id.regex: {e}")
-        if self.compiled_id_regex.groups == 0:
-            raise ValueError("indexing.id.regex must contain at least one capture group.")
+        self.compiled_id_regex: re.Pattern | None = None
+        if self.id_regex:
+            try:
+                self.compiled_id_regex = re.compile(self.id_regex)
+            except re.error as e:
+                raise ValueError(f"Invalid indexing.id.regex: {e}")
+            if self.compiled_id_regex.groups == 0:
+                raise ValueError(
+                    "indexing.id.regex must contain at least one capture group."
+                )
 
         self.compiled_path_regex: re.Pattern | None = None
         if self.path_regex:
@@ -275,7 +285,7 @@ class DatasetConfig:
 
         indexing = _require_mapping(data.get("indexing"), "config.indexing")
         files_cfg = _require_mapping(indexing.get("files", {}), "config.indexing.files")
-        id_cfg = _require_mapping(indexing.get("id"), "config.indexing.id")
+        id_cfg = _require_mapping(indexing.get("id", {}), "config.indexing.id")
         props_cfg = _require_mapping(
             indexing.get("properties", {}),
             "config.indexing.properties",
@@ -334,9 +344,20 @@ class DatasetConfig:
                 context="config.head",
             )
 
+        raw_id_regex = id_cfg.get("regex")
+        if raw_id_regex is None:
+            id_regex = None
+        else:
+            id_regex = _require_non_empty_string(
+                raw_id_regex,
+                "config.indexing.id.regex",
+            )
+
         join_char = id_cfg.get("join_char", "+")
-        if not isinstance(join_char, str) or not join_char:
+        if id_regex is not None and (not isinstance(join_char, str) or not join_char):
             raise ValueError("config.indexing.id.join_char must be a non-empty string")
+        if id_regex is None:
+            join_char = "+"
 
         return cls(
             dataset_root=str(dataset_root_path),
@@ -344,10 +365,7 @@ class DatasetConfig:
             dataset_head=parsed_head,
             head_file=head_file,
             basename_regex=basename_cfg.get("regex"),
-            id_regex=_require_non_empty_string(
-                id_cfg.get("regex"),
-                "config.indexing.id.regex",
-            ),
+            id_regex=id_regex,
             path_regex=path_cfg.get("regex"),
             hierarchy_regex=hierarchy_cfg.get("regex"),
             named_capture_group_value_separator=hierarchy_cfg.get("separator"),

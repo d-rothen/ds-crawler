@@ -5,6 +5,7 @@ import logging
 import zipfile
 
 from ds_crawler import DatasetWriter, get_dataset_contract, index_dataset_from_files
+from ds_crawler.config import load_dataset_config
 from ds_crawler.migration import (
     migrate_dataset_metadata,
     migrate_dataset_zip,
@@ -75,6 +76,27 @@ def _zip_tree(root, zip_path, *, root_prefix: str = ""):
             if file.is_file():
                 zf.write(file, root_prefix + str(file.relative_to(root)))
     return zip_path
+
+
+def _write_legacy_output_only_tree(root) -> None:
+    metadata_dir = root / ".ds_crawler"
+    metadata_dir.mkdir(parents=True)
+    (root / "0001.png").write_bytes(b"data")
+
+    legacy_output = {
+        "dataset_contract_version": "1.0",
+        "name": "Foggy RGB",
+        "type": "rgb",
+        "meta": {"range": [0, 255], "file_types": ["png"]},
+        "euler_train": {
+            "used_as": "input",
+            "slot": "demo.input.rgb",
+            "modality_type": "rgb",
+        },
+        "dataset": {"files": [{"path": "0001.png", "id": "0001.png"}]},
+    }
+    with open(metadata_dir / "output.json", "w") as f:
+        json.dump(legacy_output, f)
 
 
 def test_index_dataset_from_files_emits_head_and_index(tmp_path) -> None:
@@ -226,3 +248,26 @@ def test_migrate_dataset_zips_in_folder_logs_missing_metadata(tmp_path, caplog) 
     assert result["failed"][0]["path"].endswith("invalid_rgb.zip")
     assert result["recursive"] is True
     assert ".ds_crawler/" in caplog.text
+
+
+def test_migrate_output_only_zip_without_id_regex(tmp_path) -> None:
+    root = tmp_path / "foggy_rgb_tree"
+    root.mkdir()
+    _write_legacy_output_only_tree(root)
+
+    zip_path = _zip_tree(
+        root,
+        tmp_path / "foggy_rgb.zip",
+        root_prefix="foggy_rgb/",
+    )
+
+    result = migrate_dataset_zip(zip_path)
+    config = read_metadata_json(zip_path, "ds-crawler.json")
+    assert result["wrote_config"] is True
+    assert config is not None
+    assert config["source"]["prebuilt_index_file"] == "output.json"
+    assert config["indexing"].get("id") is None
+
+    loaded_config = load_dataset_config({"path": str(zip_path)})
+    assert loaded_config.id_regex is None
+    assert loaded_config.prebuilt_index_file is not None
