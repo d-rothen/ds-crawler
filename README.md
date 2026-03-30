@@ -271,7 +271,7 @@ The index produced by the crawler:
 `<group_name><separator><value>` (e.g. `scene:Scene01`).
 
 `dataset_contract_version` versions the shared cross-package contract
-owned by `euler-modalities`. `meta.file_types` is inferred from the
+owned by `euler-dataset-contract`. `meta.file_types` is inferred from the
 actual indexed data files when the crawler or writer can determine it.
 
 Inline splits can be stored alongside the full index as
@@ -440,6 +440,13 @@ Resolve normalized dataset-level properties from a dataset path, a
 `ds-crawler.json` dict, or an `output.json` head. This includes
 `euler_train`, `meta`, and any additional dataset properties, while
 excluding crawler structural keys.
+
+#### `get_dataset_contract(source) -> DatasetHeadContract`
+
+Resolve the normalized shared dataset-head contract from a dataset path,
+a `ds-crawler.json` dict, or an `output.json` head. The returned object
+exposes namespaced addon sections through `get_namespace(...)` /
+`get_addon_contract(...)`.
 
 ---
 

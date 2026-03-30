@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Generate ``schema.json`` from the shared euler-modalities registry."""
+"""Generate ``schema.json`` from the shared dataset-contract registry."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from ds_crawler._euler_modalities import build_meta_schema
+from ds_crawler._dataset_contract import build_meta_schema
 
 
 def build_schema() -> dict:

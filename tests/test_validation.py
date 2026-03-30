@@ -10,7 +10,7 @@ import pytest
 
 from ds_crawler.config import CONFIG_FILENAME, DatasetConfig
 from ds_crawler.parser import index_dataset
-from ds_crawler.schema import get_dataset_properties
+from ds_crawler.schema import get_dataset_contract, get_dataset_properties
 from ds_crawler.validation import (
     validate_crawler_config,
     validate_dataset,
@@ -223,3 +223,19 @@ class TestGetDatasetProperties:
 
         assert properties["model"] == "DepthAnythingV2"
         assert properties["meta"]["file_types"] == ["npy", "png"]
+
+
+class TestGetDatasetContract:
+    def test_reads_namespaced_contract_from_output_head(self, tmp_path: Path) -> None:
+        root = tmp_path / "depth_predictions"
+        create_depth_predictions_tree(root)
+        config = make_depth_predictions_config(str(root))
+        output = index_dataset(config)
+
+        contract = get_dataset_contract(output)
+
+        assert contract.name == "depth_predictions"
+        assert contract.type == "depth"
+        assert contract.get_namespace("euler_train")["modality_type"] == "depth"
+        assert contract.meta["file_types"] == ["npy", "png"]
+        assert contract.extras["model"] == "DepthAnythingV2"

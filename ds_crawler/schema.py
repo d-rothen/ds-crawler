@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ._euler_modalities import fold_property_namespaces
+from ._dataset_contract import DatasetHeadContract, parse_dataset_head
 from .zip_utils import OUTPUT_FILENAME, read_metadata_json
 
 # Keys written by the crawler that are structural, not dataset properties.
@@ -34,39 +34,19 @@ _DATASET_STRUCTURAL_KEYS = frozenset({
     "path_filters",
 })
 
-_PROPERTY_NAMESPACES = frozenset({
-    "dataset",
-    "euler_loading",
-    "euler_train",
-    "meta",
-})
-
-
 def extract_dataset_properties(data: dict[str, Any]) -> dict[str, Any]:
-    """Return normalized dataset properties from a config or output dict.
-
-    Supports both forms used in this repo:
-
-    - config-style objects with nested ``properties`` and optional
-      top-level shorthand namespaces such as ``meta`` / ``euler_train``
-    - output-style objects with dataset properties written directly at the
-      top level next to structural keys like ``id_regex`` and ``dataset``
-    """
-    properties = fold_property_namespaces(data, context="dataset")
-    for key, value in data.items():
-        if key in _DATASET_STRUCTURAL_KEYS or key in _PROPERTY_NAMESPACES:
-            continue
-        if key not in properties:
-            properties[key] = value
-    return properties
+    """Return normalized dataset properties from a config or output dict."""
+    return parse_dataset_head(
+        data,
+        context="dataset",
+        required_namespaces=("euler_train",),
+        ignored_keys=tuple(_DATASET_STRUCTURAL_KEYS),
+    ).to_properties_dict()
 
 
-def get_dataset_properties(
-    source: str | Path | dict[str, Any],
-) -> dict[str, Any]:
-    """Resolve dataset properties from a path, output head, or config dict."""
+def _read_single_dataset_head(source: str | Path | dict[str, Any]) -> dict[str, Any]:
     if isinstance(source, dict):
-        return extract_dataset_properties(source)
+        return source
 
     dataset_path = Path(source)
     output_data = read_metadata_json(dataset_path, OUTPUT_FILENAME)
@@ -79,17 +59,37 @@ def get_dataset_properties(
             output_data = output_data[0]
         if not isinstance(output_data, dict):
             raise ValueError("output.json must contain a dataset object")
-        return extract_dataset_properties(output_data)
+        return output_data
 
     config_data = read_metadata_json(dataset_path, "ds-crawler.json")
     if config_data is not None:
         if not isinstance(config_data, dict):
             raise ValueError("ds-crawler.json must contain a dataset object")
-        return extract_dataset_properties(config_data)
+        return config_data
 
     raise FileNotFoundError(
         f"No ds-crawler.json or {OUTPUT_FILENAME} found at: {dataset_path}"
     )
+
+
+def get_dataset_contract(
+    source: str | Path | dict[str, Any],
+) -> DatasetHeadContract:
+    """Resolve a normalized dataset-head contract from a path or mapping."""
+    data = _read_single_dataset_head(source)
+    return parse_dataset_head(
+        data,
+        context="dataset",
+        required_namespaces=("euler_train",),
+        ignored_keys=tuple(_DATASET_STRUCTURAL_KEYS),
+    )
+
+
+def get_dataset_properties(
+    source: str | Path | dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve dataset properties from a path, output head, or config dict."""
+    return get_dataset_contract(source).to_properties_dict()
 
 
 def infer_dataset_file_types(dataset_node: dict[str, Any]) -> list[str]:
@@ -156,7 +156,7 @@ class DatasetDescriptor:
             name=data["name"],
             path=path,
             type=data.get("type", ""),
-            properties=extract_dataset_properties(data),
+            properties=get_dataset_contract(data).to_properties_dict(),
         )
 
     @classmethod

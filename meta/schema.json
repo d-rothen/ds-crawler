@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Euler modality meta schemas",
+  "title": "Euler dataset meta schemas",
   "description": "Defines shared and modality-specific meta fields for each euler_train.modality_type value.",
   "type": "object",
   "properties": {

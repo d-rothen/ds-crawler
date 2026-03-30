@@ -56,7 +56,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from ._euler_modalities import DATASET_CONTRACT_VERSION
+from ._dataset_contract import DATASET_CONTRACT_VERSION
 from .config import _validate_meta_dict
 from .schema import infer_dataset_file_types
 from .zip_utils import COMPRESSED_EXTENSIONS, METADATA_DIR, write_metadata_json

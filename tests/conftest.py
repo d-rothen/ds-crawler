@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from ds_crawler._euler_modalities import build_default_meta
+from ds_crawler._dataset_contract import build_default_meta
 from ds_crawler.config import Config, DatasetConfig
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ._euler_modalities import (
+from ._dataset_contract import (
     DATASET_CONTRACT_VERSION,
     MODALITY_META_SCHEMAS as _MODALITY_META_SCHEMAS,
     PROPERTY_NAMESPACE_KEYS as _PROPERTY_NAMESPACE_KEYS,

@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ._euler_modalities import validate_dataset_head
+from ._dataset_contract import validate_dataset_head
 from .config import CONFIG_FILENAME, DatasetConfig
 from .path_filters import PathFilters
 from .zip_utils import OUTPUT_FILENAME, read_metadata_json
@@ -149,7 +149,12 @@ def _validate_output_dataset(value: Any, context: str) -> None:
                 "hierarchy_regex has named groups"
             )
 
-    validate_dataset_head(value, context)
+    validate_dataset_head(
+        value,
+        context,
+        required_namespaces=("euler_train",),
+        ignored_keys=("dataset",),
+    )
 
     if "dataset" not in value:
         raise ValueError(f"{context}.dataset is required")

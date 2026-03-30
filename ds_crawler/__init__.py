@@ -1,6 +1,11 @@
 """Dataset crawler package."""
 
-from .schema import DatasetDescriptor, extract_dataset_properties, get_dataset_properties
+from .schema import (
+    DatasetDescriptor,
+    extract_dataset_properties,
+    get_dataset_contract,
+    get_dataset_properties,
+)
 from .config import Config, DatasetConfig, load_dataset_config
 from .validation import validate_crawler_config, validate_dataset, validate_output
 from .parser import (
@@ -43,6 +48,7 @@ __all__ = [
     "extract_datasets",
     "filter_index_by_qualified_ids",
     "get_files",
+    "get_dataset_contract",
     "get_dataset_properties",
     "index_dataset",
     "index_dataset_from_files",
