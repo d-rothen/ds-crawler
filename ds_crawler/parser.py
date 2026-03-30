@@ -10,6 +10,7 @@ from typing import Any, Iterable
 
 from .config import Config, DatasetConfig, load_dataset_config
 from .handlers import get_handler
+from .schema import infer_dataset_file_types
 from .traversal import _collect_qualified_ids
 from .zip_utils import (
     read_metadata_json,
@@ -150,7 +151,19 @@ class DatasetParser:
         if dataset_properties and isinstance(dataset_properties, dict):
             dataset_node = _deep_merge(dataset_node, dataset_properties)
 
+        meta = dict(properties.get("meta", {})) if isinstance(
+            properties.get("meta"), dict
+        ) else None
+        file_types = infer_dataset_file_types(dataset_node)
+        if file_types:
+            if meta is None:
+                meta = {}
+            meta["file_types"] = file_types
+        if meta is not None:
+            properties["meta"] = meta
+
         output = {
+            "dataset_contract_version": ds_config.dataset_contract_version,
             "name": ds_config.name,
             "type": ds_config.type,
             "id_regex": ds_config.id_regex,

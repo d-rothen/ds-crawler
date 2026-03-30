@@ -125,9 +125,11 @@ dict). Minimal example:
 | `path` | yes | Root directory or `.zip` archive |
 | `type` | yes | Semantic label for the data modality (e.g. `"rgb"`, `"depth"`) |
 | `id_regex` | yes | Regex applied to each file's relative path. Capture groups form the file ID (joined by `id_regex_join_char`). |
+| `dataset_contract_version` | no | Contract version for the shared dataset head schema. Defaults to `"1.0"`. |
 | `properties.euler_train.used_as` | yes | `"input"`, `"target"`, or `"condition"` |
 | `properties.euler_train.modality_type` | yes | Identifier token (e.g. `"rgb"`, `"depth"`) |
 | `properties.meta.dimensions` | no | Dataset-wide nominal sample dimensions keyed by semantic axis names (e.g. `{"height": 375, "width": 1242, "channels": 3}`). |
+| `properties.meta.file_types` | no | Lowercase data file extensions without dots (e.g. `["png"]`, `["jpg", "png"]`). Usually inferred into `output.json` automatically. |
 | `hierarchy_regex` | no | Regex with named groups to build a hierarchy tree |
 | `named_capture_group_value_separator` | no | Character joining group name and value in hierarchy keys (default `":"`) |
 | `basename_regex` | no | Regex applied to basename only; properties stored per file |
@@ -234,6 +236,7 @@ The index produced by the crawler:
 
 ```json
 {
+  "dataset_contract_version": "1.0",
   "name": "my_rgb",
   "type": "rgb",
   "id_regex": "...",
@@ -245,6 +248,7 @@ The index produced by the crawler:
   "euler_train": { "used_as": "input", "modality_type": "rgb" },
   "meta": {
     "range": [0, 255],
+    "file_types": ["png"],
     "dimensions": { "height": 375, "width": 1242, "channels": 3 }
   },
   "named_capture_group_value_separator": ":",
@@ -265,6 +269,10 @@ The index produced by the crawler:
 `dataset` is a recursive node: each node has `files` (leaf entries) and
 `children` (named sub-nodes). Hierarchy keys follow the pattern
 `<group_name><separator><value>` (e.g. `scene:Scene01`).
+
+`dataset_contract_version` versions the shared cross-package contract
+owned by `euler-modalities`. `meta.file_types` is inferred from the
+actual indexed data files when the crawler or writer can determine it.
 
 Inline splits can be stored alongside the full index as
 `.ds_crawler/split_<name>.json`. These files contain only the JSON object
@@ -425,6 +433,13 @@ Validate an `output.json` object (single dict or list). Raises
 
 Check a dataset path for valid metadata files. Returns
 `{"path", "has_config", "has_output", "config", "output"}`.
+
+#### `get_dataset_properties(source) -> dict`
+
+Resolve normalized dataset-level properties from a dataset path, a
+`ds-crawler.json` dict, or an `output.json` head. This includes
+`euler_train`, `meta`, and any additional dataset properties, while
+excluding crawler structural keys.
 
 ---
 

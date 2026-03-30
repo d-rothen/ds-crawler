@@ -1,10 +1,4 @@
-"""Shared dataset descriptor schema.
-
-This module defines the base ``DatasetDescriptor`` dataclass that captures
-the identity of a dataset (name, path, type, and arbitrary properties).
-Other packages (e.g. evaluation, dataloading) can import and reuse this
-descriptor without depending on crawler-specific configuration.
-"""
+"""Shared dataset descriptor and dataset-head helpers."""
 
 from __future__ import annotations
 
@@ -13,19 +7,119 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-# Keys written by the crawler's _build_output that are not user properties.
-_OUTPUT_KEYS = frozenset({
+from ._euler_modalities import fold_property_namespaces
+from .zip_utils import OUTPUT_FILENAME, read_metadata_json
+
+# Keys written by the crawler that are structural, not dataset properties.
+_DATASET_STRUCTURAL_KEYS = frozenset({
     "name",
+    "path",
     "type",
+    "basename_regex",
     "id_regex",
+    "path_regex",
     "id_regex_join_char",
-    "euler_train",
-    "dataset",
     "hierarchy_regex",
     "named_capture_group_value_separator",
+    "intrinsics_regex",
+    "extrinsics_regex",
+    "flat_ids_unique",
+    "id_override",
+    "output_json",
+    "file_extensions",
+    "properties",
+    "dataset_contract_version",
     "sampled",
+    "dataset",
     "path_filters",
 })
+
+_PROPERTY_NAMESPACES = frozenset({
+    "dataset",
+    "euler_loading",
+    "euler_train",
+    "meta",
+})
+
+
+def extract_dataset_properties(data: dict[str, Any]) -> dict[str, Any]:
+    """Return normalized dataset properties from a config or output dict.
+
+    Supports both forms used in this repo:
+
+    - config-style objects with nested ``properties`` and optional
+      top-level shorthand namespaces such as ``meta`` / ``euler_train``
+    - output-style objects with dataset properties written directly at the
+      top level next to structural keys like ``id_regex`` and ``dataset``
+    """
+    properties = fold_property_namespaces(data, context="dataset")
+    for key, value in data.items():
+        if key in _DATASET_STRUCTURAL_KEYS or key in _PROPERTY_NAMESPACES:
+            continue
+        if key not in properties:
+            properties[key] = value
+    return properties
+
+
+def get_dataset_properties(
+    source: str | Path | dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve dataset properties from a path, output head, or config dict."""
+    if isinstance(source, dict):
+        return extract_dataset_properties(source)
+
+    dataset_path = Path(source)
+    output_data = read_metadata_json(dataset_path, OUTPUT_FILENAME)
+    if output_data is not None:
+        if isinstance(output_data, list):
+            if len(output_data) != 1:
+                raise ValueError(
+                    "Expected a single dataset output object, got a list"
+                )
+            output_data = output_data[0]
+        if not isinstance(output_data, dict):
+            raise ValueError("output.json must contain a dataset object")
+        return extract_dataset_properties(output_data)
+
+    config_data = read_metadata_json(dataset_path, "ds-crawler.json")
+    if config_data is not None:
+        if not isinstance(config_data, dict):
+            raise ValueError("ds-crawler.json must contain a dataset object")
+        return extract_dataset_properties(config_data)
+
+    raise FileNotFoundError(
+        f"No ds-crawler.json or {OUTPUT_FILENAME} found at: {dataset_path}"
+    )
+
+
+def infer_dataset_file_types(dataset_node: dict[str, Any]) -> list[str]:
+    """Collect observed data file types from a crawler dataset tree."""
+    file_types: set[str] = set()
+
+    def _walk(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+
+        files = node.get("files")
+        if isinstance(files, list):
+            for entry in files:
+                if not isinstance(entry, dict):
+                    continue
+                path = entry.get("path")
+                suffix = ""
+                if isinstance(path, str):
+                    suffix = Path(path).suffix
+                token = suffix.lower().lstrip(".")
+                if token:
+                    file_types.add(token)
+
+        children = node.get("children")
+        if isinstance(children, dict):
+            for child in children.values():
+                _walk(child)
+
+    _walk(dataset_node)
+    return sorted(file_types)
 
 
 @dataclass
@@ -62,7 +156,7 @@ class DatasetDescriptor:
             name=data["name"],
             path=path,
             type=data.get("type", ""),
-            properties={k: v for k, v in data.items() if k not in _OUTPUT_KEYS},
+            properties=extract_dataset_properties(data),
         )
 
     @classmethod

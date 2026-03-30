@@ -219,9 +219,11 @@ class TestBuildOutput:
 
         output = writer.build_output()
 
+        assert output["dataset_contract_version"] == "1.0"
         assert output["name"] == "segmentation"
         assert output["type"] == "segmentation"
         assert output["euler_train"] == _EULER_TRAIN
+        assert output["meta"]["file_types"] == ["png"]
         assert output["named_capture_group_value_separator"] == ":"
 
         # Navigate hierarchy

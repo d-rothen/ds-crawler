@@ -9,24 +9,16 @@ from typing import Any
 
 import pytest
 
-from ds_crawler.config import Config, DatasetConfig, _MODALITY_META_SCHEMAS
+from ds_crawler._euler_modalities import build_default_meta
+from ds_crawler.config import Config, DatasetConfig
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 EXAMPLE_CONFIG_PATH = EXAMPLES_DIR / "config.json"
 EXAMPLE_OUTPUT_PATH = EXAMPLES_DIR / "example_output.json"
 
-# Default meta values used by test helpers when auto-injecting meta for a
-# modality that requires it.
-_DEFAULT_META: dict[str, dict[str, Any]] = {
-    "depth": {"radial_depth": False, "scale_to_meters": 1.0, "range": [0, 65535]},
-    "rgb": {"range": [0, 255]},
-    "semantic_segmentation": {"skyclass": [0, 0, 0]},
-}
-
-
 def default_meta_for_modality(modality: str) -> dict[str, Any] | None:
     """Return a valid default ``meta`` dict for *modality*, or ``None``."""
-    return _DEFAULT_META.get(modality)
+    return build_default_meta(modality)
 
 
 # ---------------------------------------------------------------------------

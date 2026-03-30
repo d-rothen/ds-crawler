@@ -8,22 +8,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ._euler_modalities import (
+    DATASET_CONTRACT_VERSION,
+    MODALITY_META_SCHEMAS as _MODALITY_META_SCHEMAS,
+    PROPERTY_NAMESPACE_KEYS as _PROPERTY_NAMESPACE_KEYS,
+    normalize_euler_train as _normalize_euler_train_contract,
+    normalize_meta_dict as _normalize_meta_dict,
+    validate_contract_version,
+)
 from .schema import DatasetDescriptor
 from .path_filters import PathFilters
 
 
 CONFIG_FILENAME = "ds-crawler.json"
-EULER_TRAIN_ALLOWED_USED_AS: frozenset[str] = frozenset({
-    "input", "target", "condition",
-})
-_EULER_TRAIN_ALLOWED_KEYS: frozenset[str] = frozenset({
-    "used_as",
-    "slot",
-    "modality_type",
-    "hierarchy_scope",
-    "applies_to",
-    "task",
-})
+_validate_meta_dict = _normalize_meta_dict
+
 _RESERVED_TOP_LEVEL_PROPERTIES: frozenset[str] = frozenset({
     "name",
     "path",
@@ -35,172 +34,8 @@ _RESERVED_TOP_LEVEL_PROPERTIES: frozenset[str] = frozenset({
     "sampled",
     "id_override",
     "path_filters",
+    "dataset_contract_version",
 })
-_PROPERTY_NAMESPACE_KEYS: frozenset[str] = frozenset({
-    "euler_train",
-    "euler_loading",
-    "meta",
-})
-_SLOT_PATTERN = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+){2,}$")
-_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
-
-# ---------------------------------------------------------------------------
-# Modality-specific meta validators
-# ---------------------------------------------------------------------------
-
-
-def _validate_rgb_array(value: Any) -> str | None:
-    """Return an error message if *value* is not a valid ``[R, G, B]`` array."""
-    if (
-        not isinstance(value, list)
-        or len(value) != 3
-        or not all(isinstance(v, int) and 0 <= v <= 255 for v in value)
-    ):
-        return "an array of 3 integers (0-255)"
-    return None
-
-
-def _validate_numeric_range(value: Any) -> str | None:
-    """Return an error message if *value* is not a ``[min, max]`` pair."""
-    if (
-        not isinstance(value, list)
-        or len(value) != 2
-        or not all(isinstance(v, (int, float)) for v in value)
-    ):
-        return "an array of 2 numbers [min, max]"
-    if value[0] > value[1]:
-        return "an array of 2 numbers [min, max] where min <= max"
-    return None
-
-
-def _validate_positive_int(value: Any) -> str | None:
-    """Return an error message if *value* is not a positive integer."""
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        return "a positive integer"
-    return None
-
-
-# Modality-specific required fields in ``properties.meta``.
-# Each entry is a tuple of 3, 4, or 5 elements:
-#   (accepted_type, type_label, description[, validator[, default]])
-# The optional *validator* is a callable(value) -> str | None that returns
-# an error message when the value is invalid, or None when valid.
-# The optional *default* provides a sensible default value for the field
-# (emitted in the generated JSON Schema).
-_MODALITY_META_SCHEMAS: dict[str, dict[str, tuple]] = {
-    "depth": {
-        "radial_depth": (
-            bool,
-            "a bool",
-            "Whether the depth values represent radial (euclidean) distance "
-            "from the camera rather than perpendicular (z-buffer) depth.",
-            None,
-            False,
-        ),
-        "scale_to_meters": (
-            (int, float),
-            "a number",
-            "Factor that converts raw depth values to meters "
-            "(e.g. 0.001 when stored in millimetres).",
-            None,
-            1.0,
-        ),
-        "range": (
-            list,
-            "an array of 2 numbers [min, max]",
-            "Value range of the depth values in meters (e.g. [0, 65535] for VKITTI2).",
-            _validate_numeric_range,
-            [0, 65535],
-        ),
-    },
-    "rgb": {
-        "range": (
-            list,
-            "an array of 2 numbers [min, max]",
-            "Value range of the colour channels (e.g. [0, 255] for 8-bit "
-            "or [0, 1] for normalised data).",
-            _validate_numeric_range,
-            [0, 255],
-        ),
-    },
-    "semantic_segmentation": {
-        "skyclass": (
-            list,
-            "an array of 3 integers (0-255)",
-            "RGB colour value identifying the sky class in the segmentation map.",
-            _validate_rgb_array,
-            [0, 0, 0],
-        ),
-    },
-}
-
-
-def _validate_meta_dict(
-    value: Any, modality_type: str, context: str,
-) -> None:
-    """Validate a ``meta`` object, including shared and modality-specific keys."""
-    schema = _MODALITY_META_SCHEMAS.get(modality_type)
-
-    if value is None:
-        if schema is None:
-            return
-        required_keys = ", ".join(sorted(schema))
-        raise ValueError(
-            f"{context} is required for modality_type={modality_type!r} "
-            f"and must contain: {required_keys}"
-        )
-    if not isinstance(value, dict):
-        raise ValueError(f"{context} must be an object")
-
-    if schema is not None:
-        for key, entry in schema.items():
-            expected_type, type_label, _desc = entry[:3]
-            validator = entry[3] if len(entry) > 3 else None
-            if key not in value:
-                raise ValueError(
-                    f"{context}.{key} is required for modality_type={modality_type!r}"
-                )
-            item = value[key]
-            if validator is not None:
-                err = validator(item)
-                if err is not None:
-                    raise ValueError(f"{context}.{key} must be {err}")
-            elif not isinstance(item, expected_type):
-                raise ValueError(f"{context}.{key} must be {type_label}")
-
-    dimensions = value.get("dimensions")
-    if dimensions is not None:
-        _validate_dimensions_dict(dimensions, f"{context}.dimensions")
-
-
-def _validate_dimensions_dict(value: Any, context: str) -> None:
-    """Validate a ``meta.dimensions`` mapping of axis names to sizes."""
-    if not isinstance(value, dict) or not value:
-        raise ValueError(f"{context} must be a non-empty object")
-
-    for axis, size in value.items():
-        if not isinstance(axis, str) or not axis:
-            raise ValueError(f"{context} keys must be non-empty strings")
-        if not _TOKEN_PATTERN.match(axis):
-            raise ValueError(
-                f"{context}[{axis!r}] must contain only letters, digits, or underscores"
-            )
-        err = _validate_positive_int(size)
-        if err is not None:
-            raise ValueError(f"{context}[{axis!r}] must be {err}")
-
-
-def _as_non_empty_str(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def _slugify(value: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9_]+", "_", value.strip().lower())
-    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
-    return cleaned or "dataset"
 
 @dataclass
 class DatasetConfig(DatasetDescriptor):
@@ -219,6 +54,7 @@ class DatasetConfig(DatasetDescriptor):
     path_filters: dict[str, Any] | None = None
     output_json: str | None = None
     file_extensions: list[str] | None = None
+    dataset_contract_version: str = DATASET_CONTRACT_VERSION
     euler_train: dict[str, Any] = field(init=False)
     compiled_path_filters: PathFilters = field(init=False, repr=False)
 
@@ -230,8 +66,9 @@ class DatasetConfig(DatasetDescriptor):
         self._normalize_path_filters()
         self._compile_and_validate_regexes()
         self._validate_properties()
+        validate_contract_version(self.dataset_contract_version)
         self.euler_train = self._normalize_euler_train()
-        self._validate_modality_meta()
+        self._normalize_modality_meta()
 
     def _validate_properties(self) -> None:
         if not isinstance(self.properties, dict):
@@ -259,69 +96,12 @@ class DatasetConfig(DatasetDescriptor):
                 "properties.euler_train is required and must define "
                 "'used_as' and 'modality_type'"
             )
-        if not isinstance(raw, dict):
-            raise ValueError("properties.euler_train must be an object")
-
-        unknown = sorted(set(raw.keys()) - _EULER_TRAIN_ALLOWED_KEYS)
-        if unknown:
-            joined = ", ".join(unknown)
-            raise ValueError(f"Unknown properties.euler_train key(s): {joined}")
-
-        used_as = _as_non_empty_str(raw.get("used_as"))
-        if used_as is None:
-            raise ValueError("properties.euler_train.used_as is required")
-        if used_as not in EULER_TRAIN_ALLOWED_USED_AS:
-            allowed = ", ".join(sorted(EULER_TRAIN_ALLOWED_USED_AS))
-            raise ValueError(
-                f"properties.euler_train.used_as must be one of {{{allowed}}}, "
-                f"got {used_as!r}"
-            )
-
-        modality_type = _as_non_empty_str(raw.get("modality_type"))
-        if modality_type is None:
-            raise ValueError("properties.euler_train.modality_type is required")
-        self._validate_token(
-            modality_type,
-            "properties.euler_train.modality_type",
+        return _normalize_euler_train_contract(
+            raw,
+            dataset_name=self.name,
+            inferred_hierarchy_scope=self._infer_hierarchy_scope(),
+            context="properties.euler_train",
         )
-
-        slot = _as_non_empty_str(raw.get("slot"))
-        task = _as_non_empty_str(raw.get("task"))
-        if slot is None:
-            scope = task or _slugify(self.name)
-            slot = f"{scope}.{used_as}.{modality_type}"
-        self._validate_slot(slot)
-
-        result: dict[str, Any] = {
-            "used_as": used_as,
-            "slot": slot,
-            "modality_type": modality_type,
-        }
-
-        raw_hierarchy_scope = _as_non_empty_str(raw.get("hierarchy_scope"))
-        raw_applies_to = raw.get("applies_to")
-
-        if used_as == "condition":
-            hierarchy_scope = raw_hierarchy_scope or self._infer_hierarchy_scope()
-            self._validate_token(
-                hierarchy_scope,
-                "properties.euler_train.hierarchy_scope",
-            )
-            applies_to = self._normalize_applies_to(raw_applies_to)
-            if applies_to is None:
-                applies_to = ["*"]
-            if not applies_to:
-                raise ValueError("properties.euler_train.applies_to cannot be empty")
-            result["hierarchy_scope"] = hierarchy_scope
-            result["applies_to"] = applies_to
-        else:
-            if raw_hierarchy_scope is not None or raw_applies_to is not None:
-                raise ValueError(
-                    "properties.euler_train.hierarchy_scope and applies_to are only "
-                    "allowed when used_as is 'condition'"
-                )
-
-        return result
 
     def _infer_hierarchy_scope(self) -> str:
         if self.compiled_hierarchy_regex is None:
@@ -343,47 +123,18 @@ class DatasetConfig(DatasetDescriptor):
             return "root"
         return f"level_{groups}"
 
-    def _normalize_applies_to(self, value: Any) -> list[str] | None:
-        if value is None:
-            return None
-        if not isinstance(value, list):
-            raise ValueError(
-                "properties.euler_train.applies_to must be a list of strings"
-            )
-
-        result: list[str] = []
-        for item in value:
-            token = _as_non_empty_str(item)
-            if token is None:
-                raise ValueError(
-                    "properties.euler_train.applies_to entries must be non-empty strings"
-                )
-            if token != "*":
-                self._validate_token(token, "properties.euler_train.applies_to")
-            result.append(token)
-        return result
-
-    def _validate_modality_meta(self) -> None:
-        """Validate ``properties.meta`` against modality-specific schemas."""
+    def _normalize_modality_meta(self) -> None:
+        """Normalize ``properties.meta`` against shared modality contracts."""
         modality_type = self.euler_train["modality_type"]
-        _validate_meta_dict(
+        normalized = _normalize_meta_dict(
             self.properties.get("meta"),
             modality_type,
             "properties.meta",
         )
-
-    def _validate_slot(self, value: str) -> None:
-        if not _SLOT_PATTERN.match(value):
-            raise ValueError(
-                "properties.euler_train.slot must match "
-                "'segment.segment.segment' (alphanumeric/underscore only)"
-            )
-
-    def _validate_token(self, value: str, label: str) -> None:
-        if not _TOKEN_PATTERN.match(value):
-            raise ValueError(
-                f"{label} must contain only letters, digits, or underscores"
-            )
+        if normalized is None:
+            self.properties.pop("meta", None)
+        else:
+            self.properties["meta"] = normalized
 
     def _normalize_file_extensions(self) -> None:
         """Ensure file extensions start with a dot."""
@@ -456,6 +207,9 @@ class DatasetConfig(DatasetDescriptor):
             properties=props,
             output_json=data.get("output_json"),
             file_extensions=data.get("file_extensions"),
+            dataset_contract_version=data.get(
+                "dataset_contract_version", DATASET_CONTRACT_VERSION
+            ),
         )
 
     def _compile_and_validate_regexes(self) -> None:

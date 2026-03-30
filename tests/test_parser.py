@@ -494,6 +494,7 @@ class TestBuildOutput:
         output = parser._build_output(ds, node)
 
         assert output["name"] == "MyDS"
+        assert output["dataset_contract_version"] == "1.0"
         assert output["id_regex"] == r"^(?P<f>.+)\.png$"
         assert output["id_regex_join_char"] == "+"
         assert output["type"] == "rgb"
@@ -505,6 +506,39 @@ class TestBuildOutput:
         assert output["gt"] is True
         assert "dataset" in output
         assert output["dataset"]["children"]["a"]["files"] == []
+
+    def test_build_output_infers_file_types(self, tmp_path: Path) -> None:
+        ds = make_dataset_config(
+            name="MyDS",
+            path=str(tmp_path),
+            type="rgb",
+            basename_regex=r"^(?P<f>.+)\.png$",
+            id_regex=r"^(?P<f>.+)\.png$",
+            properties={
+                "euler_train": {
+                    "used_as": "target",
+                    "slot": "demo.target.rgb",
+                    "modality_type": "rgb",
+                },
+                "meta": {
+                    "range": [0, 255],
+                },
+            },
+        )
+        parser = self._make_parser(ds)
+        node = {
+            "files": [
+                {
+                    "path": "frame_001.png",
+                    "id": "001",
+                    "path_properties": {},
+                    "basename_properties": {"ext": "png"},
+                }
+            ]
+        }
+
+        output = parser._build_output(ds, node)
+        assert output["meta"]["file_types"] == ["png"]
 
     def test_hierarchy_regex_included(self, tmp_path: Path) -> None:
         ds = make_dataset_config(

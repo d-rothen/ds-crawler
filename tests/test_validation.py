@@ -10,6 +10,7 @@ import pytest
 
 from ds_crawler.config import CONFIG_FILENAME, DatasetConfig
 from ds_crawler.parser import index_dataset
+from ds_crawler.schema import get_dataset_properties
 from ds_crawler.validation import (
     validate_crawler_config,
     validate_dataset,
@@ -193,3 +194,32 @@ class TestValidateDataset:
             FileNotFoundError, match=r"No ds-crawler\.json or output\.json found"
         ):
             validate_dataset(root)
+
+
+class TestGetDatasetProperties:
+    def test_reads_from_output_head(self, tmp_path: Path) -> None:
+        root = tmp_path / "depth_predictions"
+        create_depth_predictions_tree(root)
+        config = make_depth_predictions_config(str(root))
+        output = index_dataset(config)
+
+        properties = get_dataset_properties(output)
+
+        assert properties["euler_train"]["modality_type"] == "depth"
+        assert properties["meta"]["file_types"] == ["npy", "png"]
+        assert properties["gt"] is False
+
+    def test_reads_from_dataset_path(self, tmp_path: Path) -> None:
+        root = tmp_path / "dataset_root"
+        root.mkdir(parents=True, exist_ok=True)
+        create_depth_predictions_tree(root)
+        config = make_depth_predictions_config(str(root))
+        output = index_dataset(config)
+
+        with open(root / OUTPUT_FILENAME, "w") as f:
+            json.dump(output, f, indent=2)
+
+        properties = get_dataset_properties(root)
+
+        assert properties["model"] == "DepthAnythingV2"
+        assert properties["meta"]["file_types"] == ["npy", "png"]

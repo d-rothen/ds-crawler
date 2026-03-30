@@ -56,7 +56,9 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from ._euler_modalities import DATASET_CONTRACT_VERSION
 from .config import _validate_meta_dict
+from .schema import infer_dataset_file_types
 from .zip_utils import COMPRESSED_EXTENSIONS, METADATA_DIR, write_metadata_json
 
 logger = logging.getLogger(__name__)
@@ -120,7 +122,13 @@ class _BaseDatasetWriter:
             raise ValueError("euler_train must contain 'modality_type'")
 
         modality_type = euler_train["modality_type"]
-        _validate_meta_dict(properties.get("meta"), modality_type, "meta")
+        normalized_meta = _validate_meta_dict(
+            properties.get("meta"), modality_type, "meta"
+        )
+        if normalized_meta is None:
+            properties.pop("meta", None)
+        else:
+            properties["meta"] = normalized_meta
 
         self._root = Path(root)
         self._name = name
@@ -227,11 +235,24 @@ class _BaseDatasetWriter:
         :func:`~ds_crawler.parser.index_dataset_from_path` and can be
         passed directly to :func:`~ds_crawler.parser.align_datasets`.
         """
+        properties = dict(self._properties)
+        meta = dict(properties.get("meta", {})) if isinstance(
+            properties.get("meta"), dict
+        ) else None
+        file_types = infer_dataset_file_types(self._dataset_node)
+        if file_types:
+            if meta is None:
+                meta = {}
+            meta["file_types"] = file_types
+        if meta is not None:
+            properties["meta"] = meta
+
         output: dict[str, Any] = {
+            "dataset_contract_version": DATASET_CONTRACT_VERSION,
             "name": self._name,
             "type": self._type,
             "euler_train": self._euler_train,
-            **self._properties,
+            **properties,
             "dataset": self._dataset_node,
         }
         if self._separator is not None:

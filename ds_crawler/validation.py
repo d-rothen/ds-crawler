@@ -6,24 +6,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .config import CONFIG_FILENAME, DatasetConfig, _validate_meta_dict
+from ._euler_modalities import validate_dataset_head
+from .config import CONFIG_FILENAME, DatasetConfig
 from .path_filters import PathFilters
 from .zip_utils import OUTPUT_FILENAME, read_metadata_json
-
-_EULER_TRAIN_ALLOWED_USED_AS: frozenset[str] = frozenset({
-    "input",
-    "target",
-    "condition",
-})
-_EULER_TRAIN_ALLOWED_KEYS: frozenset[str] = frozenset({
-    "used_as",
-    "slot",
-    "modality_type",
-    "hierarchy_scope",
-    "applies_to",
-})
-_SLOT_PATTERN = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+){2,}$")
-_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 
 
 def validate_crawler_config(
@@ -48,74 +34,6 @@ def validate_crawler_config(
         return DatasetConfig.from_dict(config, workdir=workdir)
     except KeyError as exc:
         raise ValueError(f"Crawler config missing required field: {exc}") from exc
-
-
-def _validate_token(value: Any, label: str) -> None:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{label} must be a non-empty string")
-    if not _TOKEN_PATTERN.match(value):
-        raise ValueError(
-            f"{label} must contain only letters, digits, or underscores"
-        )
-
-
-def _validate_euler_train(value: Any, context: str) -> None:
-    if not isinstance(value, dict):
-        raise ValueError(f"{context} must be an object")
-
-    unknown = sorted(set(value.keys()) - _EULER_TRAIN_ALLOWED_KEYS)
-    if unknown:
-        joined = ", ".join(unknown)
-        raise ValueError(f"Unknown {context} key(s): {joined}")
-
-    used_as = value.get("used_as")
-    if not isinstance(used_as, str) or not used_as:
-        raise ValueError(f"{context}.used_as is required")
-    if used_as not in _EULER_TRAIN_ALLOWED_USED_AS:
-        allowed = ", ".join(sorted(_EULER_TRAIN_ALLOWED_USED_AS))
-        raise ValueError(
-            f"{context}.used_as must be one of {{{allowed}}}, got {used_as!r}"
-        )
-
-    modality_type = value.get("modality_type")
-    _validate_token(modality_type, f"{context}.modality_type")
-
-    slot = value.get("slot")
-    if slot is not None:
-        if not isinstance(slot, str) or not slot:
-            raise ValueError(f"{context}.slot must be a non-empty string")
-        if not _SLOT_PATTERN.match(slot):
-            raise ValueError(
-                f"{context}.slot must match "
-                "'segment.segment.segment' (alphanumeric/underscore only)"
-            )
-
-    hierarchy_scope = value.get("hierarchy_scope")
-    applies_to = value.get("applies_to")
-    if used_as == "condition":
-        if hierarchy_scope is not None:
-            _validate_token(hierarchy_scope, f"{context}.hierarchy_scope")
-        if applies_to is not None:
-            if not isinstance(applies_to, list):
-                raise ValueError(f"{context}.applies_to must be a list of strings")
-            if not applies_to:
-                raise ValueError(f"{context}.applies_to cannot be empty")
-            for i, token in enumerate(applies_to):
-                if token == "*":
-                    continue
-                _validate_token(token, f"{context}.applies_to[{i}]")
-    elif hierarchy_scope is not None or applies_to is not None:
-        raise ValueError(
-            f"{context}.hierarchy_scope and {context}.applies_to are only allowed "
-            "when used_as is 'condition'"
-        )
-
-
-def _validate_modality_meta(
-    value: dict[str, Any], modality_type: str, context: str,
-) -> None:
-    _validate_meta_dict(value.get("meta"), modality_type, f"{context}.meta")
-
 
 def _validate_string_dict(value: Any, label: str) -> None:
     if not isinstance(value, dict):
@@ -231,12 +149,7 @@ def _validate_output_dataset(value: Any, context: str) -> None:
                 "hierarchy_regex has named groups"
             )
 
-    if "euler_train" not in value:
-        raise ValueError(f"{context}.euler_train is required")
-    _validate_euler_train(value["euler_train"], f"{context}.euler_train")
-
-    modality_type = value["euler_train"].get("modality_type", "")
-    _validate_modality_meta(value, modality_type, context)
+    validate_dataset_head(value, context)
 
     if "dataset" not in value:
         raise ValueError(f"{context}.dataset is required")
