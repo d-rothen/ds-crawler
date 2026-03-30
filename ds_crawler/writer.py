@@ -67,7 +67,7 @@ from .zip_utils import (
     DATASET_HEAD_FILENAME,
     METADATA_DIR,
     OUTPUT_FILENAME,
-    write_metadata_json,
+    write_metadata_json_batch,
 )
 
 logger = logging.getLogger(__name__)
@@ -457,8 +457,13 @@ class DatasetWriter(_BaseDatasetWriter):
             The :class:`~pathlib.Path` that was written to.
         """
         output = self.build_output()
-        write_metadata_json(self._root, DATASET_HEAD_FILENAME, output["head"])
-        path = write_metadata_json(self._root, filename, output)
+        path = write_metadata_json_batch(
+            self._root,
+            {
+                DATASET_HEAD_FILENAME: output["head"],
+                filename: output,
+            },
+        )
         logger.info(
             "DatasetWriter: saved index with %d entries to %s",
             self._count,

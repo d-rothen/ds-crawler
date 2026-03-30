@@ -22,6 +22,7 @@ from .zip_utils import (
     is_zip_path,
     list_metadata_json_filenames,
     read_metadata_json,
+    write_metadata_json_batch,
     write_metadata_json,
 )
 
@@ -445,12 +446,11 @@ def migrate_dataset_metadata(
         dataset_head=head,
     )
 
-    logger.debug("Writing %s for %s", DATASET_HEAD_FILENAME, dataset_root)
-    write_metadata_json(dataset_root, DATASET_HEAD_FILENAME, head)
-    logger.debug("Writing %s for %s", CONFIG_FILENAME, dataset_root)
-    write_metadata_json(dataset_root, CONFIG_FILENAME, config)
-
     output_written = False
+    metadata_updates: dict[str, Any] = {
+        DATASET_HEAD_FILENAME: head,
+        CONFIG_FILENAME: config,
+    }
     if legacy_output is not None and write_output:
         output = _build_output_from_legacy(
             head=head,
@@ -458,8 +458,7 @@ def migrate_dataset_metadata(
             legacy_output=legacy_output,
         )
         validate_output(output)
-        logger.debug("Writing %s for %s", OUTPUT_FILENAME, dataset_root)
-        write_metadata_json(dataset_root, OUTPUT_FILENAME, output)
+        metadata_updates[OUTPUT_FILENAME] = output
         output_written = True
 
     migrated_splits: list[str] = []
@@ -473,8 +472,20 @@ def migrate_dataset_metadata(
         if node is None:
             continue
         migrated_node = _strip_legacy_camera_fields(node)
-        write_metadata_json(dataset_root, filename, migrated_node)
+        metadata_updates[filename] = migrated_node
         migrated_splits.append(filename)
+
+    if is_zip_path(dataset_root):
+        logger.debug(
+            "Rewriting %s once with %d metadata files",
+            dataset_root,
+            len(metadata_updates),
+        )
+        write_metadata_json_batch(dataset_root, metadata_updates)
+    else:
+        for filename, payload in metadata_updates.items():
+            logger.debug("Writing %s for %s", filename, dataset_root)
+            write_metadata_json(dataset_root, filename, payload)
 
     result = {
         "path": str(dataset_root),
