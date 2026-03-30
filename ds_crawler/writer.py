@@ -56,12 +56,113 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from ._dataset_contract import DATASET_CONTRACT_VERSION
-from .config import _validate_meta_dict
+from ._dataset_contract import (
+    DATASET_CONTRACT_VERSION,
+    DatasetHeadContract,
+    parse_dataset_head,
+)
 from .schema import infer_dataset_file_types
-from .zip_utils import COMPRESSED_EXTENSIONS, METADATA_DIR, write_metadata_json
+from .zip_utils import (
+    COMPRESSED_EXTENSIONS,
+    DATASET_HEAD_FILENAME,
+    METADATA_DIR,
+    OUTPUT_FILENAME,
+    write_metadata_json,
+)
 
 logger = logging.getLogger(__name__)
+DATASET_INDEX_KIND = "dataset_index"
+DATASET_INDEX_VERSION = "1.0"
+
+
+def _slugify(value: str) -> str:
+    cleaned = "".join(
+        ch.lower() if ch.isalnum() else "_"
+        for ch in value.strip()
+    )
+    cleaned = "_".join(token for token in cleaned.split("_") if token)
+    return cleaned or "dataset"
+
+
+def _normalize_addon_payload(
+    name: str,
+    value: Any,
+    *,
+    modality_key: str,
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{name} must be an object")
+
+    payload = dict(value)
+    payload.setdefault("version", DATASET_CONTRACT_VERSION)
+    legacy_modality_type = payload.pop("modality_type", None)
+    if legacy_modality_type is not None and legacy_modality_type != modality_key:
+        raise ValueError(
+            f"{name}.modality_type={legacy_modality_type!r} conflicts with "
+            f"modality.key={modality_key!r}"
+        )
+    return payload
+
+
+def _coerce_dataset_head(
+    *,
+    head: DatasetHeadContract | dict[str, Any] | None,
+    name: str | None,
+    type: str | None,
+    dataset_id: str | None,
+    euler_train: dict[str, Any] | None,
+    attributes: dict[str, Any] | None,
+    properties: dict[str, Any],
+) -> DatasetHeadContract:
+    if head is not None:
+        if isinstance(head, DatasetHeadContract):
+            return head
+        return parse_dataset_head(head, context="head")
+
+    if name is None:
+        raise ValueError("name is required when head is not provided")
+    if type is None:
+        raise ValueError("type is required when head is not provided")
+
+    properties = dict(properties)
+    meta = properties.pop("meta", None)
+    dataset_attributes = dict(attributes or {})
+    dataset_attributes.update(properties)
+
+    addons: dict[str, dict[str, Any]] = {}
+    if euler_train is not None:
+        addons["euler_train"] = _normalize_addon_payload(
+            "euler_train",
+            euler_train,
+            modality_key=type,
+        )
+    euler_loading = dataset_attributes.pop("euler_loading", None)
+    if euler_loading is not None:
+        addons["euler_loading"] = _normalize_addon_payload(
+            "euler_loading",
+            euler_loading,
+            modality_key=type,
+        )
+
+    return parse_dataset_head(
+        {
+            "contract": {
+                "kind": "dataset_head",
+                "version": DATASET_CONTRACT_VERSION,
+            },
+            "dataset": {
+                "id": dataset_id or _slugify(name),
+                "name": name,
+                "attributes": dataset_attributes,
+            },
+            "modality": {
+                "key": type,
+                "meta": meta,
+            },
+            "addons": addons,
+        },
+        context="head",
+    )
 
 
 def _parse_full_id(full_id: str) -> tuple[list[str], str]:
@@ -110,32 +211,29 @@ class _BaseDatasetWriter:
         self,
         root: str | Path,
         *,
-        name: str,
-        type: str,
-        euler_train: dict[str, Any],
+        head: DatasetHeadContract | dict[str, Any] | None = None,
+        name: str | None = None,
+        type: str | None = None,
+        dataset_id: str | None = None,
+        euler_train: dict[str, Any] | None = None,
         separator: str | None = ":",
+        attributes: dict[str, Any] | None = None,
         **properties: Any,
     ) -> None:
-        if "used_as" not in euler_train:
-            raise ValueError("euler_train must contain 'used_as'")
-        if "modality_type" not in euler_train:
-            raise ValueError("euler_train must contain 'modality_type'")
-
-        modality_type = euler_train["modality_type"]
-        normalized_meta = _validate_meta_dict(
-            properties.get("meta"), modality_type, "meta"
+        self._dataset_head = _coerce_dataset_head(
+            head=head,
+            name=name,
+            type=type,
+            dataset_id=dataset_id,
+            euler_train=euler_train,
+            attributes=attributes,
+            properties=properties,
         )
-        if normalized_meta is None:
-            properties.pop("meta", None)
-        else:
-            properties["meta"] = normalized_meta
 
         self._root = Path(root)
-        self._name = name
-        self._type = type
-        self._euler_train = dict(euler_train)
+        self._name = self._dataset_head.dataset_name
+        self._type = self._dataset_head.modality_key
         self._separator = separator
-        self._properties = properties
         self._dataset_node: dict[str, Any] = {}
         self._count = 0
 
@@ -235,9 +333,10 @@ class _BaseDatasetWriter:
         :func:`~ds_crawler.parser.index_dataset_from_path` and can be
         passed directly to :func:`~ds_crawler.parser.align_datasets`.
         """
-        properties = dict(self._properties)
-        meta = dict(properties.get("meta", {})) if isinstance(
-            properties.get("meta"), dict
+        head = self._dataset_head.to_mapping()
+        modality = dict(head["modality"])
+        meta = dict(modality.get("meta", {})) if isinstance(
+            modality.get("meta"), dict
         ) else None
         file_types = infer_dataset_file_types(self._dataset_node)
         if file_types:
@@ -245,19 +344,32 @@ class _BaseDatasetWriter:
                 meta = {}
             meta["file_types"] = file_types
         if meta is not None:
-            properties["meta"] = meta
+            modality["meta"] = meta
+        head["modality"] = modality
 
-        output: dict[str, Any] = {
-            "dataset_contract_version": DATASET_CONTRACT_VERSION,
-            "name": self._name,
-            "type": self._type,
-            "euler_train": self._euler_train,
-            **properties,
-            "dataset": self._dataset_node,
+        indexing: dict[str, Any] = {
+            "id": {
+                "join_char": self._separator or "+",
+            },
         }
         if self._separator is not None:
-            output["named_capture_group_value_separator"] = self._separator
-        return output
+            indexing["hierarchy"] = {"separator": self._separator}
+
+        return {
+            "contract": {
+                "kind": DATASET_INDEX_KIND,
+                "version": DATASET_INDEX_VERSION,
+            },
+            "head_file": DATASET_HEAD_FILENAME,
+            "head": head,
+            "generator": {
+                "name": "ds_crawler",
+                "version": "0",
+            },
+            "indexing": indexing,
+            "execution": {},
+            "index": self._dataset_node,
+        }
 
 
 # ======================================================================
@@ -334,7 +446,7 @@ class DatasetWriter(_BaseDatasetWriter):
     # Index output
     # ------------------------------------------------------------------
 
-    def save_index(self, filename: str = "output.json") -> Path:
+    def save_index(self, filename: str = OUTPUT_FILENAME) -> Path:
         """Write the accumulated index to ``.ds_crawler/{filename}``.
 
         Args:
@@ -345,6 +457,7 @@ class DatasetWriter(_BaseDatasetWriter):
             The :class:`~pathlib.Path` that was written to.
         """
         output = self.build_output()
+        write_metadata_json(self._root, DATASET_HEAD_FILENAME, output["head"])
         path = write_metadata_json(self._root, filename, output)
         logger.info(
             "DatasetWriter: saved index with %d entries to %s",
@@ -417,15 +530,25 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         self,
         root: str | Path,
         *,
-        name: str,
-        type: str,
-        euler_train: dict[str, Any],
+        head: DatasetHeadContract | dict[str, Any] | None = None,
+        name: str | None = None,
+        type: str | None = None,
+        dataset_id: str | None = None,
+        euler_train: dict[str, Any] | None = None,
         separator: str | None = ":",
+        attributes: dict[str, Any] | None = None,
         **properties: Any,
     ) -> None:
         super().__init__(
-            root, name=name, type=type, euler_train=euler_train,
-            separator=separator, **properties,
+            root,
+            head=head,
+            name=name,
+            type=type,
+            dataset_id=dataset_id,
+            euler_train=euler_train,
+            separator=separator,
+            attributes=attributes,
+            **properties,
         )
         if self._root.suffix.lower() != ".zip":
             raise ValueError(
@@ -521,7 +644,7 @@ class ZipDatasetWriter(_BaseDatasetWriter):
     # Index output
     # ------------------------------------------------------------------
 
-    def save_index(self, filename: str = "output.json") -> Path:
+    def save_index(self, filename: str = OUTPUT_FILENAME) -> Path:
         """Write the index into the archive and close it.
 
         Args:
@@ -533,6 +656,11 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         if self._closed:
             raise RuntimeError("ZipDatasetWriter is closed")
         output = self.build_output()
+        self._zf.writestr(
+            f"{METADATA_DIR}/{DATASET_HEAD_FILENAME}",
+            json.dumps(output["head"], indent=2),
+            compress_type=zipfile.ZIP_DEFLATED,
+        )
         self._zf.writestr(
             f"{METADATA_DIR}/{filename}",
             json.dumps(output, indent=2),

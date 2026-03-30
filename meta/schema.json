@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Euler dataset meta schemas",
-  "description": "Defines shared and modality-specific meta fields for each euler_train.modality_type value.",
+  "title": "Euler dataset modality meta schemas",
+  "description": "Defines shared and modality-specific meta fields for each modality.key value.",
   "type": "object",
   "properties": {
     "depth": {
       "type": "object",
-      "description": "Required meta fields when euler_train.modality_type is 'depth'.",
+      "description": "Required meta fields when modality.key is 'depth'.",
       "properties": {
         "dimensions": {
           "type": "object",
@@ -105,7 +105,7 @@
     },
     "rgb": {
       "type": "object",
-      "description": "Required meta fields when euler_train.modality_type is 'rgb'.",
+      "description": "Required meta fields when modality.key is 'rgb'.",
       "properties": {
         "dimensions": {
           "type": "object",
@@ -190,9 +190,99 @@
       ],
       "additionalProperties": true
     },
+    "segmentation": {
+      "type": "object",
+      "description": "Required meta fields when modality.key is 'segmentation'.",
+      "properties": {
+        "dimensions": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "examples": [
+            {
+              "height": 375,
+              "width": 1242,
+              "channels": 3
+            },
+            {
+              "time": 16,
+              "features": 512
+            },
+            {
+              "x": 256,
+              "y": 256,
+              "z": 64
+            }
+          ],
+          "x-ui": {
+            "widget": "keyValueTable",
+            "keyLabel": "Axis",
+            "valueLabel": "Size",
+            "allowCustomKeys": true,
+            "suggestedKeys": [
+              "height",
+              "width",
+              "channels",
+              "depth",
+              "time",
+              "features"
+            ]
+          },
+          "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape."
+        },
+        "file_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^./\\\\\\s][^/\\\\\\s]*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "examples": [
+            [
+              "png"
+            ],
+            [
+              "jpg",
+              "png"
+            ],
+            [
+              "npy"
+            ]
+          ],
+          "description": "Observed data file types for this modality, stored as lowercase extensions without leading dots (for example ['jpg', 'png'])."
+        },
+        "skyclass": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "RGB colour value identifying the sky class in the segmentation map.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "required": [
+        "skyclass"
+      ],
+      "additionalProperties": true
+    },
     "semantic_segmentation": {
       "type": "object",
-      "description": "Required meta fields when euler_train.modality_type is 'semantic_segmentation'.",
+      "description": "Required meta fields when modality.key is 'semantic_segmentation'.",
       "properties": {
         "dimensions": {
           "type": "object",

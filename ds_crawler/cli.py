@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from ds_crawler.config import Config
+from ds_crawler.migration import migrate_dataset_metadata
 from ds_crawler.parser import DatasetParser
 
 
@@ -29,8 +30,7 @@ def setup_logging(verbose: bool) -> None:
     logging.root.setLevel(level)
 
 
-def main() -> int:
-    """Main entry point."""
+def _run_index(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description="Crawl datasets and extract metadata based on configuration."
     )
@@ -80,7 +80,7 @@ def main() -> int:
         help="Path to an output.json whose file IDs are used as a filter.",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     setup_logging(args.verbose)
 
@@ -124,6 +124,65 @@ def main() -> int:
         return 1
 
     return 0
+
+
+def _run_migrate(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        description="Migrate legacy ds-crawler metadata to the new schema."
+    )
+    parser.add_argument(
+        "paths",
+        nargs="+",
+        type=Path,
+        help="Dataset roots (directories or zip archives) to migrate",
+    )
+    parser.add_argument(
+        "--no-output",
+        action="store_true",
+        help="Do not rewrite output.json; only write dataset-head.json and ds-crawler.json.",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
+    )
+    args = parser.parse_args(argv)
+    setup_logging(args.verbose)
+
+    failed = False
+    logger = logging.getLogger(__name__)
+    for path in args.paths:
+        try:
+            result = migrate_dataset_metadata(
+                path,
+                write_output=not args.no_output,
+            )
+        except Exception as exc:
+            failed = True
+            print(f"Migration failed for {path}: {exc}", file=sys.stderr)
+            continue
+
+        logger.info(
+            "Migrated %s (head=%s, config=%s, output=%s, splits=%d)",
+            result["path"],
+            result["wrote_head"],
+            result["wrote_config"],
+            result["wrote_output"],
+            len(result["migrated_splits"]),
+        )
+
+    return 1 if failed else 0
+
+
+def main() -> int:
+    """Main entry point."""
+    argv = sys.argv[1:]
+    if argv and argv[0] == "migrate-metadata":
+        return _run_migrate(argv[1:])
+    if argv and argv[0] == "index":
+        return _run_index(argv[1:])
+    return _run_index(argv)
 
 
 if __name__ == "__main__":

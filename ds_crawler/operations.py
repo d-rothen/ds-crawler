@@ -18,6 +18,7 @@ from .traversal import (
     _collect_file_entries_by_id,
     _collect_qualified_ids,
     _filter_index_by_paths,
+    _get_index_node,
     _prepare_split_candidates,
     filter_index_by_qualified_ids,
     get_files,
@@ -25,6 +26,7 @@ from .traversal import (
 )
 from .zip_utils import (
     COMPRESSED_EXTENSIONS,
+    DATASET_HEAD_FILENAME,
     METADATA_DIR,
     OUTPUT_FILENAME,
     get_split_filename,
@@ -92,7 +94,7 @@ def _write_split_index(
     output_path = write_metadata_json(
         dataset_path,
         filename,
-        filtered_index.get("dataset", {}),
+        filtered_index.get("index", filtered_index.get("dataset", {})),
     )
     result: dict[str, Any] = {
         "split": split_name,
@@ -122,7 +124,7 @@ def load_dataset_split(
     """Load a named split as a full output dict.
 
     The returned object has the same top-level metadata as ``output.json``,
-    but its ``dataset`` payload is replaced by the contents of
+    but its ``index`` payload is replaced by the contents of
     ``.ds_crawler/split_<name>.json``.
     """
     dataset_path = Path(dataset_path)
@@ -138,7 +140,8 @@ def load_dataset_split(
     split_node = _load_required_index(dataset_path, get_split_filename(split_name))
 
     result = dict(base_output)
-    result["dataset"] = split_node
+    result["index"] = split_node
+    result.pop("dataset", None)
     return result
 
 
@@ -155,8 +158,8 @@ def create_dataset_splits(
     """Create inline split metadata files for a single dataset.
 
     The full index remains stored as ``output.json``. Each split is written
-    as ``.ds_crawler/split_<name>.json`` and contains only the dataset-node
-    payload that would normally live under ``output["dataset"]``.
+    as ``.ds_crawler/split_<name>.json`` and contains only the index-node
+    payload that would normally live under ``output["index"]``.
     """
     if len(split_names) != len(ratios):
         raise ValueError(
@@ -368,7 +371,7 @@ def align_datasets(
         modality = arg["modality"]
         source = arg["source"]
         output = _resolve_dataset_source(source, split=arg.get("split"))
-        entries = _collect_file_entries_by_id(output.get("dataset", {}))
+        entries = _collect_file_entries_by_id(_get_index_node(output))
         per_modality[modality] = entries
         logger.info(
             "align_datasets: modality '%s' has %d file entries",
@@ -428,9 +431,8 @@ def copy_dataset(
             archive instead of to the filesystem.
         index: A dataset output dict (as returned by ``index_dataset``).
             When ``None``, ``output.json`` is read from *input_path*.
-        sample: When set, keep only every *sample*-th data file
-            (deterministic subsampling on sorted paths).  Camera files
-            (intrinsics / extrinsics) are always copied.
+        sample: When set, keep only every *sample*-th indexed data file
+            (deterministic subsampling on sorted paths).
 
     Returns:
         A summary dict with keys ``copied`` (int), ``missing`` (int),
@@ -458,14 +460,9 @@ def copy_dataset(
     all_paths = _collect_all_referenced_paths(index)
 
     if sample is not None and sample > 1:
-        # Separate data-file paths from camera/auxiliary paths so that
-        # sampling is applied only to data files.
-        file_path_set = set(get_files(index))
-        camera_paths = [p for p in all_paths if p not in file_path_set]
-        file_paths = sorted(file_path_set)
+        file_paths = sorted(set(get_files(index)))
         sampled_files = file_paths[::sample]
-        all_paths = sampled_files + camera_paths
-        # Filter the index to only contain the sampled file entries
+        all_paths = sampled_files
         index = _filter_index_by_paths(index, set(sampled_files))
 
     # Deduplicate while preserving order
@@ -551,8 +548,15 @@ def copy_dataset(
                     shutil.copy2(input_path / rel_path_str, dst)
             copied += 1
 
+        head_file = str(index.get("head_file", DATASET_HEAD_FILENAME))
         # Write the (possibly filtered) index
         if dst_zf is not None:
+            if isinstance(index.get("head"), dict):
+                dst_zf.writestr(
+                    f"{METADATA_DIR}/{head_file}",
+                    json.dumps(index["head"], indent=2),
+                    compress_type=zipfile.ZIP_DEFLATED,
+                )
             dst_zf.writestr(
                 f"{METADATA_DIR}/{OUTPUT_FILENAME}",
                 json.dumps(index, indent=2),
@@ -560,6 +564,8 @@ def copy_dataset(
             )
         else:
             output_path.mkdir(parents=True, exist_ok=True)
+            if isinstance(index.get("head"), dict):
+                write_metadata_json(output_path, head_file, index["head"])
             write_metadata_json(output_path, OUTPUT_FILENAME, index)
 
     logger.info(

@@ -12,6 +12,7 @@ from typing import Any
 
 
 METADATA_DIR = ".ds_crawler"
+DATASET_HEAD_FILENAME = "dataset-head.json"
 OUTPUT_FILENAME = "output.json"
 SPLIT_FILENAME_PREFIX = "split_"
 _SPLIT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")

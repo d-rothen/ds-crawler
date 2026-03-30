@@ -31,6 +31,7 @@ from .operations import (
     split_dataset,
     split_datasets,
 )
+from .migration import migrate_dataset_metadata
 from .writer import DatasetWriter, ZipDatasetWriter
 
 __all__ = [
@@ -56,6 +57,7 @@ __all__ = [
     "list_dataset_splits",
     "load_dataset_config",
     "load_dataset_split",
+    "migrate_dataset_metadata",
     "split_dataset",
     "split_datasets",
     "split_qualified_ids",

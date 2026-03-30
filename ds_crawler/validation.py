@@ -6,34 +6,72 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ._dataset_contract import validate_dataset_head
-from .config import CONFIG_FILENAME, DatasetConfig
+from ._dataset_contract import (
+    parse_dataset_head,
+    validate_contract_kind,
+    validate_contract_version,
+)
+from .config import (
+    CONFIG_FILENAME,
+    CRAWLER_CONFIG_KIND,
+    CRAWLER_CONFIG_VERSION,
+    DatasetConfig,
+)
 from .path_filters import PathFilters
-from .zip_utils import OUTPUT_FILENAME, read_metadata_json
+from .zip_utils import DATASET_HEAD_FILENAME, OUTPUT_FILENAME, read_metadata_json
+
+
+DATASET_INDEX_KIND = "dataset_index"
+DATASET_INDEX_VERSION = "1.0"
+
+
+def _require_mapping(value: Any, context: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{context} must be an object")
+    return value
+
+
+def _validate_contract(
+    value: Any,
+    *,
+    expected_kind: str,
+    expected_version: str,
+    context: str,
+) -> None:
+    contract = _require_mapping(value, context)
+    validate_contract_kind(
+        contract.get("kind") if expected_kind == "dataset_head" else contract.get("kind"),
+        f"{context}.kind",
+    )
+    if expected_kind != "dataset_head":
+        kind = contract.get("kind")
+        if kind != expected_kind:
+            raise ValueError(f"{context}.kind must be {expected_kind!r}, got {kind!r}")
+    version = contract.get("version", expected_version)
+    validate_contract_version(version, f"{context}.version")
 
 
 def validate_crawler_config(
-    config: dict[str, Any], workdir: str | Path | None = None
+    config: dict[str, Any],
+    workdir: str | Path | None = None,
 ) -> DatasetConfig:
-    """Validate a single ``ds-crawler.json`` object.
-
-    Args:
-        config: Dataset config object (same shape as embedded ``ds-crawler.json``).
-        workdir: Optional working directory prepended to relative dataset paths.
-
-    Returns:
-        Parsed ``DatasetConfig`` when validation succeeds.
-
-    Raises:
-        ValueError: If schema/content is invalid.
-    """
     if not isinstance(config, dict):
         raise ValueError("Crawler config must be a JSON object")
+
+    contract = _require_mapping(config.get("contract"), "config.contract")
+    kind = contract.get("kind")
+    if kind != CRAWLER_CONFIG_KIND:
+        raise ValueError(
+            f"config.contract.kind must be {CRAWLER_CONFIG_KIND!r}, got {kind!r}"
+        )
+    version = contract.get("version", CRAWLER_CONFIG_VERSION)
+    validate_contract_version(version, "config.contract.version")
 
     try:
         return DatasetConfig.from_dict(config, workdir=workdir)
     except KeyError as exc:
         raise ValueError(f"Crawler config missing required field: {exc}") from exc
+
 
 def _validate_string_dict(value: Any, label: str) -> None:
     if not isinstance(value, dict):
@@ -66,7 +104,7 @@ def _validate_file_entry(entry: Any, context: str) -> None:
         _validate_string_dict(basename_props, f"{context}.basename_properties")
 
 
-def _validate_dataset_node(node: Any, context: str) -> None:
+def _validate_index_node(node: Any, context: str) -> None:
     if not isinstance(node, dict):
         raise ValueError(f"{context} must be an object")
 
@@ -84,98 +122,142 @@ def _validate_dataset_node(node: Any, context: str) -> None:
         for key, child in children.items():
             if not isinstance(key, str) or not key:
                 raise ValueError(f"{context}.children keys must be non-empty strings")
-            _validate_dataset_node(child, f"{context}.children[{key!r}]")
+            _validate_index_node(child, f"{context}.children[{key!r}]")
 
-    for camera_key in ("camera_intrinsics", "camera_extrinsics"):
-        camera_path = node.get(camera_key)
-        if camera_path is None:
-            continue
-        if not isinstance(camera_path, str) or not camera_path:
-            raise ValueError(f"{context}.{camera_key} must be a non-empty string")
+
+def _validate_optional_regex(value: Any, context: str, *, require_groups: bool = False) -> re.Pattern | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{context} must be a non-empty string")
+    try:
+        compiled = re.compile(value)
+    except re.error as exc:
+        raise ValueError(f"{context} is not a valid regex: {exc}") from exc
+    if require_groups and compiled.groups == 0:
+        raise ValueError(f"{context} must contain at least one capture group")
+    return compiled
+
+
+def _validate_output_indexing(value: Any, context: str) -> None:
+    indexing = _require_mapping(value, context)
+
+    files = indexing.get("files")
+    if files is not None:
+        files = _require_mapping(files, f"{context}.files")
+        extensions = files.get("extensions")
+        if extensions is not None:
+            if not isinstance(extensions, list) or any(
+                not isinstance(item, str) or not item for item in extensions
+            ):
+                raise ValueError(
+                    f"{context}.files.extensions must be a list of strings"
+                )
+        path_filters = files.get("path_filters")
+        if path_filters is not None:
+            PathFilters.from_raw(path_filters, context=f"{context}.files.path_filters")
+
+    id_cfg = indexing.get("id")
+    if id_cfg is not None:
+        id_cfg = _require_mapping(id_cfg, f"{context}.id")
+        _validate_optional_regex(
+            id_cfg.get("regex"),
+            f"{context}.id.regex",
+            require_groups=True,
+        )
+        join_char = id_cfg.get("join_char")
+        if join_char is not None and (not isinstance(join_char, str) or not join_char):
+            raise ValueError(f"{context}.id.join_char must be a non-empty string")
+        override = id_cfg.get("override")
+        if override is not None and (not isinstance(override, str) or not override):
+            raise ValueError(f"{context}.id.override must be a non-empty string")
+
+    properties = indexing.get("properties")
+    if properties is not None:
+        properties = _require_mapping(properties, f"{context}.properties")
+        path_cfg = properties.get("path")
+        if path_cfg is not None:
+            path_cfg = _require_mapping(path_cfg, f"{context}.properties.path")
+            _validate_optional_regex(
+                path_cfg.get("regex"),
+                f"{context}.properties.path.regex",
+            )
+        basename_cfg = properties.get("basename")
+        if basename_cfg is not None:
+            basename_cfg = _require_mapping(
+                basename_cfg,
+                f"{context}.properties.basename",
+            )
+            _validate_optional_regex(
+                basename_cfg.get("regex"),
+                f"{context}.properties.basename.regex",
+            )
+
+    hierarchy = indexing.get("hierarchy")
+    if hierarchy is not None:
+        hierarchy = _require_mapping(hierarchy, f"{context}.hierarchy")
+        compiled = _validate_optional_regex(
+            hierarchy.get("regex"),
+            f"{context}.hierarchy.regex",
+            require_groups=True,
+        )
+        separator = hierarchy.get("separator")
+        if separator is not None and (not isinstance(separator, str) or not separator):
+            raise ValueError(f"{context}.hierarchy.separator must be a non-empty string")
+        if compiled is not None and compiled.groupindex and not separator:
+            raise ValueError(
+                f"{context}.hierarchy.separator is required when "
+                "hierarchy.regex has named groups"
+            )
+
+    constraints = indexing.get("constraints")
+    if constraints is not None:
+        constraints = _require_mapping(constraints, f"{context}.constraints")
+        flat_ids_unique = constraints.get("flat_ids_unique")
+        if flat_ids_unique is not None and not isinstance(flat_ids_unique, bool):
+            raise ValueError(f"{context}.constraints.flat_ids_unique must be a bool")
 
 
 def _validate_output_dataset(value: Any, context: str) -> None:
     if not isinstance(value, dict):
         raise ValueError(f"{context} must be an object")
 
-    for key in ("name", "type", "id_regex", "id_regex_join_char"):
-        key_value = value.get(key)
-        if not isinstance(key_value, str) or not key_value:
-            raise ValueError(f"{context}.{key} must be a non-empty string")
-
-    sampled = value.get("sampled")
-    if sampled is not None and (not isinstance(sampled, int) or sampled <= 0):
-        raise ValueError(f"{context}.sampled must be a positive integer")
-
-    path_filters = value.get("path_filters")
-    if path_filters is not None:
-        PathFilters.from_raw(path_filters, context=f"{context}.path_filters")
-
-    id_override = value.get("id_override")
-    if id_override is not None:
-        if not isinstance(id_override, str) or not id_override:
-            raise ValueError(f"{context}.id_override must be a non-empty string")
-
-    id_regex = value["id_regex"]
-    try:
-        compiled_id_regex = re.compile(id_regex)
-    except re.error as exc:
-        raise ValueError(f"{context}.id_regex is not a valid regex: {exc}") from exc
-    if compiled_id_regex.groups == 0:
-        raise ValueError(f"{context}.id_regex must contain at least one capture group")
-
-    hierarchy_regex = value.get("hierarchy_regex")
-    separator = value.get("named_capture_group_value_separator")
-    if separator is not None and not isinstance(separator, str):
+    contract = _require_mapping(value.get("contract"), f"{context}.contract")
+    kind = contract.get("kind")
+    if kind != DATASET_INDEX_KIND:
         raise ValueError(
-            f"{context}.named_capture_group_value_separator must be a string"
+            f"{context}.contract.kind must be {DATASET_INDEX_KIND!r}, got {kind!r}"
         )
-    if hierarchy_regex is not None:
-        if not isinstance(hierarchy_regex, str) or not hierarchy_regex:
-            raise ValueError(f"{context}.hierarchy_regex must be a non-empty string")
-        try:
-            compiled_hierarchy_regex = re.compile(hierarchy_regex)
-        except re.error as exc:
-            raise ValueError(
-                f"{context}.hierarchy_regex is not a valid regex: {exc}"
-            ) from exc
-        if compiled_hierarchy_regex.groups == 0:
-            raise ValueError(
-                f"{context}.hierarchy_regex must contain at least one capture group"
-            )
-        if compiled_hierarchy_regex.groupindex and not separator:
-            raise ValueError(
-                f"{context}.named_capture_group_value_separator is required when "
-                "hierarchy_regex has named groups"
-            )
+    version = contract.get("version", DATASET_INDEX_VERSION)
+    validate_contract_version(version, f"{context}.contract.version")
 
-    validate_dataset_head(
-        value,
-        context,
-        required_namespaces=("euler_train",),
-        ignored_keys=("dataset",),
-    )
+    head_file = value.get("head_file")
+    if not isinstance(head_file, str) or not head_file:
+        raise ValueError(f"{context}.head_file must be a non-empty string")
 
-    if "dataset" not in value:
-        raise ValueError(f"{context}.dataset is required")
-    _validate_dataset_node(value["dataset"], f"{context}.dataset")
+    if "head" not in value:
+        raise ValueError(f"{context}.head is required")
+    parse_dataset_head(value["head"], context=f"{context}.head")
+
+    indexing = value.get("indexing")
+    if indexing is not None:
+        _validate_output_indexing(indexing, f"{context}.indexing")
+
+    execution = value.get("execution", {})
+    if not isinstance(execution, dict):
+        raise ValueError(f"{context}.execution must be an object")
+    sampled = execution.get("sampled")
+    if sampled is not None and (not isinstance(sampled, int) or sampled <= 0):
+        raise ValueError(f"{context}.execution.sampled must be a positive integer")
+
+    if "index" not in value:
+        raise ValueError(f"{context}.index is required")
+    _validate_index_node(value["index"], f"{context}.index")
 
 
-def validate_output(output: dict[str, Any] | list[dict[str, Any]]) -> dict[str, Any] | list[dict[str, Any]]:
-    """Validate an ``output.json`` object.
-
-    Accepts either a single dataset output object (the per-dataset format)
-    or a list of dataset outputs.
-
-    Args:
-        output: Parsed JSON object from ``output.json``.
-
-    Returns:
-        The original ``output`` object when validation succeeds.
-
-    Raises:
-        ValueError: If the object does not match the expected schema.
-    """
+def validate_output(
+    output: dict[str, Any] | list[dict[str, Any]],
+) -> dict[str, Any] | list[dict[str, Any]]:
     if isinstance(output, list):
         for i, entry in enumerate(output):
             _validate_output_dataset(entry, f"output[{i}]")
@@ -186,38 +268,23 @@ def validate_output(output: dict[str, Any] | list[dict[str, Any]]) -> dict[str, 
 
 
 def validate_dataset(path: str | Path) -> dict[str, Any]:
-    """Validate metadata files found for a dataset path.
-
-    Looks for ``ds-crawler.json`` and ``output.json`` using the same
-    lookup order as crawler internals:
-    1) ``.ds_crawler/{filename}``
-    2) ``{filename}`` at dataset root
-
-    Works for both directories and ``.zip`` datasets.
-
-    Args:
-        path: Dataset root directory or ``.zip`` archive path.
-
-    Returns:
-        A dict containing what was found and validated:
-        ``{"path", "has_config", "has_output", "config", "output"}``.
-
-    Raises:
-        FileNotFoundError: If neither metadata file exists.
-        ValueError: If a found metadata object is invalid.
-    """
     dataset_path = Path(path)
     config_data = read_metadata_json(dataset_path, CONFIG_FILENAME)
+    head_data = read_metadata_json(dataset_path, DATASET_HEAD_FILENAME)
     output_data = read_metadata_json(dataset_path, OUTPUT_FILENAME)
 
-    if config_data is None and output_data is None:
+    if config_data is None and head_data is None and output_data is None:
         raise FileNotFoundError(
-            f"No {CONFIG_FILENAME} or {OUTPUT_FILENAME} found at: {dataset_path}"
+            f"No {CONFIG_FILENAME}, {DATASET_HEAD_FILENAME}, or {OUTPUT_FILENAME} "
+            f"found at: {dataset_path}"
         )
 
     validated_config: DatasetConfig | None = None
     if config_data is not None:
         validated_config = validate_crawler_config(config_data)
+
+    if head_data is not None:
+        parse_dataset_head(head_data, context="dataset_head")
 
     if output_data is not None:
         validate_output(output_data)
@@ -225,8 +292,10 @@ def validate_dataset(path: str | Path) -> dict[str, Any]:
     return {
         "path": str(dataset_path),
         "has_config": config_data is not None,
+        "has_head": head_data is not None,
         "has_output": output_data is not None,
         "config": validated_config,
+        "head": head_data,
         "output": output_data,
     }
 

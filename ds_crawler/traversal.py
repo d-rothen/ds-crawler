@@ -17,6 +17,16 @@ from typing import Any
 _RATIO_EPSILON = 1e-9
 
 
+def _get_index_node(output_json: dict[str, Any]) -> dict[str, Any]:
+    node = output_json.get("index")
+    if isinstance(node, dict):
+        return node
+    legacy = output_json.get("dataset")
+    if isinstance(legacy, dict):
+        return legacy
+    return {}
+
+
 # ---------------------------------------------------------------------------
 # Collect: extract data from the hierarchy
 # ---------------------------------------------------------------------------
@@ -37,7 +47,7 @@ def get_files(output_json: dict[str, Any] | list[dict[str, Any]]) -> list[str]:
     datasets = output_json if isinstance(output_json, list) else [output_json]
     paths: list[str] = []
     for dataset in datasets:
-        _collect_paths(dataset.get("dataset", {}), paths)
+        _collect_paths(_get_index_node(dataset), paths)
     return paths
 
 
@@ -54,7 +64,7 @@ def _collect_paths(node: dict[str, Any], paths: list[str]) -> None:
 def _collect_ids(output_json: dict[str, Any]) -> set[str]:
     """Extract all file IDs from an output JSON dict's hierarchy.
 
-    Recursively walks the ``dataset`` node and collects the ``id`` field
+    Recursively walks the ``index`` node and collects the ``id`` field
     from every file entry.
 
     Args:
@@ -65,7 +75,7 @@ def _collect_ids(output_json: dict[str, Any]) -> set[str]:
         A set of all file ID strings found in the hierarchy.
     """
     ids: set[str] = set()
-    _collect_ids_from_node(output_json.get("dataset", {}), ids)
+    _collect_ids_from_node(_get_index_node(output_json), ids)
     return ids
 
 
@@ -94,7 +104,7 @@ def _collect_qualified_ids(output_json: dict[str, Any]) -> set[tuple[str, ...]]:
         followed by the file ID.
     """
     ids: set[tuple[str, ...]] = set()
-    _collect_qualified_ids_from_node(output_json.get("dataset", {}), (), ids)
+    _collect_qualified_ids_from_node(_get_index_node(output_json), (), ids)
     return ids
 
 
@@ -132,12 +142,6 @@ def collect_qualified_ids(output_json: dict[str, Any]) -> set[tuple[str, ...]]:
 def _collect_all_referenced_paths(output_json: dict[str, Any]) -> list[str]:
     """Collect ALL file paths referenced in an output JSON dict.
 
-    This includes:
-
-    - File paths from file entries (the ``path`` field)
-    - ``camera_intrinsics`` paths
-    - ``camera_extrinsics`` paths
-
     Args:
         output_json: A single dataset output dict.
 
@@ -147,7 +151,7 @@ def _collect_all_referenced_paths(output_json: dict[str, Any]) -> list[str]:
         levels).
     """
     paths: list[str] = []
-    _collect_all_paths_from_node(output_json.get("dataset", {}), paths)
+    _collect_all_paths_from_node(_get_index_node(output_json), paths)
     return paths
 
 
@@ -159,10 +163,6 @@ def _collect_all_paths_from_node(
         path = file_entry.get("path")
         if path is not None:
             paths.append(path)
-    for key in ("camera_intrinsics", "camera_extrinsics"):
-        cam_path = node.get(key)
-        if cam_path is not None:
-            paths.append(cam_path)
     for child in node.get("children", {}).values():
         _collect_all_paths_from_node(child, paths)
 
@@ -192,10 +192,12 @@ def _filter_index_by_paths(
     """Return a shallow copy of *output_json* with file entries filtered.
 
     Only file entries whose ``path`` is in *keep_paths* are retained.
-    Camera intrinsics/extrinsics and all other metadata are preserved.
+    Other metadata is preserved.
     """
     result = dict(output_json)
-    if "dataset" in result:
+    if "index" in result:
+        result["index"] = _filter_node_by_paths(result["index"], keep_paths)
+    elif "dataset" in result:
         result["dataset"] = _filter_node_by_paths(result["dataset"], keep_paths)
     return result
 
@@ -226,8 +228,7 @@ def filter_index_by_qualified_ids(
 
     Each qualified ID is a tuple of ``(*hierarchy_keys, file_id)``.  Only
     file entries whose hierarchy path + id match an entry in *qualified_ids*
-    are retained.  Camera intrinsics/extrinsics and other node-level
-    metadata are preserved.
+    are retained. Other node-level metadata are preserved.
 
     Args:
         output_json: A single dataset output dict.
@@ -237,7 +238,11 @@ def filter_index_by_qualified_ids(
         A filtered copy of the output dict.
     """
     result = dict(output_json)
-    if "dataset" in result:
+    if "index" in result:
+        result["index"] = _filter_node_by_qualified_ids(
+            result["index"], (), qualified_ids
+        )
+    elif "dataset" in result:
         result["dataset"] = _filter_node_by_qualified_ids(
             result["dataset"], (), qualified_ids
         )

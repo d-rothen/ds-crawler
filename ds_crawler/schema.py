@@ -7,48 +7,51 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ._dataset_contract import DatasetHeadContract, parse_dataset_head
-from .zip_utils import OUTPUT_FILENAME, read_metadata_json
+from ._dataset_contract import DATASET_HEAD_KIND, DatasetHeadContract, parse_dataset_head
+from .config import CONFIG_FILENAME
+from .zip_utils import DATASET_HEAD_FILENAME, OUTPUT_FILENAME, read_metadata_json
 
-# Keys written by the crawler that are structural, not dataset properties.
-_DATASET_STRUCTURAL_KEYS = frozenset({
-    "name",
-    "path",
-    "type",
-    "basename_regex",
-    "id_regex",
-    "path_regex",
-    "id_regex_join_char",
-    "hierarchy_regex",
-    "named_capture_group_value_separator",
-    "intrinsics_regex",
-    "extrinsics_regex",
-    "flat_ids_unique",
-    "id_override",
-    "output_json",
-    "file_extensions",
-    "properties",
-    "dataset_contract_version",
-    "sampled",
-    "dataset",
-    "path_filters",
-})
+
+def _extract_head_mapping(source: dict[str, Any]) -> dict[str, Any]:
+    if "head" in source:
+        head = source["head"]
+        if not isinstance(head, dict):
+            raise ValueError("output.head must be an object")
+        return head
+
+    contract = source.get("contract")
+    if isinstance(contract, dict) and contract.get("kind") == DATASET_HEAD_KIND:
+        return source
+
+    raise ValueError("mapping does not contain a dataset head")
+
 
 def extract_dataset_properties(data: dict[str, Any]) -> dict[str, Any]:
-    """Return normalized dataset properties from a config or output dict."""
-    return parse_dataset_head(
-        data,
-        context="dataset",
-        required_namespaces=("euler_train",),
-        ignored_keys=tuple(_DATASET_STRUCTURAL_KEYS),
-    ).to_properties_dict()
+    """Return normalized dataset properties from a head or output dict."""
+    return get_dataset_contract(data).to_properties_dict()
 
 
 def _read_single_dataset_head(source: str | Path | dict[str, Any]) -> dict[str, Any]:
     if isinstance(source, dict):
-        return source
+        return _extract_head_mapping(source)
 
     dataset_path = Path(source)
+    head_data = read_metadata_json(dataset_path, DATASET_HEAD_FILENAME)
+    if head_data is not None:
+        if not isinstance(head_data, dict):
+            raise ValueError(f"{DATASET_HEAD_FILENAME} must contain a JSON object")
+        return head_data
+
+    config_data = read_metadata_json(dataset_path, CONFIG_FILENAME)
+    if isinstance(config_data, dict):
+        head_file = config_data.get("head_file")
+        if isinstance(head_file, str) and head_file and head_file != DATASET_HEAD_FILENAME:
+            custom_head = read_metadata_json(dataset_path, head_file)
+            if custom_head is not None:
+                if not isinstance(custom_head, dict):
+                    raise ValueError(f"{head_file} must contain a JSON object")
+                return custom_head
+
     output_data = read_metadata_json(dataset_path, OUTPUT_FILENAME)
     if output_data is not None:
         if isinstance(output_data, list):
@@ -59,16 +62,10 @@ def _read_single_dataset_head(source: str | Path | dict[str, Any]) -> dict[str, 
             output_data = output_data[0]
         if not isinstance(output_data, dict):
             raise ValueError("output.json must contain a dataset object")
-        return output_data
-
-    config_data = read_metadata_json(dataset_path, "ds-crawler.json")
-    if config_data is not None:
-        if not isinstance(config_data, dict):
-            raise ValueError("ds-crawler.json must contain a dataset object")
-        return config_data
+        return _extract_head_mapping(output_data)
 
     raise FileNotFoundError(
-        f"No ds-crawler.json or {OUTPUT_FILENAME} found at: {dataset_path}"
+        f"No {DATASET_HEAD_FILENAME} or {OUTPUT_FILENAME} found at: {dataset_path}"
     )
 
 
@@ -77,23 +74,18 @@ def get_dataset_contract(
 ) -> DatasetHeadContract:
     """Resolve a normalized dataset-head contract from a path or mapping."""
     data = _read_single_dataset_head(source)
-    return parse_dataset_head(
-        data,
-        context="dataset",
-        required_namespaces=("euler_train",),
-        ignored_keys=tuple(_DATASET_STRUCTURAL_KEYS),
-    )
+    return parse_dataset_head(data, context="dataset_head")
 
 
 def get_dataset_properties(
     source: str | Path | dict[str, Any],
 ) -> dict[str, Any]:
-    """Resolve dataset properties from a path, output head, or config dict."""
+    """Resolve dataset properties from a path, head, or output dict."""
     return get_dataset_contract(source).to_properties_dict()
 
 
-def infer_dataset_file_types(dataset_node: dict[str, Any]) -> list[str]:
-    """Collect observed data file types from a crawler dataset tree."""
+def infer_dataset_file_types(index_node: dict[str, Any]) -> list[str]:
+    """Collect observed data file types from an index tree."""
     file_types: set[str] = set()
 
     def _walk(node: Any) -> None:
@@ -118,20 +110,13 @@ def infer_dataset_file_types(dataset_node: dict[str, Any]) -> list[str]:
             for child in children.values():
                 _walk(child)
 
-    _walk(dataset_node)
+    _walk(index_node)
     return sorted(file_types)
 
 
 @dataclass
 class DatasetDescriptor:
-    """Minimal description of a dataset.
-
-    Attributes:
-        name: Human-readable dataset name.
-        path: Root directory (or file) path for the dataset.
-        type: Semantic label for the data modality (e.g. "rgb", "depth").
-        properties: Arbitrary key-value metadata.
-    """
+    """Minimal description of a dataset."""
 
     name: str
     path: str
@@ -139,36 +124,21 @@ class DatasetDescriptor:
     properties: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_output(cls, data: dict[str, Any], path: str) -> DatasetDescriptor:
-        """Create a descriptor from a single entry in an ``output.json``.
-
-        The crawler output contains structural keys (``id_regex``,
-        ``dataset``, etc.) alongside user-defined properties.  This method
-        extracts ``name`` and ``type``, treats everything else that is not a
-        known structural key as a property, and pairs it with the caller-
-        supplied *path* (which is not stored in the output).
-
-        Args:
-            data: One element of the list stored in an ``output.json`` file.
-            path: Root directory of the dataset (not present in the output).
-        """
+    def from_output(cls, data: dict[str, Any], path: str) -> "DatasetDescriptor":
+        contract = get_dataset_contract(data)
         return cls(
-            name=data["name"],
+            name=contract.name,
             path=path,
-            type=data.get("type", ""),
-            properties=get_dataset_contract(data).to_properties_dict(),
+            type=contract.type,
+            properties=contract.to_properties_dict(),
         )
 
     @classmethod
     def from_output_file(
-        cls, path: str | Path, dataset_root: str,
-    ) -> list[DatasetDescriptor]:
-        """Load all descriptors from an ``output.json`` file.
-
-        Args:
-            path: Path to the ``output.json`` file.
-            dataset_root: Root directory to assign to every descriptor.
-        """
+        cls,
+        path: str | Path,
+        dataset_root: str,
+    ) -> list["DatasetDescriptor"]:
         with open(path) as f:
             entries = json.load(f)
         return [cls.from_output(entry, path=dataset_root) for entry in entries]

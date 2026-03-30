@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -13,6 +14,8 @@ from .handlers import get_handler
 from .schema import infer_dataset_file_types
 from .traversal import _collect_qualified_ids
 from .zip_utils import (
+    DATASET_HEAD_FILENAME,
+    OUTPUT_FILENAME,
     read_metadata_json,
     write_metadata_json,
 )
@@ -26,15 +29,18 @@ logger = logging.getLogger(__name__)
 ANSI_DUPLICATE = "\033[31m"
 ANSI_RESET = "\033[0m"
 ID_MISS_WARN_RATIO = 0.2
+DATASET_INDEX_KIND = "dataset_index"
+DATASET_INDEX_VERSION = "1.0"
+
+def _get_package_version() -> str:
+    try:
+        return version("ds_crawler")
+    except PackageNotFoundError:
+        return "0"
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
-    """Deep merge override into base, returning a new dict.
-
-    - Dicts are recursively merged
-    - Non-dict values from override replace base values
-    - Keys only in base or only in override are preserved
-    """
+    """Deep merge override into base, returning a new dict."""
     result = base.copy()
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
@@ -138,51 +144,38 @@ class DatasetParser:
         return results
 
     def _build_output(
-        self, ds_config: DatasetConfig, dataset_node: dict[str, Any]
+        self, ds_config: DatasetConfig, index_node: dict[str, Any]
     ) -> dict[str, Any]:
         """Build the output dict for a dataset."""
-        # Separate dataset-level properties from top-level properties
-        properties = ds_config.properties.copy()
-        dataset_properties = properties.pop("dataset", None)
-        # euler_train is normalized and emitted explicitly below.
-        properties.pop("euler_train", None)
-
-        # Deep merge dataset properties into the computed dataset_node
-        if dataset_properties and isinstance(dataset_properties, dict):
-            dataset_node = _deep_merge(dataset_node, dataset_properties)
-
-        meta = dict(properties.get("meta", {})) if isinstance(
-            properties.get("meta"), dict
+        head = ds_config.head_mapping()
+        modality = dict(head["modality"])
+        meta = dict(modality.get("meta", {})) if isinstance(
+            modality.get("meta"), dict
         ) else None
-        file_types = infer_dataset_file_types(dataset_node)
+        file_types = infer_dataset_file_types(index_node)
         if file_types:
             if meta is None:
                 meta = {}
             meta["file_types"] = file_types
         if meta is not None:
-            properties["meta"] = meta
+            modality["meta"] = meta
+        head["modality"] = modality
 
-        output = {
-            "dataset_contract_version": ds_config.dataset_contract_version,
-            "name": ds_config.name,
-            "type": ds_config.type,
-            "id_regex": ds_config.id_regex,
-            "id_regex_join_char": ds_config.id_regex_join_char,
-            "euler_train": ds_config.euler_train,
-            **properties,
-            "dataset": dataset_node,
+        return {
+            "contract": {
+                "kind": DATASET_INDEX_KIND,
+                "version": DATASET_INDEX_VERSION,
+            },
+            "head_file": ds_config.head_file,
+            "head": head,
+            "generator": {
+                "name": "ds_crawler",
+                "version": _get_package_version(),
+            },
+            "indexing": ds_config.to_indexing_dict(),
+            "execution": {},
+            "index": index_node,
         }
-        if ds_config.id_override is not None:
-            output["id_override"] = ds_config.id_override
-        if ds_config.path_filters:
-            output["path_filters"] = ds_config.path_filters
-        if ds_config.hierarchy_regex:
-            output["hierarchy_regex"] = ds_config.hierarchy_regex
-        if ds_config.named_capture_group_value_separator:
-            output["named_capture_group_value_separator"] = (
-                ds_config.named_capture_group_value_separator
-            )
-        return output
 
     def parse_dataset(
         self,
@@ -311,19 +304,6 @@ class DatasetParser:
         id_miss_threshold = max(1, int(len(files) * ID_MISS_WARN_RATIO))
         matched_entries = 0
         sample_counter = 0
-
-        # Process intrinsics/extrinsics files (stores paths in hierarchy)
-        intrinsics_count = self._process_camera_files(
-            files, base_path, ds_config, dataset_root, "intrinsics"
-        )
-        if intrinsics_count:
-            logger.info(f"Processed {intrinsics_count} intrinsics files")
-
-        extrinsics_count = self._process_camera_files(
-            files, base_path, ds_config, dataset_root, "extrinsics"
-        )
-        if extrinsics_count:
-            logger.info(f"Processed {extrinsics_count} extrinsics files")
 
         logger.info("Processing files...")
 
@@ -681,7 +661,7 @@ class DatasetParser:
         with open(output_path, "w") as f:
             json.dump(output, f, indent=2)
 
-    def write_outputs_per_dataset(self, filename: str = "output.json") -> list[Path]:
+    def write_outputs_per_dataset(self, filename: str = OUTPUT_FILENAME) -> list[Path]:
         """Parse each dataset and write output to its root folder.
 
         When the dataset path is a ``.zip`` file the output is written
@@ -697,14 +677,9 @@ class DatasetParser:
             dataset_node = self.parse_dataset(ds_config)
             output = self._build_output(ds_config, dataset_node)
 
-            ds_path = Path(ds_config.path)
-
-            if ds_config.output_json:
-                output_path = Path(ds_config.output_json)
-                with open(output_path, "w") as f:
-                    json.dump(output, f, indent=2)
-            else:
-                output_path = write_metadata_json(ds_path, filename, output)
+            ds_path = Path(ds_config.dataset_root)
+            write_metadata_json(ds_path, ds_config.head_file, output["head"])
+            output_path = write_metadata_json(ds_path, filename, output)
 
             output_paths.append(output_path)
 
@@ -746,9 +721,9 @@ def index_dataset(
     )
     output = parser._build_output(ds_config, dataset_node)
     if sample is not None:
-        output["sampled"] = sample
+        output.setdefault("execution", {})["sampled"] = sample
     if save_index:
-        _save_output(output, Path(ds_config.path))
+        _save_output(output, Path(ds_config.dataset_root), head_file=ds_config.head_file)
     return output
 
 
@@ -794,7 +769,7 @@ def index_dataset_from_files(
     )
     output = parser._build_output(ds_config, dataset_node)
     if sample is not None:
-        output["sampled"] = sample
+        output.setdefault("execution", {})["sampled"] = sample
     return output
 
 
@@ -837,20 +812,24 @@ def index_dataset_from_path(
             return cached
 
     ds_config = load_dataset_config({"path": str(path)})
+    if ds_config.prebuilt_index_file is not None and sample is None and match_index is None:
+        with open(ds_config.prebuilt_index_file) as f:
+            return json.load(f)
     parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
     dataset_node = parser.parse_dataset(
         ds_config, sample=sample, match_index=match_index,
     )
     output = parser._build_output(ds_config, dataset_node)
     if sample is not None:
-        output["sampled"] = sample
+        output.setdefault("execution", {})["sampled"] = sample
     if save_index:
-        _save_output(output, Path(ds_config.path))
+        _save_output(output, Path(ds_config.dataset_root), head_file=ds_config.head_file)
     return output
 
 
 def _read_cached_output(
-    dataset_path: Path, filename: str = "output.json"
+    dataset_path: Path,
+    filename: str = OUTPUT_FILENAME,
 ) -> dict[str, Any] | None:
     """Return a previously written output dict, or ``None``."""
     cached = read_metadata_json(dataset_path, filename)
@@ -866,11 +845,14 @@ def _read_cached_output(
 def _save_output(
     output: dict[str, Any],
     dataset_path: Path,
-    filename: str = "output.json",
+    *,
+    filename: str = OUTPUT_FILENAME,
+    head_file: str = DATASET_HEAD_FILENAME,
 ) -> None:
     """Write an output dict to ``.ds_crawler/{filename}`` inside *dataset_path*.
 
     When *dataset_path* is a ``.zip`` file the entry is written inside
     the archive.
     """
+    write_metadata_json(dataset_path, head_file, output["head"])
     write_metadata_json(dataset_path, filename, output)
