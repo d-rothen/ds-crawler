@@ -35,3 +35,25 @@ def test_zip_dataset_writer_saves_canonical_artifacts(tmp_path: Path) -> None:
     assert index_artifact is not None
     assert "head" not in index_artifact
     assert loaded["head"]["dataset"]["name"] == "Segmentation"
+
+
+def test_dataset_writer_get_path_uses_hierarchy_values_and_source_meta(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    writer = DatasetWriter(root, head=sample_head(name="Segmentation", modality="rgb"))
+    path = writer.get_path(
+        "/scene:Scene01/cam:Cam0/0001",
+        "0001.png",
+        source_meta={
+            "path_properties": {"scene": "override_scene"},
+            "basename_properties": {"frame": "0001", "ext": "png"},
+        },
+    )
+    path.write_bytes(b"data")
+    output = writer.build_output()
+
+    entry = output["index"]["children"]["scene:Scene01"]["children"]["cam:Cam0"]["files"][0]
+
+    assert path == root / "Scene01" / "Cam0" / "0001.png"
+    assert entry["id"] == "0001"
+    assert entry["path_properties"] == {"scene": "override_scene"}
+    assert entry["basename_properties"] == {"frame": "0001", "ext": "png"}

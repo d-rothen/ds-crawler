@@ -47,3 +47,21 @@ def test_split_datasets_uses_common_id_intersection(tmp_path: Path) -> None:
 
     assert result["per_source"][0]["excluded_ids"] == 1
     assert collect_qualified_ids(train_a) == collect_qualified_ids(train_b)
+
+
+def test_split_dataset_tracks_unassigned_ids_for_partial_coverage(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    writer = DatasetWriter(source, head=sample_head(name="RGB"))
+    for frame in ("0001", "0002", "0003", "0004"):
+        writer.get_path(f"/scene/{frame}", f"{frame}.png").write_bytes(b"data")
+    writer.save_index()
+
+    target = tmp_path / "subset"
+    result = split_dataset(source, [0.5], [target], seed=1)
+
+    loaded = index_dataset_from_path(target)
+    assigned = result["qualified_id_splits"][0]
+
+    assert len(assigned) == 2
+    assert len(result["unassigned_qualified_ids"]) == 2
+    assert collect_qualified_ids(loaded) == assigned
