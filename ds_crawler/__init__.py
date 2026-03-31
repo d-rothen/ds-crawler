@@ -6,6 +6,11 @@ from .schema import (
     get_dataset_contract,
     get_dataset_properties,
 )
+from .artifact_builder import (
+    build_crawler_config,
+    build_dataset_artifacts_from_files,
+    build_dataset_head,
+)
 from .config import Config, DatasetConfig, load_dataset_config
 from .validation import validate_crawler_config, validate_dataset, validate_output
 from .parser import (
@@ -46,6 +51,9 @@ __all__ = [
     "DatasetConfig",
     "DatasetParser",
     "align_datasets",
+    "build_crawler_config",
+    "build_dataset_artifacts_from_files",
+    "build_dataset_head",
     "create_aligned_dataset_splits",
     "create_dataset_splits",
     "collect_qualified_ids",
