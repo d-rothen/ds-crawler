@@ -13,7 +13,8 @@ from typing import Any
 
 METADATA_DIR = ".ds_crawler"
 DATASET_HEAD_FILENAME = "dataset-head.json"
-OUTPUT_FILENAME = "output.json"
+INDEX_FILENAME = "index.json"
+OUTPUT_FILENAME = INDEX_FILENAME
 SPLIT_FILENAME_PREFIX = "split_"
 _SPLIT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
@@ -251,7 +252,7 @@ def read_metadata_json(
 
     Args:
         dataset_path: Root directory or ``.zip`` archive of the dataset.
-        filename: The metadata filename (e.g. ``"output.json"``).
+        filename: The metadata filename (e.g. ``"index.json"``).
 
     Returns:
         Parsed JSON dict, or ``None`` if the file is not found in
@@ -334,7 +335,7 @@ def write_metadata_json(
 
     Args:
         dataset_path: Root directory or ``.zip`` archive of the dataset.
-        filename: The metadata filename (e.g. ``"output.json"``).
+        filename: The metadata filename (e.g. ``"index.json"``).
         data: JSON-serialisable data to write.
 
     Returns:

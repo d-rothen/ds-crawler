@@ -11,6 +11,11 @@ from ._dataset_contract import (
     validate_contract_kind,
     validate_contract_version,
 )
+from .artifacts import (
+    DATASET_SPLIT_KIND,
+    DATASET_SPLIT_VERSION,
+    load_saved_output,
+)
 from .config import (
     CONFIG_FILENAME,
     CRAWLER_CONFIG_KIND,
@@ -255,6 +260,89 @@ def _validate_output_dataset(value: Any, context: str) -> None:
     _validate_index_node(value["index"], f"{context}.index")
 
 
+def _validate_index_artifact(value: Any, context: str) -> None:
+    if not isinstance(value, dict):
+        raise ValueError(f"{context} must be an object")
+
+    contract = _require_mapping(value.get("contract"), f"{context}.contract")
+    kind = contract.get("kind")
+    if kind != DATASET_INDEX_KIND:
+        raise ValueError(
+            f"{context}.contract.kind must be {DATASET_INDEX_KIND!r}, got {kind!r}"
+        )
+    version = contract.get("version", DATASET_INDEX_VERSION)
+    validate_contract_version(version, f"{context}.contract.version")
+
+    generator = value.get("generator")
+    if generator is not None:
+        _require_mapping(generator, f"{context}.generator")
+
+    execution = value.get("execution", {})
+    if not isinstance(execution, dict):
+        raise ValueError(f"{context}.execution must be an object")
+    sampled = execution.get("sampled")
+    if sampled is not None and (not isinstance(sampled, int) or sampled <= 0):
+        raise ValueError(f"{context}.execution.sampled must be a positive integer")
+
+    if "index" not in value:
+        raise ValueError(f"{context}.index is required")
+    _validate_index_node(value["index"], f"{context}.index")
+
+
+def validate_split_artifact(value: Any, context: str = "split") -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{context} must be an object")
+
+    contract = _require_mapping(value.get("contract"), f"{context}.contract")
+    kind = contract.get("kind")
+    if kind != DATASET_SPLIT_KIND:
+        raise ValueError(
+            f"{context}.contract.kind must be {DATASET_SPLIT_KIND!r}, got {kind!r}"
+        )
+    version = contract.get("version", DATASET_SPLIT_VERSION)
+    validate_contract_version(version, f"{context}.contract.version")
+
+    split = _require_mapping(value.get("split"), f"{context}.split")
+    name = split.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError(f"{context}.split.name must be a non-empty string")
+    source_index_file = split.get("source_index_file")
+    if not isinstance(source_index_file, str) or not source_index_file:
+        raise ValueError(
+            f"{context}.split.source_index_file must be a non-empty string"
+        )
+
+    generator = value.get("generator")
+    if generator is not None:
+        generator = _require_mapping(generator, f"{context}.generator")
+        name = generator.get("name")
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"{context}.generator.name must be a non-empty string")
+        version = generator.get("version")
+        if version is not None and (not isinstance(version, str) or not version):
+            raise ValueError(
+                f"{context}.generator.version must be a non-empty string"
+            )
+
+    execution = value.get("execution", {})
+    if not isinstance(execution, dict):
+        raise ValueError(f"{context}.execution must be an object")
+    ratio = execution.get("ratio")
+    if ratio is not None and not isinstance(ratio, (int, float)):
+        raise ValueError(f"{context}.execution.ratio must be a number")
+    sampled = execution.get("sampled")
+    if sampled is not None and (not isinstance(sampled, int) or sampled <= 0):
+        raise ValueError(f"{context}.execution.sampled must be a positive integer")
+    seed = execution.get("seed")
+    if seed is not None and not isinstance(seed, int):
+        raise ValueError(f"{context}.execution.seed must be an integer")
+
+    if "index" not in value:
+        raise ValueError(f"{context}.index is required")
+    _validate_index_node(value["index"], f"{context}.index")
+    return value
+
+
 def validate_output(
     output: dict[str, Any] | list[dict[str, Any]],
 ) -> dict[str, Any] | list[dict[str, Any]]:
@@ -271,9 +359,9 @@ def validate_dataset(path: str | Path) -> dict[str, Any]:
     dataset_path = Path(path)
     config_data = read_metadata_json(dataset_path, CONFIG_FILENAME)
     head_data = read_metadata_json(dataset_path, DATASET_HEAD_FILENAME)
-    output_data = read_metadata_json(dataset_path, OUTPUT_FILENAME)
+    index_data = read_metadata_json(dataset_path, OUTPUT_FILENAME)
 
-    if config_data is None and head_data is None and output_data is None:
+    if config_data is None and head_data is None and index_data is None:
         raise FileNotFoundError(
             f"No {CONFIG_FILENAME}, {DATASET_HEAD_FILENAME}, or {OUTPUT_FILENAME} "
             f"found at: {dataset_path}"
@@ -286,22 +374,32 @@ def validate_dataset(path: str | Path) -> dict[str, Any]:
     if head_data is not None:
         parse_dataset_head(head_data, context="dataset_head")
 
-    if output_data is not None:
-        validate_output(output_data)
+    hydrated_output = None
+    if index_data is not None:
+        _validate_index_artifact(index_data, "index")
+        if config_data is None or head_data is None:
+            raise FileNotFoundError(
+                f"{CONFIG_FILENAME} and {DATASET_HEAD_FILENAME} are required when "
+                f"{OUTPUT_FILENAME} is present at: {dataset_path}"
+            )
+        hydrated_output = load_saved_output(dataset_path)
 
     return {
         "path": str(dataset_path),
         "has_config": config_data is not None,
         "has_head": head_data is not None,
-        "has_output": output_data is not None,
+        "has_output": index_data is not None,
+        "has_index": index_data is not None,
         "config": validated_config,
         "head": head_data,
-        "output": output_data,
+        "index": index_data,
+        "output": hydrated_output,
     }
 
 
 __all__ = [
     "validate_crawler_config",
+    "validate_split_artifact",
     "validate_output",
     "validate_dataset",
 ]

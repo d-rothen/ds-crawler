@@ -4,7 +4,15 @@ import json
 import logging
 import zipfile
 
-from ds_crawler import DatasetWriter, get_dataset_contract, index_dataset_from_files
+import pytest
+
+from ds_crawler import (
+    DatasetWriter,
+    create_dataset_splits,
+    get_dataset_contract,
+    index_dataset_from_files,
+    load_dataset_split,
+)
 from ds_crawler.config import load_dataset_config
 from ds_crawler.migration import (
     migrate_dataset_metadata,
@@ -29,7 +37,12 @@ def _sample_head() -> dict:
     }
 
 
-def _write_legacy_dataset_tree(root, *, path_value: str | None = None) -> None:
+def _write_legacy_dataset_tree(
+    root,
+    *,
+    path_value: str | None = None,
+    include_split: bool = False,
+) -> None:
     metadata_dir = root / ".ds_crawler"
     metadata_dir.mkdir(parents=True)
     (root / "0001.png").write_bytes(b"data")
@@ -68,6 +81,12 @@ def _write_legacy_dataset_tree(root, *, path_value: str | None = None) -> None:
         json.dump(legacy_config, f)
     with open(metadata_dir / "output.json", "w") as f:
         json.dump(legacy_output, f)
+    if include_split:
+        with open(metadata_dir / "split_train.json", "w") as f:
+            json.dump(
+                {"files": [{"path": "0001.png", "id": "0001.png"}]},
+                f,
+            )
 
 
 def _zip_tree(root, zip_path, *, root_prefix: str = ""):
@@ -97,6 +116,12 @@ def _write_legacy_output_only_tree(root) -> None:
     }
     with open(metadata_dir / "output.json", "w") as f:
         json.dump(legacy_output, f)
+
+
+def _write_legacy_split(root, name: str = "train") -> None:
+    metadata_dir = root / ".ds_crawler"
+    with open(metadata_dir / f"split_{name}.json", "w") as f:
+        json.dump({"files": [{"path": "0001.png", "id": "0001.png"}]}, f)
 
 
 def test_index_dataset_from_files_emits_head_and_index(tmp_path) -> None:
@@ -135,12 +160,55 @@ def test_dataset_writer_writes_separate_dataset_head(tmp_path) -> None:
 
     with open(tmp_path / "predictions" / ".ds_crawler" / "dataset-head.json") as f:
         head = json.load(f)
-    with open(tmp_path / "predictions" / ".ds_crawler" / "output.json") as f:
-        output = json.load(f)
+    with open(tmp_path / "predictions" / ".ds_crawler" / "ds-crawler.json") as f:
+        config = json.load(f)
+    with open(tmp_path / "predictions" / ".ds_crawler" / OUTPUT_FILENAME) as f:
+        index = json.load(f)
 
     assert head["dataset"]["id"] == "demo_rgb"
-    assert output["head"]["dataset"]["id"] == "demo_rgb"
-    assert output["index"]["children"]["scene:01"]["files"][0]["path"] == "01/0001.png"
+    assert config["source"]["prebuilt_index_file"] == OUTPUT_FILENAME
+    assert "head" not in index
+    assert index["index"]["children"]["scene:01"]["files"][0]["path"] == "01/0001.png"
+
+
+def test_inline_split_files_are_versioned_artifacts(tmp_path) -> None:
+    writer = DatasetWriter(
+        tmp_path / "predictions",
+        head=_sample_head(),
+    )
+    writer.get_path("/scene:01/0001", "0001.png").write_bytes(b"data")
+    writer.get_path("/scene:01/0002", "0002.png").write_bytes(b"data")
+    writer.get_path("/scene:01/0003", "0003.png").write_bytes(b"data")
+    writer.save_index()
+
+    result = create_dataset_splits(
+        tmp_path / "predictions",
+        ["train", "val"],
+        [50, 50],
+        seed=7,
+        sample=2,
+    )
+
+    with open(tmp_path / "predictions" / ".ds_crawler" / "split_train.json") as f:
+        split_artifact = json.load(f)
+
+    assert result["splits"][0]["metadata_file"] == ".ds_crawler/split_train.json"
+    assert split_artifact["contract"]["kind"] == "dataset_split"
+    assert split_artifact["split"]["name"] == "train"
+    assert split_artifact["split"]["source_index_file"] == OUTPUT_FILENAME
+    assert split_artifact["execution"] == {
+        "ratio": 50,
+        "seed": 7,
+        "sampled": 2,
+    }
+    assert "head" not in split_artifact
+    assert "index" in split_artifact
+
+    loaded = load_dataset_split(tmp_path / "predictions", "train")
+    assert loaded["head"]["dataset"]["id"] == "demo_rgb"
+    assert loaded["split"]["name"] == "train"
+    assert loaded["execution"]["split"] == split_artifact["execution"]
+    assert loaded["index"] == split_artifact["index"]
 
 
 def test_migrate_metadata_rewrites_legacy_files(tmp_path) -> None:
@@ -190,7 +258,7 @@ def test_migrate_metadata_rewrites_legacy_files(tmp_path) -> None:
 def test_migrate_dataset_zip_rewrites_prefixed_archive(tmp_path) -> None:
     root = tmp_path / "legacy_rgb_tree"
     root.mkdir()
-    _write_legacy_dataset_tree(root, path_value=".")
+    _write_legacy_dataset_tree(root, path_value=".", include_split=True)
 
     zip_path = _zip_tree(
         root,
@@ -205,13 +273,20 @@ def test_migrate_dataset_zip_rewrites_prefixed_archive(tmp_path) -> None:
 
     head = read_metadata_json(zip_path, DATASET_HEAD_FILENAME)
     output = read_metadata_json(zip_path, OUTPUT_FILENAME)
+    split = read_metadata_json(zip_path, "split_train.json")
 
     assert result["wrote_head"] is True
     assert head is not None
     assert head["dataset"]["id"] == "legacy_rgb"
     assert output is not None
     assert output["contract"]["kind"] == "dataset_index"
-    assert output["head"]["dataset"]["id"] == "legacy_rgb"
+    assert "head" not in output
+    assert output["index"]["files"][0]["path"] == "0001.png"
+    assert split is not None
+    assert split["contract"]["kind"] == "dataset_split"
+    assert split["split"]["name"] == "train"
+    assert split["split"]["source_index_file"] == OUTPUT_FILENAME
+    assert split["index"]["files"][0]["path"] == "0001.png"
 
 
 def test_migrate_dataset_zips_in_folder_logs_missing_metadata(tmp_path, caplog) -> None:
@@ -265,9 +340,22 @@ def test_migrate_output_only_zip_without_id_regex(tmp_path) -> None:
     config = read_metadata_json(zip_path, "ds-crawler.json")
     assert result["wrote_config"] is True
     assert config is not None
-    assert config["source"]["prebuilt_index_file"] == "output.json"
+    assert config["source"]["prebuilt_index_file"] == OUTPUT_FILENAME
     assert config["indexing"].get("id") is None
 
     loaded_config = load_dataset_config({"path": str(zip_path)})
     assert loaded_config.id_regex is None
     assert loaded_config.prebuilt_index_file is not None
+
+
+def test_migrate_split_without_index_fails_for_prebuilt_dataset(tmp_path) -> None:
+    root = tmp_path / "foggy_rgb_tree"
+    root.mkdir()
+    _write_legacy_output_only_tree(root)
+    _write_legacy_split(root)
+
+    with pytest.raises(
+        ValueError,
+        match="Cannot migrate split metadata without writing index.json",
+    ):
+        migrate_dataset_metadata(root, write_output=False)

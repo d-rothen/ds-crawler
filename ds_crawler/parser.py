@@ -9,6 +9,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Iterable
 
+from .artifacts import load_prebuilt_output, load_saved_output, save_output_artifacts
 from .config import Config, DatasetConfig, load_dataset_config
 from .handlers import get_handler
 from .schema import infer_dataset_file_types
@@ -16,8 +17,6 @@ from .traversal import _collect_qualified_ids
 from .zip_utils import (
     DATASET_HEAD_FILENAME,
     OUTPUT_FILENAME,
-    read_metadata_json,
-    write_metadata_json_batch,
 )
 
 try:
@@ -684,13 +683,7 @@ class DatasetParser:
             output = self._build_output(ds_config, dataset_node)
 
             ds_path = Path(ds_config.dataset_root)
-            output_path = write_metadata_json_batch(
-                ds_path,
-                {
-                    ds_config.head_file: output["head"],
-                    filename: output,
-                },
-            )
+            output_path = save_output_artifacts(ds_path, output, filename=filename)
 
             output_paths.append(output_path)
 
@@ -714,7 +707,7 @@ def index_dataset(
     Args:
         config: A dataset configuration dict.
         strict: Abort on duplicate IDs or excessive regex misses.
-        save_index: If True, persist the output as ``output.json`` in the
+        save_index: If True, persist the output as ``index.json`` in the
             dataset's root directory.
         sample: If set, keep only every *sample*-th regex-matched file
             (after sorting for deterministic ordering).
@@ -723,7 +716,7 @@ def index_dataset(
             match index are included in the output.
 
     Returns:
-        The output object (same structure as one element of ``output.json``).
+        The output object (same structure as the hydrated dataset index output).
     """
     ds_config = DatasetConfig.from_dict(config)
     parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
@@ -770,7 +763,7 @@ def index_dataset_from_files(
             match index are included in the output.
 
     Returns:
-        The output object (same structure as one element of ``output.json``).
+        The output object (same structure as the hydrated dataset index output).
     """
     ds_config = DatasetConfig.from_dict(config)
     parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
@@ -801,9 +794,9 @@ def index_dataset_from_path(
     Args:
         path: Root directory (or ``.zip`` file) of the dataset.
         strict: Abort on duplicate IDs or excessive regex misses.
-        save_index: If True, persist the output as ``output.json`` in the
+        save_index: If True, persist the output as ``index.json`` in the
             dataset's root directory (or inside the ZIP archive).
-        force_reindex: If False (default) and ``output.json`` already exists
+        force_reindex: If False (default) and ``index.json`` already exists
             in the dataset root (or inside the ZIP), read and return it
             without re-indexing.
         sample: If set, keep only every *sample*-th regex-matched file
@@ -813,18 +806,23 @@ def index_dataset_from_path(
             match index are included in the output.
 
     Returns:
-        The output object (same structure as one element of ``output.json``).
+        The output object (same structure as the hydrated dataset index output).
     """
     dataset_path = Path(path)
 
     if not force_reindex and sample is None and match_index is None:
-        cached = _read_cached_output(dataset_path)
+        cached = load_saved_output(dataset_path)
         if cached is not None:
+            logger.info(
+                "Found existing %s for %s, skipping reindex",
+                OUTPUT_FILENAME,
+                dataset_path,
+            )
             return cached
 
     ds_config = load_dataset_config({"path": str(path)})
     if ds_config.prebuilt_index_file is not None and sample is None and match_index is None:
-        return _read_prebuilt_index(ds_config)
+        return load_prebuilt_output(ds_config)
     parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
     dataset_node = parser.parse_dataset(
         ds_config, sample=sample, match_index=match_index,
@@ -835,43 +833,6 @@ def index_dataset_from_path(
     if save_index:
         _save_output(output, Path(ds_config.dataset_root), head_file=ds_config.head_file)
     return output
-
-
-def _read_cached_output(
-    dataset_path: Path,
-    filename: str = OUTPUT_FILENAME,
-) -> dict[str, Any] | None:
-    """Return a previously written output dict, or ``None``."""
-    cached = read_metadata_json(dataset_path, filename)
-    if cached is not None:
-        logger.info(
-            "Found existing %s for %s, skipping reindex",
-            filename,
-            dataset_path,
-        )
-    return cached
-
-
-def _read_prebuilt_index(ds_config: DatasetConfig) -> dict[str, Any]:
-    """Read a configured prebuilt index for a dataset."""
-    if ds_config.prebuilt_index_file is None:
-        raise FileNotFoundError("Dataset config has no prebuilt index file")
-
-    prebuilt_path = Path(ds_config.prebuilt_index_file)
-    if prebuilt_path.is_file():
-        with open(prebuilt_path) as f:
-            return json.load(f)
-
-    cached = read_metadata_json(
-        Path(ds_config.dataset_root),
-        prebuilt_path.name,
-    )
-    if cached is not None:
-        return cached
-
-    raise FileNotFoundError(
-        f"No prebuilt index found at {ds_config.prebuilt_index_file}"
-    )
 
 
 def _save_output(
@@ -886,7 +847,7 @@ def _save_output(
     When *dataset_path* is a ``.zip`` file the entry is written inside
     the archive.
     """
-    write_metadata_json_batch(dataset_path, {
-        head_file: output["head"],
-        filename: output,
-    })
+    if head_file != output.get("head_file", DATASET_HEAD_FILENAME):
+        output = dict(output)
+        output["head_file"] = head_file
+    save_output_artifacts(dataset_path, output, filename=filename)

@@ -61,6 +61,12 @@ from ._dataset_contract import (
     DatasetHeadContract,
     parse_dataset_head,
 )
+from .artifacts import (
+    build_crawler_config_for_output,
+    build_index_artifact,
+    save_output_artifacts,
+)
+from .config import CONFIG_FILENAME
 from .schema import infer_dataset_file_types
 from .zip_utils import (
     COMPRESSED_EXTENSIONS,
@@ -457,13 +463,7 @@ class DatasetWriter(_BaseDatasetWriter):
             The :class:`~pathlib.Path` that was written to.
         """
         output = self.build_output()
-        path = write_metadata_json_batch(
-            self._root,
-            {
-                DATASET_HEAD_FILENAME: output["head"],
-                filename: output,
-            },
-        )
+        path = save_output_artifacts(self._root, output, filename=filename)
         logger.info(
             "DatasetWriter: saved index with %d entries to %s",
             self._count,
@@ -661,14 +661,21 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         if self._closed:
             raise RuntimeError("ZipDatasetWriter is closed")
         output = self.build_output()
+        config_payload = build_crawler_config_for_output(output)
+        index_artifact = build_index_artifact(output)
         self._zf.writestr(
             f"{METADATA_DIR}/{DATASET_HEAD_FILENAME}",
             json.dumps(output["head"], indent=2),
             compress_type=zipfile.ZIP_DEFLATED,
         )
         self._zf.writestr(
+            f"{METADATA_DIR}/{CONFIG_FILENAME}",
+            json.dumps(config_payload, indent=2),
+            compress_type=zipfile.ZIP_DEFLATED,
+        )
+        self._zf.writestr(
             f"{METADATA_DIR}/{filename}",
-            json.dumps(output, indent=2),
+            json.dumps(index_artifact, indent=2),
             compress_type=zipfile.ZIP_DEFLATED,
         )
         self._zf.close()

@@ -9,7 +9,7 @@ from typing import Any
 
 from ._dataset_contract import DATASET_HEAD_KIND, DatasetHeadContract, parse_dataset_head
 from .config import CONFIG_FILENAME
-from .zip_utils import DATASET_HEAD_FILENAME, OUTPUT_FILENAME, read_metadata_json
+from .zip_utils import DATASET_HEAD_FILENAME, read_metadata_json
 
 
 def _extract_head_mapping(source: dict[str, Any]) -> dict[str, Any]:
@@ -52,20 +52,8 @@ def _read_single_dataset_head(source: str | Path | dict[str, Any]) -> dict[str, 
                     raise ValueError(f"{head_file} must contain a JSON object")
                 return custom_head
 
-    output_data = read_metadata_json(dataset_path, OUTPUT_FILENAME)
-    if output_data is not None:
-        if isinstance(output_data, list):
-            if len(output_data) != 1:
-                raise ValueError(
-                    "Expected a single dataset output object, got a list"
-                )
-            output_data = output_data[0]
-        if not isinstance(output_data, dict):
-            raise ValueError("output.json must contain a dataset object")
-        return _extract_head_mapping(output_data)
-
     raise FileNotFoundError(
-        f"No {DATASET_HEAD_FILENAME} or {OUTPUT_FILENAME} found at: {dataset_path}"
+        f"No {DATASET_HEAD_FILENAME} found at: {dataset_path}"
     )
 
 
