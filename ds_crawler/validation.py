@@ -369,7 +369,7 @@ def validate_dataset(path: str | Path) -> dict[str, Any]:
 
     validated_config: DatasetConfig | None = None
     if config_data is not None:
-        validated_config = validate_crawler_config(config_data)
+        validated_config = validate_crawler_config(config_data, workdir=dataset_path)
 
     if head_data is not None:
         parse_dataset_head(head_data, context="dataset_head")
