@@ -1,495 +1,447 @@
 # ds-crawler
 
-Regex-based dataset metadata crawler and indexer. Extracts structured
-identifiers from file paths, organises them into a hierarchical index
-(`output.json`), and provides utilities for aligning, copying, splitting
-and writing multi-modal datasets.
+Regex-based dataset crawler, indexer, and dataset artifact toolkit.
 
-```
-pip install .                 # core
-pip install ".[progress]"     # with tqdm progress bars
-pip install ".[dev]"          # with pytest + tqdm
+`ds-crawler` indexes files by regex, stores the crawl result as a minimal
+`index.json`, and keeps semantic dataset metadata in a separate
+`dataset-head.json` contract shared with other packages such as
+`euler-loading` and `euler-train`. The dataset head is validated through
+`euler-dataset-contract`.
+
+It works with both directories and `.zip` archives.
+
+```bash
+pip install .
+pip install ".[progress]"
+pip install ".[dev]"
 uv pip install "ds-crawler @ git+https://github.com/d-rothen/ds-crawler"
 ```
 
-Requires Python >= 3.9. No runtime dependencies.
+Requires Python `>=3.9`.
 
----
+## What lives on disk
+
+Every dataset uses a `.ds_crawler/` metadata directory:
+
+```text
+dataset_root/
+├── .ds_crawler/
+│   ├── dataset-head.json
+│   ├── ds-crawler.json
+│   ├── index.json
+│   ├── split_train.json
+│   └── split_val.json
+└── ...
+```
+
+The files have distinct roles:
+
+| File | Purpose |
+|---|---|
+| `.ds_crawler/dataset-head.json` | Shared semantic dataset contract: identity, modality, modality metadata, namespaced addon metadata. |
+| `.ds_crawler/ds-crawler.json` | Crawl recipe: source path, regexes, path filters, file extensions, hierarchy rules, or a prebuilt index reference. |
+| `.ds_crawler/index.json` | Materialized full dataset index. No duplicated head/config metadata. |
+| `.ds_crawler/split_<name>.json` | Named split artifact with its own contract, provenance, and filtered `index` node. |
+
+The in-memory objects returned by `index_dataset_from_path(...)` and
+`load_dataset_split(...)` are hydrated outputs. They include `head` and
+`indexing` for convenience, even though the on-disk `index.json` only stores
+the minimal index artifact.
 
 ## Quick start
 
-### Index a dataset
+### 1. Create dataset metadata
 
-Every dataset needs a small JSON config (`ds-crawler.json`) that tells
-the crawler how to extract file IDs and (optionally) a hierarchy from
-paths. Place it either inside `.ds_crawler/ds-crawler.json` at the
-dataset root, or pass the config dict directly.
+`dataset-head.json`:
+
+```json
+{
+  "contract": {
+    "kind": "dataset_head",
+    "version": "1.0"
+  },
+  "dataset": {
+    "id": "foggy_rgb",
+    "name": "Foggy RGB"
+  },
+  "modality": {
+    "key": "rgb",
+    "meta": {
+      "range": [0, 255],
+      "dimensions": {
+        "height": 375,
+        "width": 1242,
+        "channels": 3
+      }
+    }
+  },
+  "addons": {
+    "euler_train": {
+      "version": "1.0",
+      "used_as": "input",
+      "slot": "dehaze.input.rgb"
+    }
+  }
+}
+```
+
+`ds-crawler.json`:
+
+```json
+{
+  "contract": {
+    "kind": "ds_crawler_config",
+    "version": "2.0"
+  },
+  "head_file": "dataset-head.json",
+  "source": {
+    "path": "."
+  },
+  "indexing": {
+    "id": {
+      "regex": "^(?P<scene>[^/]+)/(?P<frame>\\d+)\\.png$",
+      "join_char": "+"
+    },
+    "hierarchy": {
+      "regex": "^(?P<scene>[^/]+)/(?P<frame>\\d+)\\.png$",
+      "separator": ":"
+    },
+    "properties": {
+      "basename": {
+        "regex": "^(?P<frame>\\d+)\\.(?P<ext>png)$"
+      },
+      "path": {
+        "regex": "^(?P<scene>[^/]+)/"
+      }
+    },
+    "files": {
+      "extensions": [".png"],
+      "path_filters": {
+        "include_terms": ["fog"],
+        "term_match_mode": "path_segment"
+      }
+    },
+    "constraints": {
+      "flat_ids_unique": true
+    }
+  }
+}
+```
+
+### 2. Index the dataset
 
 ```python
 from ds_crawler import index_dataset_from_path
 
-# Reads ds-crawler.json from inside the dataset, returns an output dict
-output = index_dataset_from_path("/data/rgb", save_index=True)
+output = index_dataset_from_path("/data/foggy_rgb", save_index=True)
+
+print(output["head"]["dataset"]["name"])
+print(output["head"]["modality"]["key"])
+print(output["index"].keys())
 ```
 
-### Align modalities by ID
+`save_index=True` writes:
+
+- `.ds_crawler/dataset-head.json`
+- `.ds_crawler/ds-crawler.json`
+- `.ds_crawler/index.json`
+
+### 3. Align multiple modalities
 
 ```python
 from ds_crawler import align_datasets
 
 aligned = align_datasets(
-    {"modality": "rgb",   "source": "/data/rgb"},
-    {"modality": "depth", "source": "/data/depth"},
+    {"modality": "rgb", "source": "/data/foggy_rgb"},
+    {"modality": "depth", "source": "/data/foggy_depth"},
 )
 
-for file_id, mods in aligned.items():
-    if "rgb" in mods and "depth" in mods:
-        print(mods["rgb"]["path"], mods["depth"]["path"])
+for file_id, modalities in aligned.items():
+    if "rgb" in modalities and "depth" in modalities:
+        print(file_id, modalities["rgb"]["path"], modalities["depth"]["path"])
 ```
 
-### Split into train / val
+### 4. Create named split artifacts
 
 ```python
-from ds_crawler import split_datasets
+from ds_crawler import create_dataset_splits, load_dataset_split
 
-result = split_datasets(
-    source_paths=["/data/rgb", "/data/depth"],
-    suffixes=["train", "val"],
-    ratios=[80, 20],
-    seed=42,
-)
-```
-
-### Store split indices inline
-
-```python
-from ds_crawler import create_aligned_dataset_splits, load_dataset_split
-
-create_aligned_dataset_splits(
-    source_paths=["/data/rgb", "/data/depth"],
+create_dataset_splits(
+    "/data/foggy_rgb",
     split_names=["train", "val"],
     ratios=[80, 20],
     seed=42,
 )
 
-rgb_train = load_dataset_split("/data/rgb", "train")
+train_output = load_dataset_split("/data/foggy_rgb", "train")
+print(train_output["split"]["name"])
+print(train_output["execution"]["split"])
 ```
 
-### Write model outputs back to disk
+### 5. Write generated outputs back to disk
 
 ```python
 from ds_crawler import DatasetWriter
 
-writer = DatasetWriter(
-    "/output/segmentation",
-    name="segmentation",
-    type="segmentation",
-    euler_train={"used_as": "target", "modality_type": "semantic"},
-)
+head = {
+    "contract": {"kind": "dataset_head", "version": "1.0"},
+    "dataset": {"id": "pred_rgb", "name": "Predicted RGB"},
+    "modality": {"key": "rgb", "meta": {"range": [0, 255]}},
+    "addons": {
+        "euler_train": {
+            "version": "1.0",
+            "used_as": "output",
+            "slot": "dehaze.output.rgb"
+        }
+    }
+}
 
-for sample in dataloader:
-    pred = model(sample["rgb"])
-    path = writer.get_path(sample["full_id"], f"{sample['id']}.png")
-    save_image(pred, path)
+writer = DatasetWriter("/tmp/predictions", head=head)
 
-writer.save_index()  # writes output.json for later re-indexing
+path = writer.get_path("/scene:Scene01/0001", "0001.png")
+path.write_bytes(b"data")
+
+writer.save_index()
 ```
 
----
+`DatasetWriter.save_index()` writes the current artifact set, not a legacy
+`output.json`.
 
-## Configuration
+## The current schemas
+
+### `dataset-head.json`
+
+Core keys:
+
+- `contract`
+- `dataset`
+- `modality`
+- `addons`
+
+Notes:
+
+- `dataset.id` is the stable dataset identifier.
+- `modality.key` replaces the old root-level `type`.
+- `modality.meta` replaces the old root-level `meta`.
+- `modality.meta.file_types` is inferred from indexed files when the crawler
+  or writer can determine it.
+- `addons` is namespaced. Payloads such as `addons.euler_train` and
+  `addons.euler_loading` are owned by their respective packages.
 
 ### `ds-crawler.json`
 
-Placed at `<dataset_root>/.ds_crawler/ds-crawler.json` (or passed as a
-dict). Minimal example:
+Core keys:
+
+- `contract`
+- `head_file`
+- `source`
+- `indexing`
+
+`source.prebuilt_index_file` is optional. When set, the dataset can be loaded
+from an existing `index.json` without re-crawling source files.
+
+Supported indexing areas:
+
+- `indexing.id.regex`
+- `indexing.id.join_char`
+- `indexing.id.override`
+- `indexing.hierarchy.regex`
+- `indexing.hierarchy.separator`
+- `indexing.properties.path.regex`
+- `indexing.properties.basename.regex`
+- `indexing.files.extensions`
+- `indexing.files.path_filters`
+- `indexing.constraints.flat_ids_unique`
+
+There are no camera-specific config fields anymore.
+
+Supported `indexing.files.path_filters` keys:
+
+- `include_regex`
+- `exclude_regex`
+- `include_terms`
+- `exclude_terms`
+- `term_match_mode` with `substring` or `path_segment`
+- `case_sensitive`
+
+### `index.json`
+
+On disk, the full index artifact is intentionally minimal:
 
 ```json
 {
-  "name": "my_rgb",
-  "path": "/data/my_rgb",
-  "type": "rgb",
-  "id_regex": "^frame_(\\d+)\\.png$",
-  "properties": {
-    "euler_train": {
-      "used_as": "input",
-      "modality_type": "rgb"
-    }
+  "contract": {
+    "kind": "dataset_index",
+    "version": "1.0"
+  },
+  "generator": {
+    "name": "ds_crawler",
+    "version": "0"
+  },
+  "execution": {},
+  "index": {
+    "files": [],
+    "children": {}
   }
 }
 ```
 
-| Field | Required | Description |
-|---|---|---|
-| `name` | yes | Human-readable dataset name |
-| `path` | yes | Root directory or `.zip` archive |
-| `type` | yes | Semantic label for the data modality (e.g. `"rgb"`, `"depth"`) |
-| `id_regex` | yes | Regex applied to each file's relative path. Capture groups form the file ID (joined by `id_regex_join_char`). |
-| `dataset_contract_version` | no | Contract version for the shared dataset head schema. Defaults to `"1.0"`. |
-| `properties.euler_train.used_as` | yes | `"input"`, `"target"`, or `"condition"` |
-| `properties.euler_train.modality_type` | yes | Identifier token (e.g. `"rgb"`, `"depth"`) |
-| `properties.meta.dimensions` | no | Dataset-wide nominal sample dimensions keyed by semantic axis names (e.g. `{"height": 375, "width": 1242, "channels": 3}`). |
-| `properties.meta.file_types` | no | Lowercase data file extensions without dots (e.g. `["png"]`, `["jpg", "png"]`). Usually inferred into `output.json` automatically. |
-| `hierarchy_regex` | no | Regex with named groups to build a hierarchy tree |
-| `named_capture_group_value_separator` | no | Character joining group name and value in hierarchy keys (default `":"`) |
-| `basename_regex` | no | Regex applied to basename only; properties stored per file |
-| `path_regex` | no | Regex applied to full relative path; properties stored per file |
-| `path_filters` | no | Path-level include/exclude rules (regex and/or term whitelist/blacklist) |
-| `intrinsics_regex` | no | Regex matching camera intrinsics files |
-| `extrinsics_regex` | no | Regex matching camera extrinsics files |
-| `id_regex_join_char` | no | Join character for multi-group IDs (default `"+"`) |
-| `file_extensions` | no | Restrict to these extensions (e.g. `[".png", ".jpg"]`) |
-| `flat_ids_unique` | no | If `true`, IDs must be globally unique (not just within hierarchy node) |
-| `output_json` | no | Path to a pre-existing `output.json` to load instead of crawling |
+`index` is a recursive node structure:
 
-#### Path filters (`path_filters`)
+- `files`: leaf file entries
+- `children`: nested hierarchy nodes
 
-Use `path_filters` when you want to include/exclude files by relative path
-without changing your `id_regex`:
+Each file entry has:
+
+- `path`
+- `id`
+- `path_properties`
+- `basename_properties`
+
+### `split_<name>.json`
+
+Split artifacts are versioned and self-describing:
 
 ```json
-"path_filters": {
-  "include_terms": ["fog"],
-  "exclude_terms": ["night"],
-  "term_match_mode": "path_segment"
-}
-```
-
-Supported keys:
-
-- `include_regex`: list of regexes, at least one must match when provided
-- `exclude_regex`: list of regexes, none may match
-- `include_terms`: term whitelist, at least one must match when provided
-- `exclude_terms`: term blacklist, none may match
-- `term_match_mode`: `"substring"` (default) or `"path_segment"`
-- `case_sensitive`: `true` (default) or `false`
-
-These filters apply to both data files and camera metadata paths
-(`intrinsics_regex` / `extrinsics_regex` matches).
-
-Example: keep only VKITTI fog frames:
-
-```json
-"path_filters": {
-  "include_terms": ["fog"],
-  "term_match_mode": "path_segment"
-}
-```
-
-Example: exclude all fog frames:
-
-```json
-"path_filters": {
-  "exclude_terms": ["fog"],
-  "term_match_mode": "path_segment"
-}
-```
-
-#### Shared dimensions (`properties.meta.dimensions`)
-
-Use `properties.meta.dimensions` when a dataset has a known dataset-wide
-sample layout that downstream tooling should be aware of, for example to
-compare a prediction dataset against its ground truth counterpart:
-
-```json
-"properties": {
-  "euler_train": {
-    "used_as": "input",
-    "modality_type": "depth"
+{
+  "contract": {
+    "kind": "dataset_split",
+    "version": "1.0"
   },
-  "meta": {
-    "radial_depth": false,
-    "scale_to_meters": 1.0,
-    "range": [0, 65535],
-    "dimensions": {
-      "height": 192,
-      "width": 640
-    }
+  "split": {
+    "name": "train",
+    "source_index_file": "index.json"
+  },
+  "generator": {
+    "name": "ds_crawler",
+    "version": "0"
+  },
+  "execution": {
+    "ratio": 80,
+    "seed": 42
+  },
+  "index": {
+    "files": [],
+    "children": {}
   }
 }
 ```
 
-This field is intentionally declarative: the crawler does not inspect
-file contents to infer shapes. Recommended axis names are
-`height`, `width`, `channels`, `depth`, and `time`. Omit the field when
-sample sizes vary across the dataset and there is no single nominal
-shape to publish.
-
-### Multi-dataset config
-
-For the CLI, wrap multiple dataset configs in:
-
-```json
-{
-  "datasets": [
-    { "name": "rgb",   "path": "/data/rgb",   "type": "rgb",   "id_regex": "..." },
-    { "name": "depth", "path": "/data/depth", "type": "depth", "id_regex": "..." }
-  ]
-}
-```
-
----
-
-## Output format (`output.json`)
-
-The index produced by the crawler:
-
-```json
-{
-  "dataset_contract_version": "1.0",
-  "name": "my_rgb",
-  "type": "rgb",
-  "id_regex": "...",
-  "id_regex_join_char": "+",
-  "path_filters": {
-    "include_terms": ["fog"],
-    "term_match_mode": "path_segment"
-  },
-  "euler_train": { "used_as": "input", "modality_type": "rgb" },
-  "meta": {
-    "range": [0, 255],
-    "file_types": ["png"],
-    "dimensions": { "height": 375, "width": 1242, "channels": 3 }
-  },
-  "named_capture_group_value_separator": ":",
-  "dataset": {
-    "files": [
-      { "path": "frame_001.png", "id": "001", "path_properties": {}, "basename_properties": {} }
-    ],
-    "children": {
-      "scene:Scene01": {
-        "files": [ ... ],
-        "children": { ... }
-      }
-    }
-  }
-}
-```
-
-`dataset` is a recursive node: each node has `files` (leaf entries) and
-`children` (named sub-nodes). Hierarchy keys follow the pattern
-`<group_name><separator><value>` (e.g. `scene:Scene01`).
-
-`dataset_contract_version` versions the shared cross-package contract
-owned by `euler-dataset-contract`. `meta.file_types` is inferred from the
-actual indexed data files when the crawler or writer can determine it.
-
-Inline splits can be stored alongside the full index as
-`.ds_crawler/split_<name>.json`. These files contain only the JSON object
-that normally appears under `output["dataset"]`, so they can be overlaid on
-top of the canonical `output.json` metadata at load time.
-
----
+They do not duplicate `dataset-head.json` or `ds-crawler.json`. Loading a
+split hydrates those sibling artifacts automatically.
 
 ## CLI
 
+Indexing:
+
+```bash
+ds-crawler CONFIG.json
+ds-crawler index CONFIG.json
 ```
-ds-crawler CONFIG [OPTIONS]
-```
+
+Main flags:
 
 | Flag | Description |
 |---|---|
-| `-o, --output PATH` | Write a single combined output file (otherwise writes per-dataset) |
-| `-w, --workdir PATH` | Prepend to relative dataset paths |
-| `-s, --strict` | Abort on duplicate IDs or >20% regex misses |
-| `--sample N` | Keep every Nth matched file |
-| `--match-index PATH` | Only include file IDs present in this output.json |
-| `-v, --verbose` | Log every skipped file |
+| `-o, --output PATH` | Write a single JSON output file instead of per-dataset `.ds_crawler/index.json`. |
+| `-w, --workdir PATH` | Base directory for relative config paths. |
+| `-s, --strict` | Abort on duplicate IDs or excessive regex misses. |
+| `--sample N` | Keep every `N`th matched file. |
+| `--match-index PATH` | Only keep IDs present in another hydrated output/index. |
+| `-v, --verbose` | Enable debug logging. |
 
----
+Metadata migration:
+
+```bash
+ds-crawler migrate-metadata /data/legacy_dataset
+ds-crawler migrate-metadata /data/archive.zip
+ds-crawler migrate-metadata /data/datasets --scan-zips
+```
+
+Migration notes:
+
+- `--scan-zips` recursively scans subfolders for `.zip` archives by default.
+- `--top-level-only` disables recursion.
+- `--no-index` writes `dataset-head.json` and `ds-crawler.json` without
+  rewriting `index.json`.
+- Archive migration fails loudly when a `.zip` does not contain usable
+  `.ds_crawler/` metadata.
 
 ## Python API
 
-All public symbols are re-exported from the top-level `ds_crawler`
-package. They live in four submodules:
+The main public entry points are re-exported from `ds_crawler`.
 
-### Indexing (`ds_crawler.parser`)
+Indexing and config:
 
-#### `index_dataset(config, *, strict, save_index, sample, match_index) -> dict`
+- `index_dataset(...)`
+- `index_dataset_from_files(...)`
+- `index_dataset_from_path(...)`
+- `load_dataset_config(...)`
+- `validate_crawler_config(...)`
+- `validate_dataset(...)`
+- `validate_output(...)`
 
-Index a single dataset from a config dict.
+Dataset metadata:
 
-#### `index_dataset_from_path(path, *, strict, save_index, force_reindex, sample, match_index) -> dict`
+- `get_dataset_contract(source)`
+- `get_dataset_properties(source)`
+- `extract_dataset_properties(mapping)`
 
-Index a dataset by path, reading `ds-crawler.json` from the dataset root.
-Returns a cached `output.json` when available (unless `force_reindex=True`).
+`get_dataset_contract(...)` returns a `DatasetHeadContract`. Use
+`contract.get_namespace("euler_train")` to access addon payloads.
 
-#### `index_dataset_from_files(config, files, *, base_path, strict, sample, match_index) -> dict`
+Traversal and filtering:
 
-Index from pre-collected file paths (useful when files aren't on the
-local filesystem).
+- `collect_qualified_ids(...)`
+- `filter_index_by_qualified_ids(...)`
+- `get_files(...)`
+- `split_qualified_ids(...)`
 
-#### `DatasetParser(config, *, strict, sample, match_index)`
+Operations:
 
-Lower-level class wrapping the full `Config` object. Methods:
+- `align_datasets(...)`
+- `copy_dataset(...)`
+- `extract_datasets(...)`
+- `split_dataset(...)`
+- `split_datasets(...)`
+- `create_dataset_splits(...)`
+- `create_aligned_dataset_splits(...)`
+- `list_dataset_splits(...)`
+- `load_dataset_split(...)`
 
-- `parse_all() -> list[dict]`
-- `parse_dataset(ds_config, ...) -> dict`
-- `parse_dataset_from_files(ds_config, files, ...) -> dict`
-- `write_output(output_path)`
-- `write_outputs_per_dataset(filename="output.json") -> list[Path]`
+Writers:
 
----
+- `DatasetWriter(...)`
+- `ZipDatasetWriter(...)`
 
-### Traversal & filtering (`ds_crawler.traversal`)
+Migration helpers:
 
-#### `get_files(output_json) -> list[str]`
-
-Flat list of every file path in an output dict (or list of output dicts).
-
-#### `collect_qualified_ids(output_json) -> set[tuple[str, ...]]`
-
-Set of `(*hierarchy_keys, file_id)` tuples. Qualified IDs distinguish
-files that share the same raw ID but live at different hierarchy levels.
-
-#### `filter_index_by_qualified_ids(output_json, qualified_ids) -> dict`
-
-Return a pruned copy of the output dict keeping only the given IDs.
-
-#### `split_qualified_ids(qualified_ids, ratios, *, seed=None, sample=None) -> list[set]`
-
-Partition qualified IDs by percentages or fractions (e.g. `[80, 20]` or
-`[0.8, 0.2]`). Totals may be below full coverage, and `sample=N` keeps
-every Nth candidate before splitting.
-
----
-
-### Operations (`ds_crawler.operations`)
-
-#### `align_datasets(*args) -> dict[str, dict[str, dict]]`
-
-Align multiple modalities by file ID. Each positional argument is a dict
-with `"modality"` (label) and `"source"` (path or output dict). Returns
-`{file_id: {modality: file_entry, ...}, ...}`.
-
-#### `copy_dataset(input_path, output_path, *, index=None, sample=None) -> dict`
-
-Copy dataset files to a new location (directory or `.zip`), preserving
-structure. Returns `{"copied": int, "missing": int, "missing_files": [...]}`.
-
-#### `split_dataset(source_path, ratios, target_paths, *, qualified_ids, seed, sample) -> dict`
-
-Split a single dataset into multiple targets by percentages or fractions.
-Totals below full coverage leave some selected IDs unassigned.
-
-#### `create_dataset_splits(source_path, split_names, ratios, *, index=None, qualified_ids=None, seed=None, sample=None) -> dict`
-
-Write inline split metadata files (`.ds_crawler/split_<name>.json`) for a
-single dataset without copying data files.
-
-#### `create_aligned_dataset_splits(source_paths, split_names, ratios, *, seed=None, sample=None) -> dict`
-
-Write matching inline split metadata across multiple aligned datasets.
-
-#### `list_dataset_splits(dataset_path) -> list[str]`
-
-List named inline splits available for a dataset.
-
-#### `load_dataset_split(dataset_path, split_name, *, strict=False, save_index=False, force_reindex=False) -> dict`
-
-Load a named inline split as a full output dict by overlaying its
-dataset node on top of the canonical `output.json`.
-
-#### `split_datasets(source_paths, suffixes, ratios, *, seed, sample) -> dict`
-
-Split multiple aligned datasets using their common ID intersection.
-Target paths are derived by appending the suffix
-(`/data/rgb` + `"train"` -> `/data/rgb_train`).
-
----
-
-### Writer (`ds_crawler.writer`)
-
-#### `DatasetWriter(root, *, name, type, euler_train, separator=":", **properties)`
-
-Stateful helper that turns `(full_id, basename)` pairs into filesystem
-paths while accumulating an `output.json`-compatible index.
-
-| Method | Description |
-|---|---|
-| `get_path(full_id, basename, *, source_meta=None) -> Path` | Register a file and get the absolute path to write to. Directories are created automatically. |
-| `build_output() -> dict` | Return the accumulated index as an output dict. |
-| `save_index(filename="output.json") -> Path` | Persist the index to `<root>/.ds_crawler/<filename>`. |
-
-`full_id` follows the format produced by euler-loading:
-`/scene:Scene01/camera:Cam0/scene-Scene01+camera-Cam0+frame-00001`
-where each `/key:value` segment maps to a directory level and the final
-component is the ds-crawler file ID.
-
----
-
-### Validation (`ds_crawler.validation`)
-
-#### `validate_crawler_config(config, workdir=None) -> DatasetConfig`
-
-Validate a `ds-crawler.json` dict. Raises `ValueError` on failure.
-
-#### `validate_output(output) -> dict`
-
-Validate an `output.json` object (single dict or list). Raises
-`ValueError` on failure.
-
-#### `validate_dataset(path) -> dict`
-
-Check a dataset path for valid metadata files. Returns
-`{"path", "has_config", "has_output", "config", "output"}`.
-
-#### `get_dataset_properties(source) -> dict`
-
-Resolve normalized dataset-level properties from a dataset path, a
-`ds-crawler.json` dict, or an `output.json` head. This includes
-`euler_train`, `meta`, and any additional dataset properties, while
-excluding crawler structural keys.
-
-#### `get_dataset_contract(source) -> DatasetHeadContract`
-
-Resolve the normalized shared dataset-head contract from a dataset path,
-a `ds-crawler.json` dict, or an `output.json` head. The returned object
-exposes namespaced addon sections through `get_namespace(...)` /
-`get_addon_contract(...)`.
-
----
-
-### Schema (`ds_crawler.schema`)
-
-#### `DatasetDescriptor(name, path, type, properties={})`
-
-Minimal dataset description dataclass. Class methods:
-
-- `from_output(data, path) -> DatasetDescriptor`
-- `from_output_file(path, dataset_root) -> list[DatasetDescriptor]`
-
----
-
-### Config (`ds_crawler.config`)
-
-#### `DatasetConfig`
-
-Full dataset configuration (extends `DatasetDescriptor` with regex
-fields). Usually created via `DatasetConfig.from_dict(data, workdir)` or
-`load_dataset_config(data, workdir)`.
-
-#### `Config(datasets: list[DatasetConfig])`
-
-Container loaded with `Config.from_file(path, workdir)`.
-
----
+- `migrate_dataset_metadata(...)`
+- `migrate_dataset_zip(...)`
+- `migrate_dataset_zips_in_folder(...)`
 
 ## ZIP support
 
-All operations work transparently with `.zip` archives. Paths like
-`/data/dataset.zip` are handled the same as directories: the crawler
-reads file listings from the archive, `copy_dataset` writes into a new
-archive, and `save_index` / `write_outputs_per_dataset` embed
-`output.json` inside the zip.
+All core workflows support `.zip` archives:
 
----
+- indexing from zipped datasets
+- writing metadata back into archives
+- loading inline split artifacts from archives
+- migrating legacy archive metadata in place
+
+When updating metadata inside a `.zip`, `ds-crawler` rewrites the archive once
+per metadata batch, not once per file.
+
+## Validation behavior
+
+Current datasets are expected to follow the new schema. `ds-crawler` does not
+attempt legacy fallback when loading normal datasets anymore.
+
+If a dataset is malformed, loading and validation fail with explicit errors.
+Use `ds-crawler migrate-metadata ...` to rewrite older datasets into the
+current layout first.
 
 ## Examples
 
-See the [`examples/`](examples/) directory:
-
-- **`example.py`** -- index a dataset, match against an existing index,
-  and copy a subset.
-- **`sample_realdrivesim.py`** -- subsample a multi-modal RealDriveSim
-  dataset (RGB, depth, segmentation) preserving cross-modality alignment.
+See [`examples/`](examples/) for small usage snippets. The test suite under
+[`tests/`](tests/) is also a good source of current-schema examples.
