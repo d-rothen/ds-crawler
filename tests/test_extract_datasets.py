@@ -50,3 +50,38 @@ def test_extract_datasets_writes_split_outputs_for_each_config(tmp_path: Path) -
         "scene/0001.npy",
         "scene/0002.npy",
     }
+
+
+def test_extract_datasets_reports_incomplete_intersection(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    create_files(
+        source,
+        [
+            "scene/0001.png",
+            "scene/0002.png",
+            "scene/0001.npy",
+        ],
+    )
+
+    rgb_config = sample_config(
+        source,
+        name="rgb",
+        modality="rgb",
+        extensions=[".png"],
+        id_regex=r"^(.+)\.png$",
+    )
+    depth_config = sample_config(
+        source,
+        name="depth",
+        modality="depth",
+        extensions=[".npy"],
+        id_regex=r"^(.+)\.npy$",
+    )
+
+    result = extract_datasets(
+        [rgb_config, depth_config],
+        [tmp_path / "rgb", tmp_path / "depth"],
+    )
+
+    assert result["common_ids"] == {("scene/0001",)}
+    assert result["incomplete_ids"]["rgb"] == {("scene/0002",)}

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ds_crawler import create_dataset_splits, get_dataset_contract, index_dataset_from_files
 from ds_crawler.validation import validate_dataset, validate_output, validate_split_artifact
+import pytest
 
 from .current_helpers import create_files, sample_config, write_crawler_metadata
 
@@ -61,3 +62,14 @@ def test_get_dataset_contract_and_validate_split_artifact(tmp_path: Path) -> Non
     with open(split_path) as f:
         split_artifact = json.load(f)
     assert validate_split_artifact(split_artifact)["split"]["name"] == "train"
+
+
+def test_validate_split_artifact_rejects_missing_source_index_file() -> None:
+    with pytest.raises(ValueError, match="split.source_index_file"):
+        validate_split_artifact(
+            {
+                "contract": {"kind": "dataset_split", "version": "1.0"},
+                "split": {"name": "train"},
+                "index": {"files": []},
+            }
+        )
