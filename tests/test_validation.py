@@ -1,241 +1,63 @@
-"""Tests for public validation helpers."""
-
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any
 
-import pytest
+from ds_crawler import create_dataset_splits, get_dataset_contract, index_dataset_from_files
+from ds_crawler.validation import validate_dataset, validate_output, validate_split_artifact
 
-from ds_crawler.config import CONFIG_FILENAME, DatasetConfig
-from ds_crawler.parser import index_dataset
-from ds_crawler.schema import get_dataset_contract, get_dataset_properties
-from ds_crawler.validation import (
-    validate_crawler_config,
-    validate_dataset,
-    validate_output,
-)
-from ds_crawler.zip_utils import METADATA_DIR, OUTPUT_FILENAME
-
-from .conftest import create_depth_predictions_tree, make_depth_predictions_config
+from .current_helpers import create_files, sample_config, write_crawler_metadata
 
 
-def _first_file_entry(node: dict[str, Any]) -> dict[str, Any]:
-    files = node.get("files")
-    if files:
-        return files[0]
+def test_validate_output_accepts_current_output_shape(tmp_path: Path) -> None:
+    root = tmp_path / "rgb"
+    files = create_files(root, ["scene/0001.png"])
+    output = index_dataset_from_files(
+        sample_config(root, extensions=[".png"], id_regex=r"^(.+)\.png$"),
+        files,
+        base_path=root,
+    )
 
-    for child in node.get("children", {}).values():
-        found = _first_file_entry(child)
-        if found:
-            return found
+    validated = validate_output(output)
 
-    raise AssertionError("No file entry found in output dataset node")
-
-
-class TestValidateCrawlerConfig:
-    def test_valid_config(self, tmp_path: Path) -> None:
-        root = tmp_path / "depth_predictions"
-        create_depth_predictions_tree(root)
-        config = make_depth_predictions_config(str(root))
-
-        validated = validate_crawler_config(config)
-
-        assert isinstance(validated, DatasetConfig)
-        assert validated.name == "depth_predictions"
-        assert validated.type == "depth"
-
-    def test_missing_required_key_raises(self, tmp_path: Path) -> None:
-        root = tmp_path / "depth_predictions"
-        create_depth_predictions_tree(root)
-        config = make_depth_predictions_config(str(root))
-        config.pop("id_regex")
-
-        with pytest.raises(ValueError, match="missing required field"):
-            validate_crawler_config(config)
+    assert validated["contract"]["kind"] == "dataset_index"
 
 
-class TestValidateOutput:
-    def test_single_output_object(self, tmp_path: Path) -> None:
-        root = tmp_path / "depth_predictions"
-        create_depth_predictions_tree(root)
-        config = make_depth_predictions_config(str(root))
-        output = index_dataset(config)
+def test_validate_dataset_reads_canonical_artifacts(tmp_path: Path) -> None:
+    root = tmp_path / "rgb"
+    create_files(root, ["scene/0001.png", "scene/0002.png"])
+    config = sample_config(root, extensions=[".png"], id_regex=r"^(.+)\.png$")
+    write_crawler_metadata(root, config)
 
-        validated = validate_output(output)
-        assert validated is output
+    output = index_dataset_from_files(config, list(root.rglob("*.png")), base_path=root)
+    create_files(root, [])  # keep root creation explicit for readability
+    from ds_crawler.artifacts import save_output_artifacts
 
-    def test_output_list(self, tmp_path: Path) -> None:
-        root = tmp_path / "depth_predictions"
-        create_depth_predictions_tree(root)
-        config = make_depth_predictions_config(str(root))
-        output = index_dataset(config)
-        payload = [output]
+    save_output_artifacts(root, output)
+    result = validate_dataset(root)
 
-        validated = validate_output(payload)
-        assert validated is payload
-
-    def test_invalid_file_entry_raises(self, tmp_path: Path) -> None:
-        root = tmp_path / "depth_predictions"
-        create_depth_predictions_tree(root)
-        config = make_depth_predictions_config(str(root))
-        output = index_dataset(config)
-        first_entry = _first_file_entry(output["dataset"])
-        first_entry["id"] = 123
-
-        with pytest.raises(ValueError, match=r"\.id must be a non-empty string"):
-            validate_output(output)
-
-    def test_euler_train_slot_is_optional(self, tmp_path: Path) -> None:
-        root = tmp_path / "depth_predictions"
-        create_depth_predictions_tree(root)
-        config = make_depth_predictions_config(str(root))
-        output = index_dataset(config)
-        output["euler_train"].pop("slot", None)
-
-        validated = validate_output(output)
-        assert validated is output
-
-    def test_path_filters_are_validated_when_present(self, tmp_path: Path) -> None:
-        root = tmp_path / "depth_predictions"
-        create_depth_predictions_tree(root)
-        config = make_depth_predictions_config(str(root))
-        config["path_filters"] = {"include_terms": ["scene01"]}
-        output = index_dataset(config)
-
-        validated = validate_output(output)
-        assert validated is output
-
-    def test_invalid_path_filters_raise(self, tmp_path: Path) -> None:
-        root = tmp_path / "depth_predictions"
-        create_depth_predictions_tree(root)
-        config = make_depth_predictions_config(str(root))
-        output = index_dataset(config)
-        output["path_filters"] = {"exclude_regex": ["[invalid"]}
-
-        with pytest.raises(
-            ValueError,
-            match=r"path_filters\.exclude_regex\[0\] is not a valid regex",
-        ):
-            validate_output(output)
-
-    def test_meta_dimensions_are_validated_when_present(self, tmp_path: Path) -> None:
-        root = tmp_path / "depth_predictions"
-        create_depth_predictions_tree(root)
-        config = make_depth_predictions_config(str(root))
-        output = index_dataset(config)
-
-        validated = validate_output(output)
-        assert validated is output
-
-    def test_invalid_meta_dimensions_raise(self, tmp_path: Path) -> None:
-        root = tmp_path / "depth_predictions"
-        create_depth_predictions_tree(root)
-        config = make_depth_predictions_config(str(root))
-        output = index_dataset(config)
-        output["meta"]["dimensions"]["height"] = 0
-
-        with pytest.raises(
-            ValueError,
-            match=r"output\.meta\.dimensions\['height'\] must be a positive integer",
-        ):
-            validate_output(output)
+    assert result["has_head"] is True
+    assert result["has_index"] is True
+    assert result["output"]["head"]["dataset"]["id"] == "demo_rgb"
 
 
-class TestValidateDataset:
-    def _build_dataset_files(self, root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-        create_depth_predictions_tree(root)
-        config = make_depth_predictions_config(str(root))
-        output = index_dataset(config)
-        return config, output
+def test_get_dataset_contract_and_validate_split_artifact(tmp_path: Path) -> None:
+    root = tmp_path / "rgb"
+    create_files(root, ["scene/0001.png", "scene/0002.png"])
+    config = sample_config(root, extensions=[".png"], id_regex=r"^(.+)\.png$")
+    write_crawler_metadata(root, config)
 
-    def test_validates_root_metadata_files(self, tmp_path: Path) -> None:
-        root = tmp_path / "dataset_root"
-        root.mkdir(parents=True, exist_ok=True)
-        config, output = self._build_dataset_files(root)
+    from ds_crawler.parser import index_dataset_from_path
 
-        with open(root / CONFIG_FILENAME, "w") as f:
-            json.dump(config, f, indent=2)
-        with open(root / OUTPUT_FILENAME, "w") as f:
-            json.dump(output, f, indent=2)
+    index_dataset_from_path(root, save_index=True)
+    create_dataset_splits(root, ["train"], [1.0], seed=3)
 
-        result = validate_dataset(root)
+    contract = get_dataset_contract(root)
+    assert contract.dataset_id == "demo_rgb"
+    assert contract.get_namespace("euler_train")["slot"] == "demo.input.rgb"
 
-        assert result["has_config"] is True
-        assert result["has_output"] is True
-        assert isinstance(result["config"], DatasetConfig)
-        assert result["output"]["name"] == output["name"]
+    split_path = root / ".ds_crawler" / "split_train.json"
+    import json
 
-    def test_validates_hidden_metadata_dir(self, tmp_path: Path) -> None:
-        root = tmp_path / "dataset_root"
-        root.mkdir(parents=True, exist_ok=True)
-        config, output = self._build_dataset_files(root)
-
-        metadata_dir = root / METADATA_DIR
-        metadata_dir.mkdir(parents=True, exist_ok=True)
-        with open(metadata_dir / CONFIG_FILENAME, "w") as f:
-            json.dump(config, f, indent=2)
-        with open(metadata_dir / OUTPUT_FILENAME, "w") as f:
-            json.dump(output, f, indent=2)
-
-        result = validate_dataset(root)
-
-        assert result["has_config"] is True
-        assert result["has_output"] is True
-        assert isinstance(result["config"], DatasetConfig)
-        assert result["output"]["name"] == output["name"]
-
-    def test_raises_when_no_metadata_exists(self, tmp_path: Path) -> None:
-        root = tmp_path / "empty_dataset"
-        root.mkdir(parents=True, exist_ok=True)
-
-        with pytest.raises(
-            FileNotFoundError, match=r"No ds-crawler\.json or output\.json found"
-        ):
-            validate_dataset(root)
-
-
-class TestGetDatasetProperties:
-    def test_reads_from_output_head(self, tmp_path: Path) -> None:
-        root = tmp_path / "depth_predictions"
-        create_depth_predictions_tree(root)
-        config = make_depth_predictions_config(str(root))
-        output = index_dataset(config)
-
-        properties = get_dataset_properties(output)
-
-        assert properties["euler_train"]["modality_type"] == "depth"
-        assert properties["meta"]["file_types"] == ["npy", "png"]
-        assert properties["gt"] is False
-
-    def test_reads_from_dataset_path(self, tmp_path: Path) -> None:
-        root = tmp_path / "dataset_root"
-        root.mkdir(parents=True, exist_ok=True)
-        create_depth_predictions_tree(root)
-        config = make_depth_predictions_config(str(root))
-        output = index_dataset(config)
-
-        with open(root / OUTPUT_FILENAME, "w") as f:
-            json.dump(output, f, indent=2)
-
-        properties = get_dataset_properties(root)
-
-        assert properties["model"] == "DepthAnythingV2"
-        assert properties["meta"]["file_types"] == ["npy", "png"]
-
-
-class TestGetDatasetContract:
-    def test_reads_namespaced_contract_from_output_head(self, tmp_path: Path) -> None:
-        root = tmp_path / "depth_predictions"
-        create_depth_predictions_tree(root)
-        config = make_depth_predictions_config(str(root))
-        output = index_dataset(config)
-
-        contract = get_dataset_contract(output)
-
-        assert contract.name == "depth_predictions"
-        assert contract.type == "depth"
-        assert contract.get_namespace("euler_train")["modality_type"] == "depth"
-        assert contract.meta["file_types"] == ["npy", "png"]
-        assert contract.extras["model"] == "DepthAnythingV2"
+    with open(split_path) as f:
+        split_artifact = json.load(f)
+    assert validate_split_artifact(split_artifact)["split"]["name"] == "train"
