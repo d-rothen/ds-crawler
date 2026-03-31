@@ -13,6 +13,14 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from .artifacts import (
+    build_crawler_config_for_output,
+    build_index_artifact,
+    build_split_artifact,
+    hydrate_split_artifact,
+    save_output_artifacts,
+)
+from .config import CONFIG_FILENAME
 from .traversal import (
     _collect_all_referenced_paths,
     _collect_file_entries_by_id,
@@ -34,8 +42,10 @@ from .zip_utils import (
     list_split_names,
     read_metadata_json,
     validate_split_name,
+    write_metadata_json_batch,
     write_metadata_json,
 )
+from .validation import validate_split_artifact
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +73,13 @@ def _ensure_output_index(
     """Return a full output index, indexing and saving it when needed."""
     if index is not None:
         if read_metadata_json(dataset_path, OUTPUT_FILENAME) is None:
-            write_metadata_json(dataset_path, OUTPUT_FILENAME, index)
+            save_output_artifacts(dataset_path, index)
         return index
 
+    from .parser import index_dataset_from_path
     cached = read_metadata_json(dataset_path, OUTPUT_FILENAME)
     if cached is not None:
-        return cached
-
-    from .parser import index_dataset_from_path
+        return index_dataset_from_path(dataset_path)
 
     logger.info(
         "No %s found at %s, indexing dataset before writing splits",
@@ -86,15 +95,28 @@ def _write_split_index(
     split_name: str,
     split_ids: set[tuple[str, ...]],
     *,
-    ratio: int | None = None,
+    ratio: int | float | None = None,
+    seed: int | None = None,
+    sample: int | None = None,
 ) -> dict[str, Any]:
-    """Persist a single split dataset node under ``.ds_crawler/``."""
+    """Persist a single split dataset artifact under ``.ds_crawler/``."""
     filename = get_split_filename(split_name)
     filtered_index = filter_index_by_qualified_ids(index, split_ids)
+    split_execution: dict[str, Any] = {}
+    if ratio is not None:
+        split_execution["ratio"] = ratio
+    if seed is not None:
+        split_execution["seed"] = seed
+    if sample is not None:
+        split_execution["sampled"] = sample
     output_path = write_metadata_json(
         dataset_path,
         filename,
-        filtered_index.get("index", filtered_index.get("dataset", {})),
+        build_split_artifact(
+            filtered_index,
+            split_name=split_name,
+            execution=split_execution or None,
+        ),
     )
     result: dict[str, Any] = {
         "split": split_name,
@@ -123,9 +145,9 @@ def load_dataset_split(
 ) -> dict[str, Any]:
     """Load a named split as a full output dict.
 
-    The returned object has the same top-level metadata as ``output.json``,
-    but its ``index`` payload is replaced by the contents of
-    ``.ds_crawler/split_<name>.json``.
+    The returned object has the same top-level metadata as ``index.json``,
+    but its ``index`` payload is replaced by the split artifact's index
+    content and includes the split descriptor under ``result["split"]``.
     """
     dataset_path = Path(dataset_path)
 
@@ -137,10 +159,10 @@ def load_dataset_split(
         save_index=save_index,
         force_reindex=force_reindex,
     )
-    split_node = _load_required_index(dataset_path, get_split_filename(split_name))
+    split_artifact = _load_required_index(dataset_path, get_split_filename(split_name))
+    validate_split_artifact(split_artifact, context=f"split[{split_name!r}]")
 
-    result = dict(base_output)
-    result["index"] = split_node
+    result = hydrate_split_artifact(split_artifact, base_output)
     result.pop("dataset", None)
     return result
 
@@ -157,9 +179,9 @@ def create_dataset_splits(
 ) -> dict[str, Any]:
     """Create inline split metadata files for a single dataset.
 
-    The full index remains stored as ``output.json``. Each split is written
-    as ``.ds_crawler/split_<name>.json`` and contains only the index-node
-    payload that would normally live under ``output["index"]``.
+    The full index remains stored as ``index.json``. Each split is written
+    as ``.ds_crawler/split_<name>.json`` and contains a split artifact
+    with contract metadata, provenance, and the filtered ``index`` node.
     """
     if len(split_names) != len(ratios):
         raise ValueError(
@@ -198,6 +220,8 @@ def create_dataset_splits(
                 split_name,
                 split_ids,
                 ratio=ratio,
+                seed=seed,
+                sample=sample,
             )
         )
 
@@ -279,6 +303,8 @@ def create_aligned_dataset_splits(
                     split_name,
                     split_ids,
                     ratio=ratio,
+                    seed=seed,
+                    sample=sample,
                 )
             )
 
@@ -309,10 +335,10 @@ def _resolve_dataset_source(
     *,
     split: str | None = None,
 ) -> dict[str, Any]:
-    """Resolve a dataset source to an output JSON dict.
+    """Resolve a dataset source to a hydrated dataset index dict.
 
     When *source* is already a dict it is returned as-is (assumed to be a
-    loaded output JSON object).  When it is a path, ``output.json`` is
+    loaded dataset index object).  When it is a path, ``index.json`` is
     checked first; if absent, ``ds-crawler.json`` is used to index on the
     fly.  Raises ``FileNotFoundError`` if neither file exists.
     """
@@ -337,12 +363,12 @@ def align_datasets(
     - ``modality`` (str): Label for this modality (e.g. ``"rgb"``,
       ``"depth"``).
     - ``source``: Either a filesystem path (``str`` or ``Path``) to a
-      dataset root, or an already-loaded output JSON dict.
+      dataset root, or an already-loaded dataset index dict.
     - ``split`` (str, optional): Load ``source`` through a named inline
       split stored as ``.ds_crawler/split_<name>.json``.
 
     When *source* is a path, the function first looks for an existing
-    ``output.json``.  If none is found it looks for a ``ds-crawler.json``
+    ``index.json``.  If none is found it looks for a ``ds-crawler.json``
     configuration and indexes the dataset on the fly.  If neither file
     exists a ``FileNotFoundError`` is raised.
 
@@ -418,8 +444,8 @@ def copy_dataset(
     """Copy files referenced in a dataset index to a new location.
 
     Preserves the relative directory structure.  If *index* is not
-    provided, ``output.json`` is loaded from *input_path*.  The index
-    is written as ``output.json`` in *output_path* so the copied dataset
+    provided, ``index.json`` is loaded from *input_path*.  The index
+    is written as ``index.json`` in *output_path* so the copied dataset
     is self-contained.
 
     Args:
@@ -430,7 +456,7 @@ def copy_dataset(
             ends with ``.zip`` the copied files are written into a ZIP
             archive instead of to the filesystem.
         index: A dataset output dict (as returned by ``index_dataset``).
-            When ``None``, ``output.json`` is read from *input_path*.
+            When ``None``, ``index.json`` is read from *input_path*.
         sample: When set, keep only every *sample*-th indexed data file
             (deterministic subsampling on sorted paths).
 
@@ -450,11 +476,9 @@ def copy_dataset(
     zip_output = output_path.suffix.lower() == ".zip"
 
     if index is None:
-        index = read_metadata_json(input_path, OUTPUT_FILENAME)
-        if index is None:
-            raise FileNotFoundError(
-                f"No {OUTPUT_FILENAME} found at {input_path} and no index was provided"
-            )
+        from .parser import index_dataset_from_path
+
+        index = index_dataset_from_path(input_path)
 
     assert index is not None  # ensured by the branch above
     all_paths = _collect_all_referenced_paths(index)
@@ -549,6 +573,8 @@ def copy_dataset(
             copied += 1
 
         head_file = str(index.get("head_file", DATASET_HEAD_FILENAME))
+        config_payload = build_crawler_config_for_output(index)
+        index_artifact = build_index_artifact(index)
         # Write the (possibly filtered) index
         if dst_zf is not None:
             if isinstance(index.get("head"), dict):
@@ -558,15 +584,24 @@ def copy_dataset(
                     compress_type=zipfile.ZIP_DEFLATED,
                 )
             dst_zf.writestr(
+                f"{METADATA_DIR}/{CONFIG_FILENAME}",
+                json.dumps(config_payload, indent=2),
+                compress_type=zipfile.ZIP_DEFLATED,
+            )
+            dst_zf.writestr(
                 f"{METADATA_DIR}/{OUTPUT_FILENAME}",
-                json.dumps(index, indent=2),
+                json.dumps(index_artifact, indent=2),
                 compress_type=zipfile.ZIP_DEFLATED,
             )
         else:
             output_path.mkdir(parents=True, exist_ok=True)
+            save_payload = {
+                CONFIG_FILENAME: config_payload,
+                OUTPUT_FILENAME: index_artifact,
+            }
             if isinstance(index.get("head"), dict):
-                write_metadata_json(output_path, head_file, index["head"])
-            write_metadata_json(output_path, OUTPUT_FILENAME, index)
+                save_payload[head_file] = index["head"]
+            write_metadata_json_batch(output_path, save_payload)
 
     logger.info(
         "copy_dataset complete: %d files copied, %d missing", copied, missing
@@ -585,9 +620,14 @@ def copy_dataset(
 
 
 def _load_required_index(
-    dataset_path: Path, filename: str = "output.json"
+    dataset_path: Path, filename: str = OUTPUT_FILENAME
 ) -> dict[str, Any]:
     """Load an output index from *dataset_path*, raising if absent."""
+    if filename == OUTPUT_FILENAME:
+        from .parser import index_dataset_from_path
+
+        return index_dataset_from_path(dataset_path)
+
     index = read_metadata_json(dataset_path, filename)
     if index is None:
         raise FileNotFoundError(
@@ -618,17 +658,17 @@ def split_dataset(
 ) -> dict[str, Any]:
     """Split a dataset into multiple targets according to numeric ratios.
 
-    Loads ``output.json`` from *source_path* (raises ``FileNotFoundError``
+    Loads ``index.json`` from *source_path* (raises ``FileNotFoundError``
     if absent), partitions the file entries by their hierarchy-qualified
     IDs, and copies each partition to the corresponding target path — in
     the same way ``copy_dataset`` handles file transfer.
 
-    An ``output.json`` containing only the partition's entries is written
+    An ``index.json`` containing only the partition's entries is written
     into each target.
 
     Args:
         source_path: Root directory or ``.zip`` archive of the source
-            dataset.  Must contain an ``output.json``.
+            dataset.  Must contain an ``index.json``.
         ratios: Positive percentages (e.g. ``[80, 20]``) or fractions
             (e.g. ``[0.8, 0.2]``). Totals may be less than full coverage,
             leaving some selected IDs unassigned.
@@ -658,7 +698,7 @@ def split_dataset(
           ratios sum to less than full coverage.
 
     Raises:
-        FileNotFoundError: If ``output.json`` is missing in the source.
+        FileNotFoundError: If ``index.json`` is missing in the source.
         ValueError: If *ratios* / *target_paths* are invalid.
     """
     if len(ratios) != len(target_paths):
@@ -720,7 +760,7 @@ def split_datasets(
 ) -> dict[str, Any]:
     """Split multiple aligned datasets using a common ID intersection.
 
-    Loads ``output.json`` from each source, computes the intersection of
+    Loads ``index.json`` from each source, computes the intersection of
     their hierarchy-qualified IDs, partitions that intersection according
     to *ratios*, and copies each partition into a derived target path for
     every source dataset.
@@ -738,7 +778,7 @@ def split_datasets(
 
     Args:
         source_paths: Dataset root directories or ``.zip`` archives.
-            Each must contain an ``output.json``.
+            Each must contain an ``index.json``.
         suffixes: One label per split (e.g. ``["train", "val"]``).
             Must have the same length as *ratios*.
         ratios: Positive percentages (e.g. ``[80, 20]``) or fractions
@@ -768,7 +808,7 @@ def split_datasets(
           ``missing_files``).
 
     Raises:
-        FileNotFoundError: If ``output.json`` is missing in any source.
+        FileNotFoundError: If ``index.json`` is missing in any source.
         ValueError: If lengths of *suffixes* and *ratios* differ, or
             if *source_paths* is empty.
     """
@@ -873,7 +913,7 @@ def extract_datasets(
 
     Each config dict defines regex patterns that select specific files from
     its ``path`` directory.  The matched files are indexed and then copied
-    to the corresponding output path.  An ``output.json`` is written in
+    to the corresponding output path.  An ``index.json`` is written in
     each target so the extracted dataset is self-contained.
 
     This is useful when a single source directory contains multiple

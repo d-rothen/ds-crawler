@@ -48,7 +48,7 @@ def _run_index(argv: list[str]) -> int:
         "--output",
         type=Path,
         default=None,
-        help="Single output JSON file path. If not specified, writes output.json to each dataset's root folder.",
+        help="Single output JSON file path. If not specified, writes index.json to each dataset's root folder.",
     )
     parser.add_argument(
         "-v",
@@ -81,7 +81,7 @@ def _run_index(argv: list[str]) -> int:
         type=Path,
         default=None,
         metavar="PATH",
-        help="Path to an output.json whose file IDs are used as a filter.",
+        help="Path to an index.json whose file IDs are used as a filter.",
     )
 
     args = parser.parse_args(argv)
@@ -141,9 +141,9 @@ def _run_migrate(argv: list[str]) -> int:
         help="Dataset roots (directories or zip archives) to migrate",
     )
     parser.add_argument(
-        "--no-output",
+        "--no-index",
         action="store_true",
-        help="Do not rewrite output.json; only write dataset-head.json and ds-crawler.json.",
+        help="Do not rewrite index.json; only write dataset-head.json and ds-crawler.json.",
     )
     parser.add_argument(
         "--scan-zips",
@@ -174,7 +174,7 @@ def _run_migrate(argv: list[str]) -> int:
                 result = migrate_dataset_zips_in_folder(
                     path,
                     recursive=not args.top_level_only,
-                    write_output=not args.no_output,
+                    write_output=not args.no_index,
                     logger=logger,
                 )
                 if result["failed"]:
@@ -194,7 +194,7 @@ def _run_migrate(argv: list[str]) -> int:
                 migrate_fn = migrate_dataset_metadata
             result = migrate_fn(
                 path,
-                write_output=not args.no_output,
+                write_output=not args.no_index,
                 logger=logger,
             )
         except Exception as exc:

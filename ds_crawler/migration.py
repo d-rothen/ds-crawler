@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from ._dataset_contract import DATASET_CONTRACT_VERSION, parse_dataset_head
+from .artifacts import (
+    DATASET_SPLIT_KIND,
+    build_index_artifact,
+    build_split_artifact,
+)
 from .config import (
     CONFIG_FILENAME,
     CRAWLER_CONFIG_KIND,
@@ -46,6 +51,7 @@ _LEGACY_STRUCTURAL_KEYS = frozenset({
     "sampled",
     "dataset",
 })
+_LEGACY_OUTPUT_FILENAME = "output.json"
 
 
 def _get_logger(logger: logging.Logger | None) -> logging.Logger:
@@ -86,6 +92,14 @@ def _is_new_output(value: Any) -> bool:
         isinstance(value, dict)
         and isinstance(value.get("contract"), dict)
         and value["contract"].get("kind") == DATASET_INDEX_KIND
+    )
+
+
+def _is_new_split(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and isinstance(value.get("contract"), dict)
+        and value["contract"].get("kind") == DATASET_SPLIT_KIND
     )
 
 
@@ -361,10 +375,13 @@ def _require_metadata_dir_entries(
         )
         logger.warning(message)
         raise FileNotFoundError(message)
-    if CONFIG_FILENAME not in metadata_filenames and OUTPUT_FILENAME not in metadata_filenames:
+    if (
+        CONFIG_FILENAME not in metadata_filenames
+        and _LEGACY_OUTPUT_FILENAME not in metadata_filenames
+    ):
         message = (
             f"Metadata under {METADATA_DIR}/ at {dataset_root} must include "
-            f"{CONFIG_FILENAME} or {OUTPUT_FILENAME}"
+            f"{CONFIG_FILENAME} or {_LEGACY_OUTPUT_FILENAME}"
         )
         logger.warning(message)
         raise FileNotFoundError(message)
@@ -415,7 +432,7 @@ def migrate_dataset_metadata(
     )
     raw_output = _read_metadata_mapping(
         dataset_root,
-        OUTPUT_FILENAME,
+        _LEGACY_OUTPUT_FILENAME,
         allowed_filenames=allowed_filenames,
     )
 
@@ -424,7 +441,7 @@ def migrate_dataset_metadata(
 
     if legacy_config is None and legacy_output is None:
         message = (
-            f"No legacy {CONFIG_FILENAME} or {OUTPUT_FILENAME} found at {dataset_root}"
+            f"No legacy {CONFIG_FILENAME} or {_LEGACY_OUTPUT_FILENAME} found at {dataset_root}"
         )
         logger.warning(message)
         raise FileNotFoundError(message)
@@ -440,7 +457,7 @@ def migrate_dataset_metadata(
         legacy_config=legacy_config,
         legacy_output=legacy_output,
     )
-    DatasetConfig.from_dict(
+    dataset_config = DatasetConfig.from_dict(
         config,
         dataset_root=dataset_root,
         dataset_head=head,
@@ -458,7 +475,7 @@ def migrate_dataset_metadata(
             legacy_output=legacy_output,
         )
         validate_output(output)
-        metadata_updates[OUTPUT_FILENAME] = output
+        metadata_updates[OUTPUT_FILENAME] = build_index_artifact(output)
         output_written = True
 
     migrated_splits: list[str] = []
@@ -471,9 +488,35 @@ def migrate_dataset_metadata(
         node = read_metadata_json(dataset_root, filename)
         if node is None:
             continue
+        if _is_new_split(node):
+            metadata_updates[filename] = node
+            migrated_splits.append(filename)
+            continue
+
         migrated_node = _strip_legacy_camera_fields(node)
-        metadata_updates[filename] = migrated_node
+        split_name = filename[len("split_"):-len(".json")]
+        metadata_updates[filename] = build_split_artifact(
+            {
+                "index": migrated_node,
+                "generator": {
+                    "name": "ds_crawler",
+                    "version": "migrated",
+                },
+            },
+            split_name=split_name,
+        )
         migrated_splits.append(filename)
+
+    if (
+        migrated_splits
+        and not write_output
+        and dataset_config.prebuilt_index_file is not None
+        and Path(dataset_config.prebuilt_index_file).name == OUTPUT_FILENAME
+    ):
+        raise ValueError(
+            "Cannot migrate split metadata without writing index.json for a "
+            "prebuilt-index dataset"
+        )
 
     if is_zip_path(dataset_root):
         logger.debug(
