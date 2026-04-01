@@ -20,6 +20,7 @@ from .config import (
     DatasetConfig,
 )
 from .validation import DATASET_INDEX_KIND, DATASET_INDEX_VERSION, validate_output
+from ._version import get_package_version
 from .zip_utils import (
     DATASET_HEAD_FILENAME,
     OUTPUT_FILENAME,
@@ -330,7 +331,7 @@ def _build_output_from_legacy(
         "head": deepcopy(head),
         "generator": {
             "name": "ds_crawler",
-            "version": "migrated",
+            "version": get_package_version(),
         },
         "indexing": _build_crawler_config_from_legacy(
             Path("."),
@@ -500,7 +501,7 @@ def migrate_dataset_metadata(
                 "index": migrated_node,
                 "generator": {
                     "name": "ds_crawler",
-                    "version": "migrated",
+                    "version": get_package_version(),
                 },
             },
             split_name=split_name,
@@ -595,7 +596,7 @@ def migrate_inline_splits(
                 "index": migrated_node,
                 "generator": {
                     "name": "ds_crawler",
-                    "version": "migrated",
+                    "version": get_package_version(),
                 },
             },
             split_name=split_name,
