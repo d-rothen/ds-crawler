@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import re
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Iterable
 
+from ._version import get_package_version
 from .artifacts import load_prebuilt_output, load_saved_output, save_output_artifacts
 from .config import Config, DatasetConfig, load_dataset_config
 from .handlers import get_handler
@@ -31,11 +31,6 @@ ID_MISS_WARN_RATIO = 0.2
 DATASET_INDEX_KIND = "dataset_index"
 DATASET_INDEX_VERSION = "1.0"
 
-def _get_package_version() -> str:
-    try:
-        return version("ds_crawler")
-    except PackageNotFoundError:
-        return "0"
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -169,7 +164,7 @@ class DatasetParser:
             "head": head,
             "generator": {
                 "name": "ds_crawler",
-                "version": _get_package_version(),
+                "version": get_package_version(),
             },
             "indexing": ds_config.to_indexing_dict(),
             "execution": {},

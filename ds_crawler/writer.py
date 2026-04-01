@@ -61,6 +61,7 @@ from ._dataset_contract import (
     DatasetHeadContract,
     parse_dataset_head,
 )
+from ._version import get_package_version
 from .artifacts import (
     build_crawler_config_for_output,
     build_index_artifact,
@@ -370,7 +371,7 @@ class _BaseDatasetWriter:
             "head": head,
             "generator": {
                 "name": "ds_crawler",
-                "version": "0",
+                "version": get_package_version(),
             },
             "indexing": indexing,
             "execution": {},
