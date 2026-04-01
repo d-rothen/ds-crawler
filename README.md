@@ -441,6 +441,10 @@ If a dataset is malformed, loading and validation fail with explicit errors.
 Use `ds-crawler migrate-metadata ...` to rewrite older datasets into the
 current layout first.
 
+```sh
+ds-crawler migrate-metadata --scan-zips .
+```
+
 ## Examples
 
 See [`examples/`](examples/) for small usage snippets. The test suite under
