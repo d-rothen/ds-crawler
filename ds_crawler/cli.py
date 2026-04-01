@@ -12,6 +12,7 @@ from ds_crawler.migration import (
     migrate_dataset_metadata,
     migrate_dataset_zip,
     migrate_dataset_zips_in_folder,
+    migrate_inline_splits,
 )
 from ds_crawler.parser import DatasetParser
 
@@ -146,6 +147,14 @@ def _run_migrate(argv: list[str]) -> int:
         help="Do not rewrite index.json; only write dataset-head.json and ds-crawler.json.",
     )
     parser.add_argument(
+        "--inline-splits",
+        action="store_true",
+        help=(
+            "Only migrate split files. Requires index.json to already exist "
+            "in the new schema (i.e. core metadata was already migrated)."
+        ),
+    )
+    parser.add_argument(
         "--scan-zips",
         action="store_true",
         help="When a path is a directory, scan it for .zip archives and attempt migration on each archive.",
@@ -164,12 +173,28 @@ def _run_migrate(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if args.top_level_only and not args.scan_zips:
         parser.error("--top-level-only requires --scan-zips")
+    if args.inline_splits and args.no_index:
+        parser.error("--inline-splits and --no-index are mutually exclusive")
+    if args.inline_splits and args.scan_zips:
+        parser.error("--inline-splits and --scan-zips are mutually exclusive")
     setup_logging(args.verbose)
 
     failed = False
     logger = logging.getLogger(__name__)
     for path in args.paths:
         try:
+            if args.inline_splits:
+                result = migrate_inline_splits(
+                    path,
+                    logger=logger,
+                )
+                logger.info(
+                    "Migrated inline splits %s (splits=%d)",
+                    result["path"],
+                    len(result["migrated_splits"]),
+                )
+                continue
+
             if path.is_dir() and args.scan_zips:
                 result = migrate_dataset_zips_in_folder(
                     path,

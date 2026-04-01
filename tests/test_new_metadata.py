@@ -18,6 +18,7 @@ from ds_crawler.migration import (
     migrate_dataset_metadata,
     migrate_dataset_zip,
     migrate_dataset_zips_in_folder,
+    migrate_inline_splits,
 )
 from ds_crawler.zip_utils import DATASET_HEAD_FILENAME, OUTPUT_FILENAME, read_metadata_json
 
@@ -359,3 +360,81 @@ def test_migrate_split_without_index_fails_for_prebuilt_dataset(tmp_path) -> Non
         match="Cannot migrate split metadata without writing index.json",
     ):
         migrate_dataset_metadata(root, write_output=False)
+
+
+def test_migrate_inline_splits_converts_stale_splits(tmp_path) -> None:
+    """Partial migration: index.json is new-schema but split files are legacy."""
+    root = tmp_path / "partial"
+    metadata_dir = root / ".ds_crawler"
+    metadata_dir.mkdir(parents=True)
+
+    # Write already-migrated index.json
+    new_index = {
+        "contract": {"kind": "dataset_index", "version": "1.0"},
+        "index": {"files": [{"path": "0001.png", "id": "0001.png"}]},
+        "generator": {"name": "ds_crawler", "version": "2.0"},
+        "execution": {},
+    }
+    with open(metadata_dir / "index.json", "w") as f:
+        json.dump(new_index, f)
+
+    # Write stale (legacy) split files
+    _write_legacy_split(root, "train")
+    _write_legacy_split(root, "val")
+
+    result = migrate_inline_splits(root)
+
+    assert len(result["migrated_splits"]) == 2
+    assert "split_train.json" in result["migrated_splits"]
+    assert "split_val.json" in result["migrated_splits"]
+
+    with open(metadata_dir / "split_train.json") as f:
+        split_artifact = json.load(f)
+
+    assert split_artifact["contract"]["kind"] == "dataset_split"
+    assert split_artifact["split"]["name"] == "train"
+    assert split_artifact["split"]["source_index_file"] == OUTPUT_FILENAME
+    assert split_artifact["index"]["files"][0]["path"] == "0001.png"
+
+
+def test_migrate_inline_splits_skips_already_migrated(tmp_path) -> None:
+    """Already-migrated splits are counted but not rewritten."""
+    root = tmp_path / "partial"
+    metadata_dir = root / ".ds_crawler"
+    metadata_dir.mkdir(parents=True)
+
+    new_index = {
+        "contract": {"kind": "dataset_index", "version": "1.0"},
+        "index": {"files": [{"path": "0001.png", "id": "0001.png"}]},
+        "generator": {"name": "ds_crawler", "version": "2.0"},
+        "execution": {},
+    }
+    with open(metadata_dir / "index.json", "w") as f:
+        json.dump(new_index, f)
+
+    new_split = {
+        "contract": {"kind": "dataset_split", "version": "1.0"},
+        "split": {"name": "train", "source_index_file": "index.json"},
+        "index": {"files": [{"path": "0001.png", "id": "0001.png"}]},
+    }
+    with open(metadata_dir / "split_train.json", "w") as f:
+        json.dump(new_split, f)
+
+    result = migrate_inline_splits(root)
+
+    assert result["migrated_splits"] == ["split_train.json"]
+    # File should remain unchanged
+    with open(metadata_dir / "split_train.json") as f:
+        assert json.load(f) == new_split
+
+
+def test_migrate_inline_splits_fails_without_index(tmp_path) -> None:
+    """Cannot run inline-splits migration if index.json is missing."""
+    root = tmp_path / "no_index"
+    metadata_dir = root / ".ds_crawler"
+    metadata_dir.mkdir(parents=True)
+
+    _write_legacy_split(root, "train")
+
+    with pytest.raises(FileNotFoundError, match="index.json not found"):
+        migrate_inline_splits(root)

@@ -546,6 +546,82 @@ def migrate_dataset_metadata(
     return result
 
 
+def migrate_inline_splits(
+    dataset_path: str | Path,
+    *,
+    logger: logging.Logger | None = None,
+    require_metadata_dir: bool = False,
+) -> dict[str, Any]:
+    """Migrate only split files for a partially-migrated dataset.
+
+    Requires that index.json already exists in the new schema format,
+    indicating that the core metadata files (dataset-head.json,
+    ds-crawler.json, index.json) have already been migrated.
+    """
+    logger = _get_logger(logger)
+    dataset_root = Path(dataset_path)
+    logger.info("Migrating inline splits for %s", dataset_root)
+
+    if require_metadata_dir:
+        _require_metadata_dir_entries(dataset_root, logger=logger)
+
+    raw_output = read_metadata_json(dataset_root, OUTPUT_FILENAME)
+    if raw_output is None or not _is_new_output(raw_output):
+        raise FileNotFoundError(
+            f"index.json not found or not yet migrated at {dataset_root}; "
+            "run full migration first"
+        )
+
+    migrated_splits: list[str] = []
+    metadata_updates: dict[str, Any] = {}
+
+    for filename in list_metadata_json_filenames(dataset_root):
+        if not (
+            filename.startswith("split_")
+            and filename.endswith(".json")
+        ):
+            continue
+        node = read_metadata_json(dataset_root, filename)
+        if node is None:
+            continue
+        if _is_new_split(node):
+            migrated_splits.append(filename)
+            continue
+
+        migrated_node = _strip_legacy_camera_fields(node)
+        split_name = filename[len("split_"):-len(".json")]
+        metadata_updates[filename] = build_split_artifact(
+            {
+                "index": migrated_node,
+                "generator": {
+                    "name": "ds_crawler",
+                    "version": "migrated",
+                },
+            },
+            split_name=split_name,
+        )
+        migrated_splits.append(filename)
+
+    if is_zip_path(dataset_root):
+        if metadata_updates:
+            write_metadata_json_batch(dataset_root, metadata_updates)
+    else:
+        for filename, payload in metadata_updates.items():
+            logger.debug("Writing %s for %s", filename, dataset_root)
+            write_metadata_json(dataset_root, filename, payload)
+
+    result = {
+        "path": str(dataset_root),
+        "migrated_splits": migrated_splits,
+    }
+    logger.info(
+        "Migrated inline splits for %s (splits=%d)",
+        dataset_root,
+        len(migrated_splits),
+    )
+    return result
+
+
 def migrate_dataset_zip(
     zip_path: str | Path,
     *,
