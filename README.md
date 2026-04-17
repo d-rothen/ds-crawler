@@ -178,6 +178,24 @@ print(train_output["split"]["name"])
 print(train_output["execution"]["split"])
 ```
 
+To reuse an existing partition on a sibling dataset (same qualified file
+IDs), copy the splits over instead of recomputing them:
+
+```python
+from ds_crawler import copy_dataset_splits
+
+copy_dataset_splits(
+    "/data/foggy_rgb",
+    "/data/foggy_depth",
+    split_names=["test"],   # or None to copy every split
+    override=False,         # pass True to replace existing target splits
+)
+```
+
+The target dataset's `index.json` is used to resolve IDs. Any ID from a
+source split that is missing on the target raises a `ValueError` — no
+partial split is ever written.
+
 ### 5. Write generated outputs back to disk
 
 ```python
@@ -358,6 +376,18 @@ ds-crawler migrate-metadata /data/archive.zip
 ds-crawler migrate-metadata /data/datasets --scan-zips
 ```
 
+Copy splits between sibling datasets:
+
+```bash
+ds-crawler copy-splits /data/foggy_rgb /data/foggy_depth
+ds-crawler copy-splits /data/foggy_rgb /data/foggy_depth --split test
+ds-crawler copy-splits /data/foggy_rgb /data/foggy_depth --override
+```
+
+`--split NAME` can be repeated to pick a subset; without it every split
+found on the source is copied. `--override` replaces existing target
+splits of the same name. Missing IDs on the target abort the command.
+
 Migration notes:
 
 - `--scan-zips` recursively scans subfolders for `.zip` archives by default.
@@ -401,6 +431,7 @@ Operations:
 
 - `align_datasets(...)`
 - `copy_dataset(...)`
+- `copy_dataset_splits(...)`
 - `extract_datasets(...)`
 - `split_dataset(...)`
 - `split_datasets(...)`

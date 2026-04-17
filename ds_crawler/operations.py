@@ -237,6 +237,154 @@ def create_dataset_splits(
     }
 
 
+def copy_dataset_splits(
+    source_path: str | Path,
+    target_path: str | Path,
+    *,
+    split_names: list[str] | None = None,
+    override: bool = False,
+) -> dict[str, Any]:
+    """Replicate inline splits from a source dataset onto a target dataset.
+
+    For each requested split on *source_path*, the qualified IDs stored
+    in the split artifact are used to filter the target dataset's index
+    and write a matching ``.ds_crawler/split_<name>.json`` on
+    *target_path*.  The result: the target carries the exact same
+    file-id partition as the source, so ``train``/``val``/``test`` splits
+    stay aligned across datasets of the same family (e.g. an RGB dataset
+    and its depth sibling).
+
+    The target's own ``index.json`` is used for filtering.  If it does
+    not yet exist, it is built and saved.  Every qualified ID from the
+    source split must appear in the target index — any missing ID
+    raises ``ValueError`` loudly, so incomplete splits are never
+    silently produced.
+
+    Args:
+        source_path: Dataset (directory or ``.zip``) whose splits are
+            read.
+        target_path: Dataset (directory or ``.zip``) to write the
+            copied splits to.
+        split_names: Names of splits to copy.  When ``None`` (default),
+            every split found on *source_path* is copied.
+        override: When ``False`` (default), raises ``ValueError`` if
+            the target already has a split with the same name.  When
+            ``True``, the existing target split is overwritten.
+
+    Returns:
+        A summary dict with keys:
+
+        - ``source``: ``str`` path of the source dataset.
+        - ``target``: ``str`` path of the target dataset.
+        - ``splits``: list of per-split result dicts, each with
+          ``split``, ``filename``, ``metadata_file``, ``path``,
+          ``num_ids``, and ``overridden`` (bool).
+
+    Raises:
+        FileNotFoundError: If *source_path* has no splits at all, or a
+            requested split does not exist on the source.
+        ValueError: If any qualified ID from a source split is missing
+            on the target, or if a target split already exists and
+            ``override=False``, or if *split_names* is an empty list.
+    """
+    source_path = Path(source_path)
+    target_path = Path(target_path)
+
+    available = list_dataset_splits(source_path)
+    if not available:
+        raise FileNotFoundError(
+            f"No inline splits found on source dataset {source_path}"
+        )
+
+    if split_names is None:
+        requested = list(available)
+    else:
+        if not split_names:
+            raise ValueError("split_names must be non-empty when provided")
+        requested = _normalize_split_names(split_names)
+        available_set = set(available)
+        missing_on_source = [name for name in requested if name not in available_set]
+        if missing_on_source:
+            raise FileNotFoundError(
+                f"Source dataset {source_path} has no splits named "
+                f"{sorted(missing_on_source)}. Available splits: {available}"
+            )
+
+    existing_on_target = set(list_dataset_splits(target_path))
+    if not override:
+        conflicts = sorted(name for name in requested if name in existing_on_target)
+        if conflicts:
+            raise ValueError(
+                f"Target dataset {target_path} already has splits {conflicts}. "
+                "Pass override=True to replace them."
+            )
+
+    target_index = _ensure_output_index(target_path)
+    target_qualified_ids = _collect_qualified_ids(target_index)
+
+    split_results: list[dict[str, Any]] = []
+    for split_name in requested:
+        split_filename = get_split_filename(split_name)
+        split_artifact = read_metadata_json(source_path, split_filename)
+        if split_artifact is None:
+            raise FileNotFoundError(
+                f"Split {split_name!r} not found on source dataset "
+                f"{source_path} (expected {split_filename})"
+            )
+        validate_split_artifact(
+            split_artifact, context=f"split[{split_name!r}]"
+        )
+
+        source_ids = _collect_qualified_ids(split_artifact)
+        missing_ids = source_ids - target_qualified_ids
+        if missing_ids:
+            preview = sorted(missing_ids)[:10]
+            suffix = (
+                f" (showing first 10 of {len(missing_ids)})"
+                if len(missing_ids) > 10 else ""
+            )
+            raise ValueError(
+                f"Cannot copy split {split_name!r} from {source_path} to "
+                f"{target_path}: {len(missing_ids)} / {len(source_ids)} "
+                f"qualified ID(s) from the source split have no match on "
+                f"the target. Examples: {preview}{suffix}"
+            )
+
+        logger.info(
+            "Copying split %r from %s to %s (%d qualified IDs)",
+            split_name, source_path, target_path, len(source_ids),
+        )
+
+        filtered_index = filter_index_by_qualified_ids(target_index, source_ids)
+        execution = {
+            "copied_from": {
+                "source": str(source_path),
+                "split": split_name,
+            }
+        }
+        artifact = build_split_artifact(
+            filtered_index,
+            split_name=split_name,
+            execution=execution,
+        )
+        output_path = write_metadata_json(target_path, split_filename, artifact)
+
+        split_results.append({
+            "split": split_name,
+            "filename": split_filename,
+            "metadata_file": f"{METADATA_DIR}/{split_filename}",
+            "path": str(output_path),
+            "num_ids": len(source_ids),
+            "overridden": split_name in existing_on_target,
+        })
+
+    return {
+        "source": str(source_path),
+        "target": str(target_path),
+        "splits": split_results,
+    }
+
+
 def create_aligned_dataset_splits(
     source_paths: list[str | Path],
     split_names: list[str],

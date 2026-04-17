@@ -14,6 +14,7 @@ from ds_crawler.migration import (
     migrate_dataset_zips_in_folder,
     migrate_inline_splits,
 )
+from ds_crawler.operations import copy_dataset_splits
 from ds_crawler.parser import DatasetParser
 
 
@@ -239,6 +240,76 @@ def _run_migrate(argv: list[str]) -> int:
     return 1 if failed else 0
 
 
+def _run_copy_splits(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ds-crawler copy-splits",
+        description=(
+            "Copy inline split definitions from one dataset to another, "
+            "matching on qualified file IDs."
+        ),
+    )
+    parser.add_argument(
+        "source",
+        type=Path,
+        help="Source dataset (directory or .zip) whose splits are read.",
+    )
+    parser.add_argument(
+        "target",
+        type=Path,
+        help="Target dataset (directory or .zip) to write the splits to.",
+    )
+    parser.add_argument(
+        "--split",
+        dest="splits",
+        action="append",
+        default=None,
+        metavar="NAME",
+        help=(
+            "Name of a split to copy. Can be repeated. When omitted, every "
+            "split found on the source is copied."
+        ),
+    )
+    parser.add_argument(
+        "--override",
+        action="store_true",
+        help="Replace existing splits on the target if they share a name.",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
+    )
+
+    args = parser.parse_args(argv)
+    setup_logging(args.verbose)
+    logger = logging.getLogger(__name__)
+
+    try:
+        result = copy_dataset_splits(
+            args.source,
+            args.target,
+            split_names=args.splits,
+            override=args.override,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"Error copying splits: {exc}", file=sys.stderr)
+        return 1
+
+    for split_info in result["splits"]:
+        logger.info(
+            "Copied split %r: %d IDs -> %s%s",
+            split_info["split"],
+            split_info["num_ids"],
+            split_info["path"],
+            " (overridden)" if split_info.get("overridden") else "",
+        )
+    return 0
+
+
 def main() -> int:
     """Main entry point."""
     argv = sys.argv[1:]
@@ -246,6 +317,8 @@ def main() -> int:
         return _run_migrate(argv[1:])
     if argv and argv[0] == "index":
         return _run_index(argv[1:])
+    if argv and argv[0] == "copy-splits":
+        return _run_copy_splits(argv[1:])
     return _run_index(argv)
 
 
