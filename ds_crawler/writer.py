@@ -266,13 +266,29 @@ class _BaseDatasetWriter:
         full_id: str,
         basename: str,
         *,
+        source_entry: dict[str, Any] | None = None,
+        attributes: dict[str, Any] | None = None,
         source_meta: dict[str, Any] | None = None,
     ) -> tuple[str, list[str]]:
         """Parse *full_id*, record the entry, return ``(rel_path_str, hierarchy_keys)``.
 
         This is the shared core of both :meth:`DatasetWriter.get_path` and
         :meth:`ZipDatasetWriter.open` / :meth:`ZipDatasetWriter.write`.
+
+        ``source_meta`` is the deprecated name for ``source_entry`` and is
+        kept as an alias for one release.  The kwarg always referred to a
+        source *file entry* dict, never a dedicated meta field.
         """
+        if source_meta is not None:
+            if source_entry is not None:
+                raise TypeError(
+                    "Pass either source_entry= or the deprecated source_meta=, not both."
+                )
+            logger.debug(
+                "source_meta= is deprecated on writer methods; use source_entry=."
+            )
+            source_entry = source_meta
+
         hierarchy_keys, file_id = _parse_full_id(full_id)
 
         # --- Build directory segments and path_properties ---------------
@@ -286,18 +302,18 @@ class _BaseDatasetWriter:
                 path_properties[name] = value
 
         # --- Override properties from source if provided ----------------
-        if source_meta is not None:
-            if "path_properties" in source_meta:
-                path_properties = dict(source_meta["path_properties"])
+        if source_entry is not None:
+            if "path_properties" in source_entry:
+                path_properties = dict(source_entry["path_properties"])
 
         # --- Compute relative path --------------------------------------
         rel_dir = Path(*dir_parts) if dir_parts else Path()
         rel_path = rel_dir / basename
 
         # --- Build basename_properties ----------------------------------
-        if source_meta is not None and "basename_properties" in source_meta:
+        if source_entry is not None and "basename_properties" in source_entry:
             basename_properties: dict[str, str] = dict(
-                source_meta["basename_properties"]
+                source_entry["basename_properties"]
             )
         else:
             basename_properties = {}
@@ -312,6 +328,18 @@ class _BaseDatasetWriter:
             "path_properties": path_properties,
             "basename_properties": basename_properties,
         }
+
+        # --- Resolve attributes: explicit wins, else inherit from source.
+        inherited_attributes = (
+            source_entry.get("attributes")
+            if isinstance(source_entry, dict)
+            else None
+        )
+        final_attributes = (
+            attributes if attributes is not None else inherited_attributes
+        )
+        if final_attributes:
+            entry["attributes"] = dict(final_attributes)
 
         # --- Place in hierarchy -----------------------------------------
         node = self._dataset_node
@@ -419,6 +447,8 @@ class DatasetWriter(_BaseDatasetWriter):
         full_id: str,
         basename: str,
         *,
+        source_entry: dict[str, Any] | None = None,
+        attributes: dict[str, Any] | None = None,
         source_meta: dict[str, Any] | None = None,
     ) -> Path:
         """Register a file entry and return the absolute path to write to.
@@ -432,18 +462,30 @@ class DatasetWriter(_BaseDatasetWriter):
                 ``euler_loading.MultiModalDataset`` (``sample["full_id"]``).
                 Leading slash is optional.
             basename: Filename including extension (e.g. ``"00001.png"``).
-            source_meta: Optional source file entry dict (e.g.
+            source_entry: Optional source file entry dict (e.g.
                 ``sample["meta"]["rgb"]``).  When provided, its
                 ``path_properties`` and ``basename_properties`` are
                 copied verbatim into the new entry instead of being
-                reconstructed from the hierarchy keys.
+                reconstructed from the hierarchy keys.  Any
+                ``attributes`` field on the source is inherited unless
+                overridden by the *attributes* kwarg.
+            attributes: Optional ``dict[str, Any]`` of arbitrary
+                JSON-serializable per-file metadata (e.g. checkpoint
+                hash, noise level).  Stored verbatim on the entry under
+                the ``"attributes"`` key.  When omitted, falls back to
+                ``source_entry["attributes"]`` if present.
+            source_meta: Deprecated alias for *source_entry*.
 
         Returns:
             Absolute :class:`~pathlib.Path` to the file.  Parent
             directories are created automatically.
         """
         rel_path_str, _hierarchy_keys = self._register_entry(
-            full_id, basename, source_meta=source_meta,
+            full_id,
+            basename,
+            source_entry=source_entry,
+            attributes=attributes,
+            source_meta=source_meta,
         )
         abs_path = self._root / rel_path_str
         abs_path.parent.mkdir(parents=True, exist_ok=True)
@@ -589,6 +631,8 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         full_id: str,
         basename: str,
         *,
+        source_entry: dict[str, Any] | None = None,
+        attributes: dict[str, Any] | None = None,
         source_meta: dict[str, Any] | None = None,
     ) -> _ZipEntryFile:
         """Register a file entry and return a writable file-like object.
@@ -603,7 +647,10 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         Args:
             full_id: Hierarchical identifier (see :meth:`DatasetWriter.get_path`).
             basename: Filename including extension.
-            source_meta: Optional source file entry dict.
+            source_entry: Optional source file entry dict.
+            attributes: Optional dict of arbitrary per-file metadata
+                stored under ``"attributes"`` on the new entry.
+            source_meta: Deprecated alias for *source_entry*.
 
         Returns:
             A writable :class:`io.BytesIO` subclass that writes into
@@ -612,7 +659,11 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         if self._closed:
             raise RuntimeError("ZipDatasetWriter is closed")
         rel_path_str, _ = self._register_entry(
-            full_id, basename, source_meta=source_meta,
+            full_id,
+            basename,
+            source_entry=source_entry,
+            attributes=attributes,
+            source_meta=source_meta,
         )
         entry_name = rel_path_str.replace("\\", "/")
         compress = self._compress_type_for(basename)
@@ -624,6 +675,8 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         basename: str,
         data: bytes,
         *,
+        source_entry: dict[str, Any] | None = None,
+        attributes: dict[str, Any] | None = None,
         source_meta: dict[str, Any] | None = None,
     ) -> None:
         """Register a file entry and write raw bytes into the archive.
@@ -635,12 +688,18 @@ class ZipDatasetWriter(_BaseDatasetWriter):
             full_id: Hierarchical identifier.
             basename: Filename including extension.
             data: Raw file contents.
-            source_meta: Optional source file entry dict.
+            source_entry: Optional source file entry dict.
+            attributes: Optional dict of arbitrary per-file metadata.
+            source_meta: Deprecated alias for *source_entry*.
         """
         if self._closed:
             raise RuntimeError("ZipDatasetWriter is closed")
         rel_path_str, _ = self._register_entry(
-            full_id, basename, source_meta=source_meta,
+            full_id,
+            basename,
+            source_entry=source_entry,
+            attributes=attributes,
+            source_meta=source_meta,
         )
         entry_name = rel_path_str.replace("\\", "/")
         compress = self._compress_type_for(basename)

@@ -73,3 +73,44 @@ def test_validate_split_artifact_rejects_missing_source_index_file() -> None:
                 "index": {"files": []},
             }
         )
+
+
+def _output_with_attributes(attributes: object) -> dict:
+    return {
+        "contract": {"kind": "dataset_index", "version": "1.0"},
+        "head_file": "dataset-head.json",
+        "head": {
+            "contract": {"kind": "dataset_head", "version": "1.0"},
+            "dataset": {"id": "x", "name": "X"},
+            "modality": {"key": "rgb", "meta": {"range": [0, 255]}},
+            "addons": {},
+        },
+        "index": {
+            "files": [
+                {
+                    "id": "0001",
+                    "path": "0001.png",
+                    "path_properties": {},
+                    "basename_properties": {},
+                    "attributes": attributes,
+                }
+            ]
+        },
+    }
+
+
+def test_validate_output_accepts_attributes_dict() -> None:
+    out = _output_with_attributes({"k": "v", "n": 7, "nested": {"a": 1}})
+    validated = validate_output(out)
+    assert validated["index"]["files"][0]["attributes"]["nested"] == {"a": 1}
+
+
+def test_validate_output_rejects_non_dict_attributes() -> None:
+    with pytest.raises(ValueError, match="attributes must be an object"):
+        validate_output(_output_with_attributes(["not", "a", "dict"]))
+
+
+def test_validate_output_rejects_non_string_attribute_keys() -> None:
+    out = _output_with_attributes({1: "v"})
+    with pytest.raises(ValueError, match="attributes keys must be strings"):
+        validate_output(out)

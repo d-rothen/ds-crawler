@@ -108,6 +108,16 @@ def _validate_file_entry(entry: Any, context: str) -> None:
     if basename_props is not None:
         _validate_string_dict(basename_props, f"{context}.basename_properties")
 
+    attributes = entry.get("attributes")
+    if attributes is not None:
+        if not isinstance(attributes, dict):
+            raise ValueError(f"{context}.attributes must be an object")
+        for key in attributes:
+            if not isinstance(key, str):
+                raise ValueError(f"{context}.attributes keys must be strings")
+        # Values are not type-restricted; serializers raise at save time
+        # if a non-JSON-encodable value sneaks in.
+
 
 def _validate_index_node(node: Any, context: str) -> None:
     if not isinstance(node, dict):
