@@ -161,6 +161,65 @@ for file_id, modalities in aligned.items():
         print(file_id, modalities["rgb"]["path"], modalities["depth"]["path"])
 ```
 
+### Recipe: augmented modality (file-id as folder) matched against per-id GT
+
+When one modality stores its file-id as a *parent folder* containing several
+augmentation files, while a sibling modality keeps the file-id as a *filename
+stem*, the two indices can still share hierarchy keys so that
+`euler-loading`'s `hierarchical_modalities=` joins each augmentation to the
+matching per-id GT file at sample-load time.
+
+Layout:
+
+```
+rgb_root/
+  abc/aug_1.png  abc/aug_2.png
+  xyz/aug_1.png  xyz/aug_2.png
+depth_root/
+  abc.png  xyz.png
+```
+
+Augmented RGB indexing (`flat_ids_unique` is `false` so two augs of the same
+file-id at the same hierarchy level are not flagged as duplicates):
+
+```json
+{
+  "indexing": {
+    "id":        {"regex": "^[^/]+/(?P<aug>[^/]+)\\.png$", "join_char": "+"},
+    "hierarchy": {"regex": "^(?P<file_id>[^/]+)/[^/]+\\.png$", "separator": ":"},
+    "files":     {"extensions": [".png"]},
+    "constraints": {"flat_ids_unique": false}
+  }
+}
+```
+
+Per-id depth indexing (uses the same `file_id` named group so both indices
+end up keyed by `file_id:<id>` at the same hierarchy depth):
+
+```json
+{
+  "indexing": {
+    "id":        {"regex": "^(?P<file_id>[^/]+)\\.png$", "join_char": "+"},
+    "hierarchy": {"regex": "^(?P<file_id>[^/]+)\\.png$", "separator": ":"},
+    "files":     {"extensions": [".png"]}
+  }
+}
+```
+
+Note that `align_datasets` is *not* the right tool here — it flattens by leaf
+id only and would collapse augmentations.  The cross-modality join happens
+inside `euler-loading` by passing depth as a hierarchical modality:
+
+```python
+MultiModalDataset(
+    modalities={"rgb": Modality(path=rgb_root, ...)},
+    hierarchical_modalities={"depth": Modality(path=depth_root, ...)},
+)
+```
+
+A runnable end-to-end example is in
+[`examples/augmented_rgb_example.py`](examples/augmented_rgb_example.py).
+
 ### 4. Create named split artifacts
 
 ```python
