@@ -68,6 +68,7 @@ from .artifacts import (
     save_output_artifacts,
 )
 from .config import CONFIG_FILENAME
+from .layout import EULER_LAYOUT_ADDON, validate_layout_addon
 from .schema import infer_dataset_file_types
 from .zip_utils import (
     COMPRESSED_EXTENSIONS,
@@ -119,6 +120,7 @@ def _coerce_dataset_head(
     dataset_id: str | None,
     euler_train: dict[str, Any] | None,
     attributes: dict[str, Any] | None,
+    euler_layout: dict[str, Any] | None,
     properties: dict[str, Any],
 ) -> DatasetHeadContract:
     if head is not None:
@@ -150,6 +152,10 @@ def _coerce_dataset_head(
             euler_loading,
             modality_key=type,
         )
+    if euler_layout is None:
+        euler_layout = dataset_attributes.pop(EULER_LAYOUT_ADDON, None)
+    if euler_layout is not None:
+        addons[EULER_LAYOUT_ADDON] = validate_layout_addon(euler_layout)
 
     return parse_dataset_head(
         {
@@ -223,6 +229,7 @@ class _BaseDatasetWriter:
         type: str | None = None,
         dataset_id: str | None = None,
         euler_train: dict[str, Any] | None = None,
+        euler_layout: dict[str, Any] | None = None,
         separator: str | None = ":",
         attributes: dict[str, Any] | None = None,
         **properties: Any,
@@ -234,6 +241,7 @@ class _BaseDatasetWriter:
             dataset_id=dataset_id,
             euler_train=euler_train,
             attributes=attributes,
+            euler_layout=euler_layout,
             properties=properties,
         )
 
@@ -430,6 +438,8 @@ class DatasetWriter(_BaseDatasetWriter):
             ``"depth"``).
         euler_train: Training metadata dict.  Must contain at least
             ``used_as`` and ``modality_type``.
+        euler_layout: Optional layout addon describing sample and variant
+            axes for layout-aware loaders.
         separator: The character used to join hierarchy key names and
             values (e.g. ``":"`` for ``"scene:Scene01"``).  Should match
             the ``named_capture_group_value_separator`` of the source
@@ -570,6 +580,8 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         type: Semantic label for the data modality.
         euler_train: Training metadata dict (must contain ``used_as``
             and ``modality_type``).
+        euler_layout: Optional layout addon describing sample and variant
+            axes for layout-aware loaders.
         separator: Hierarchy key separator (see :class:`DatasetWriter`).
         **properties: Extra metadata written to the index.
     """
@@ -583,6 +595,7 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         type: str | None = None,
         dataset_id: str | None = None,
         euler_train: dict[str, Any] | None = None,
+        euler_layout: dict[str, Any] | None = None,
         separator: str | None = ":",
         attributes: dict[str, Any] | None = None,
         **properties: Any,
@@ -594,6 +607,7 @@ class ZipDatasetWriter(_BaseDatasetWriter):
             type=type,
             dataset_id=dataset_id,
             euler_train=euler_train,
+            euler_layout=euler_layout,
             separator=separator,
             attributes=attributes,
             **properties,

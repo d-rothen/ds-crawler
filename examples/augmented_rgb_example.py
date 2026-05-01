@@ -43,6 +43,15 @@ RGB_CONFIG = {
         "dataset": {"id": "augmented_rgb", "name": "Augmented RGB"},
         "modality": {"key": "rgb", "meta": {"range": [0, 255]}},
         "addons": {
+            "euler_layout": {
+                "version": "1.0",
+                "family": "augmented_demo",
+                "sample_axis": {"name": "file_id", "location": "hierarchy"},
+                "variant_axis": {
+                    "name": "augmentation",
+                    "location": "file_id",
+                },
+            },
             "euler_train": {
                 "version": "1.0",
                 "used_as": "input",
@@ -84,6 +93,11 @@ DEPTH_CONFIG = {
             },
         },
         "addons": {
+            "euler_layout": {
+                "version": "1.0",
+                "family": "augmented_demo",
+                "sample_axis": {"name": "file_id", "location": "hierarchy"},
+            },
             "euler_train": {
                 "version": "1.0",
                 "used_as": "target",
