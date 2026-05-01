@@ -1,6 +1,6 @@
 [project]
 name = "ds_crawler"
-version = "2.4.0"
+version = "2.5.0"
 description = "Regex-based dataset metadata crawler and indexer"
 requires-python = ">=3.9"
 dependencies = ["euler-dataset-contract>=0.1.0"]
