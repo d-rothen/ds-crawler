@@ -255,6 +255,41 @@ The target dataset's `index.json` is used to resolve IDs. Any ID from a
 source split that is missing on the target raises a `ValueError` — no
 partial split is ever written.
 
+To split by hierarchy keys, use `create_hierarchy_dataset_splits`. Level
+indices are zero-based and values match the exact `children` keys in
+`index.json` (for named captures this includes the configured separator,
+for example `weather:fog`):
+
+```python
+from ds_crawler import create_hierarchy_dataset_splits
+
+create_hierarchy_dataset_splits(
+    "/data/foggy_rgb.zip",
+    {
+        "exclusive": True,
+        "splits": [
+            {
+                "name": "front_fog",
+                "clauses": [
+                    {"levelIndex": 0, "values": ["camera_0"]},
+                    {"levelIndex": 1, "values": ["fog"]},
+                ],
+            },
+            {
+                "name": "remaining_fog",
+                "clauses": [
+                    {"levelIndex": 1, "values": ["fog"]},
+                ],
+            },
+        ],
+    },
+)
+```
+
+Directory and `.zip` datasets are both supported. With multiple source paths,
+the split rules are applied to the intersection of hierarchy-qualified IDs so
+the generated split artifacts stay aligned across modalities.
+
 ### 5. Write generated outputs back to disk
 
 ```python
@@ -496,6 +531,7 @@ Operations:
 - `split_datasets(...)`
 - `create_dataset_splits(...)`
 - `create_aligned_dataset_splits(...)`
+- `create_hierarchy_dataset_splits(...)`
 - `list_dataset_splits(...)`
 - `load_dataset_split(...)`
 

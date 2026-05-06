@@ -6,9 +6,11 @@ import pytest
 
 from ds_crawler import (
     DatasetWriter,
+    copy_dataset,
     copy_dataset_splits,
     create_aligned_dataset_splits,
     create_dataset_splits,
+    create_hierarchy_dataset_splits,
     list_dataset_splits,
     load_dataset_split,
 )
@@ -63,6 +65,109 @@ def test_create_aligned_dataset_splits_reuses_same_partition(tmp_path: Path) -> 
 
     assert collect_qualified_ids(loaded_a) == result["qualified_id_splits"][0]
     assert collect_qualified_ids(loaded_b) == result["qualified_id_splits"][0]
+
+
+def test_create_hierarchy_dataset_splits_selects_multi_level_rules(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    writer = DatasetWriter(root, head=sample_head(name="RGB"))
+    writer.get_path("/camera_0/fog/day/0001", "0001.png").write_bytes(b"data")
+    writer.get_path("/camera_0/fog/night/0002", "0002.png").write_bytes(b"data")
+    writer.get_path("/camera_1/fog/day/0003", "0003.png").write_bytes(b"data")
+    writer.get_path("/camera_1/sunny/day/0004", "0004.png").write_bytes(b"data")
+    writer.save_index()
+
+    result = create_hierarchy_dataset_splits(
+        root,
+        {
+            "exclusive": True,
+            "splits": [
+                {
+                    "name": "front_fog",
+                    "clauses": [
+                        {"levelIndex": 0, "values": ["camera_0"]},
+                        {"levelIndex": 1, "values": ["fog"]},
+                    ],
+                },
+                {
+                    "name": "remaining_fog",
+                    "clauses": [{"levelIndex": 1, "values": ["fog"]}],
+                },
+            ],
+        },
+    )
+
+    front_fog = load_dataset_split(root, "front_fog")
+    remaining_fog = load_dataset_split(root, "remaining_fog")
+
+    assert collect_qualified_ids(front_fog) == {
+        ("camera_0", "fog", "day", "0001"),
+        ("camera_0", "fog", "night", "0002"),
+    }
+    assert collect_qualified_ids(remaining_fog) == {
+        ("camera_1", "fog", "day", "0003"),
+    }
+    assert result["per_source"][0]["splits"][0]["matched_ids"] == 2
+    assert result["per_source"][0]["splits"][1]["matched_ids"] == 1
+
+
+def test_create_hierarchy_dataset_splits_writes_zip_metadata(tmp_path: Path) -> None:
+    source = tmp_path / "dataset"
+    writer = DatasetWriter(source, head=sample_head(name="RGB"))
+    writer.get_path("/camera_0/fog/day/0001", "0001.png").write_bytes(b"data")
+    writer.get_path("/camera_1/sunny/day/0002", "0002.png").write_bytes(b"data")
+    writer.save_index()
+
+    zip_path = tmp_path / "dataset.zip"
+    copy_dataset(source, zip_path)
+
+    create_hierarchy_dataset_splits(
+        zip_path,
+        [
+            {
+                "name": "fog",
+                "clauses": [{"levelIndex": 1, "values": ["fog"]}],
+            }
+        ],
+        sample=1,
+    )
+
+    loaded = load_dataset_split(zip_path, "fog")
+
+    assert collect_qualified_ids(loaded) == {
+        ("camera_0", "fog", "day", "0001"),
+    }
+    assert loaded["execution"]["split"] == {
+        "allocation_mode": "hierarchy_rules",
+        "hierarchy_clauses": [{"levelIndex": 1, "values": ["fog"]}],
+        "exclusive": True,
+        "sampled": 1,
+    }
+
+
+def test_create_hierarchy_dataset_splits_validates_before_writing(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    writer = DatasetWriter(root, head=sample_head(name="RGB"))
+    writer.get_path("/camera_0/fog/day/0001", "0001.png").write_bytes(b"data")
+    writer.save_index()
+
+    with pytest.raises(ValueError, match="no files"):
+        create_hierarchy_dataset_splits(
+            root,
+            {
+                "splits": [
+                    {
+                        "name": "fog",
+                        "clauses": [{"levelIndex": 1, "values": ["fog"]}],
+                    },
+                    {
+                        "name": "rain",
+                        "clauses": [{"levelIndex": 1, "values": ["rain"]}],
+                    },
+                ]
+            },
+        )
+
+    assert list_dataset_splits(root) == []
 
 
 def test_copy_dataset_splits_replicates_partition(tmp_path: Path) -> None:

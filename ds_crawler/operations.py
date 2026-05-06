@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -58,12 +59,182 @@ _COMPRESSED_EXTENSIONS = COMPRESSED_EXTENSIONS
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class HierarchySplitClause:
+    """One hierarchy-level predicate for a hierarchy-based inline split."""
+
+    level_index: int
+    values: tuple[str, ...]
+
+    def to_execution_dict(self) -> dict[str, Any]:
+        return {
+            "levelIndex": self.level_index,
+            "values": list(self.values),
+        }
+
+
+@dataclass(frozen=True)
+class HierarchySplitRule:
+    """Named hierarchy rule used to create one inline split artifact."""
+
+    name: str
+    clauses: tuple[HierarchySplitClause, ...]
+
+    def clauses_for_execution(self) -> list[dict[str, Any]]:
+        return [clause.to_execution_dict() for clause in self.clauses]
+
+
 def _normalize_split_names(split_names: list[str]) -> list[str]:
     """Validate split names and reject duplicates."""
     normalized = [validate_split_name(name) for name in split_names]
     if len(set(normalized)) != len(normalized):
         raise ValueError("split_names must be unique")
     return normalized
+
+
+def _normalize_hierarchy_split_rules(
+    hierarchy_rules: dict[str, Any] | list[dict[str, Any]],
+    *,
+    exclusive: bool | None = None,
+) -> tuple[bool, list[HierarchySplitRule]]:
+    """Validate and normalize hierarchy split rule input.
+
+    Accepts either the Euler View request shape
+    ``{"exclusive": bool, "splits": [...]}`` or a bare list of split rules.
+    Clause level indices are zero-based hierarchy depths, and values are
+    matched against the exact child keys stored in ``index.children``.
+    """
+    if exclusive is not None and not isinstance(exclusive, bool):
+        raise ValueError("exclusive must be a bool when provided")
+
+    if isinstance(hierarchy_rules, dict):
+        raw_splits = hierarchy_rules.get("splits")
+        raw_exclusive = hierarchy_rules.get("exclusive", True)
+        if raw_exclusive is not None and not isinstance(raw_exclusive, bool):
+            raise ValueError("hierarchy_rules.exclusive must be a bool")
+        resolved_exclusive = raw_exclusive is not False
+    elif isinstance(hierarchy_rules, list):
+        raw_splits = hierarchy_rules
+        resolved_exclusive = True
+    else:
+        raise ValueError("hierarchy_rules must be an object or list")
+
+    if exclusive is not None:
+        resolved_exclusive = exclusive
+
+    if not isinstance(raw_splits, list) or not raw_splits:
+        raise ValueError("hierarchy_rules must include at least one split rule")
+
+    rules: list[HierarchySplitRule] = []
+    for split_index, raw_split in enumerate(raw_splits):
+        if not isinstance(raw_split, dict):
+            raise ValueError(f"Hierarchy split rule {split_index} must be an object")
+        name = validate_split_name(raw_split.get("name"))
+        raw_clauses = raw_split.get("clauses")
+        if not isinstance(raw_clauses, list) or not raw_clauses:
+            raise ValueError(
+                f"Hierarchy split {name!r} must include at least one clause"
+            )
+
+        clauses: list[HierarchySplitClause] = []
+        seen_levels: set[int] = set()
+        for clause_index, raw_clause in enumerate(raw_clauses):
+            if not isinstance(raw_clause, dict):
+                raise ValueError(
+                    f"Hierarchy split {name!r} clause {clause_index} must be an object"
+                )
+
+            raw_level = raw_clause.get("levelIndex", raw_clause.get("level_index"))
+            if (
+                isinstance(raw_level, bool)
+                or not isinstance(raw_level, int)
+                or raw_level < 0
+            ):
+                raise ValueError(
+                    f"Hierarchy split {name!r} has an invalid hierarchy level"
+                )
+            if raw_level in seen_levels:
+                raise ValueError(
+                    f"Hierarchy split {name!r} has duplicate rules for level {raw_level}"
+                )
+            seen_levels.add(raw_level)
+
+            raw_values = raw_clause.get("values")
+            if not isinstance(raw_values, list) or not raw_values:
+                raise ValueError(
+                    f"Hierarchy split {name!r} level {raw_level} must include values"
+                )
+            values: list[str] = []
+            for value in raw_values:
+                if not isinstance(value, str) or not value:
+                    raise ValueError(
+                        f"Hierarchy split {name!r} level {raw_level} values "
+                        "must be non-empty strings"
+                    )
+                if value not in values:
+                    values.append(value)
+            clauses.append(
+                HierarchySplitClause(level_index=raw_level, values=tuple(values))
+            )
+
+        rules.append(HierarchySplitRule(name=name, clauses=tuple(clauses)))
+
+    normalized_names = _normalize_split_names([rule.name for rule in rules])
+    if normalized_names != [rule.name for rule in rules]:
+        rules = [
+            HierarchySplitRule(name=name, clauses=rule.clauses)
+            for name, rule in zip(normalized_names, rules)
+        ]
+    return resolved_exclusive, rules
+
+
+def _qualified_id_matches_hierarchy_rule(
+    qualified_id: tuple[str, ...],
+    rule: HierarchySplitRule,
+) -> bool:
+    hierarchy_path = qualified_id[:-1]
+    for clause in rule.clauses:
+        if clause.level_index >= len(hierarchy_path):
+            return False
+        if hierarchy_path[clause.level_index] not in clause.values:
+            return False
+    return True
+
+
+def _select_hierarchy_rule_splits(
+    qualified_ids: set[tuple[str, ...]],
+    rules: list[HierarchySplitRule],
+    *,
+    exclusive: bool,
+    sample: int | None,
+) -> tuple[list[set[tuple[str, ...]]], list[int]]:
+    """Resolve hierarchy rules to qualified-ID split sets."""
+    assigned_before_sampling: set[tuple[str, ...]] = set()
+    id_splits: list[set[tuple[str, ...]]] = []
+    matched_counts: list[int] = []
+
+    for rule in rules:
+        matched_ids = {
+            qualified_id
+            for qualified_id in qualified_ids
+            if _qualified_id_matches_hierarchy_rule(qualified_id, rule)
+        }
+        effective_ids = (
+            matched_ids - assigned_before_sampling
+            if exclusive else matched_ids
+        )
+        selected_ids = set(_prepare_split_candidates(effective_ids, sample=sample))
+        if not selected_ids:
+            raise ValueError(
+                f"Hierarchy split {rule.name!r} has no files after "
+                "exclusivity and sampling"
+            )
+        id_splits.append(selected_ids)
+        matched_counts.append(len(effective_ids))
+        if exclusive:
+            assigned_before_sampling.update(effective_ids)
+
+    return id_splits, matched_counts
 
 
 def _ensure_output_index(
@@ -98,11 +269,12 @@ def _write_split_index(
     ratio: int | float | None = None,
     seed: int | None = None,
     sample: int | None = None,
+    execution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Persist a single split dataset artifact under ``.ds_crawler/``."""
     filename = get_split_filename(split_name)
     filtered_index = filter_index_by_qualified_ids(index, split_ids)
-    split_execution: dict[str, Any] = {}
+    split_execution: dict[str, Any] = dict(execution or {})
     if ratio is not None:
         split_execution["ratio"] = ratio
     if seed is not None:
@@ -455,6 +627,117 @@ def create_aligned_dataset_splits(
                     sample=sample,
                 )
             )
+
+        per_source_results.append({
+            "source": str(src),
+            "total_ids": len(qids),
+            "selected_ids": len(selected_qualified_ids),
+            "excluded_ids": len(qids - common_ids),
+            "splits": split_results,
+        })
+
+    return {
+        "common_ids": common_ids,
+        "selected_qualified_ids": selected_qualified_ids,
+        "unassigned_qualified_ids": unassigned_qualified_ids,
+        "qualified_id_splits": id_splits,
+        "per_source": per_source_results,
+    }
+
+
+def create_hierarchy_dataset_splits(
+    source_paths: str | Path | list[str | Path],
+    hierarchy_rules: dict[str, Any] | list[dict[str, Any]],
+    *,
+    exclusive: bool | None = None,
+    sample: int | None = None,
+) -> dict[str, Any]:
+    """Create inline split metadata from hierarchy-path selection rules.
+
+    Rules are evaluated against hierarchy-qualified IDs, where each candidate
+    has the form ``(*hierarchy_keys, file_id)``. Clause values must match the
+    exact hierarchy child keys stored in the index tree. For named hierarchy
+    captures this means values such as ``"weather:fog"`` when the crawler
+    config uses ``separator=":"``.
+
+    Args:
+        source_paths: One dataset path, or multiple aligned dataset paths.
+            Directory and ``.zip`` datasets are both supported.
+        hierarchy_rules: Either ``{"exclusive": bool, "splits": [...]}``
+            or a bare list of split rules. Each split rule has ``name`` and
+            ``clauses``; each clause has ``levelIndex`` (or ``level_index``)
+            and ``values``.
+        exclusive: Optional override for the rule object's exclusivity flag.
+            When true, rules are evaluated in order and a file matched by an
+            earlier rule cannot appear in a later rule.
+        sample: Optional stride applied within each matched rule. In exclusive
+            mode, an earlier rule reserves all of its pre-sampling matches so
+            sampled-out files are not reassigned to later rules.
+
+    Returns:
+        A summary dict with the common qualified IDs, per-rule ID sets, and
+        per-source write results. The function validates all rules and selected
+        files before writing, so an invalid or empty later rule does not leave
+        partially-created split artifacts behind.
+    """
+    resolved_exclusive, rules = _normalize_hierarchy_split_rules(
+        hierarchy_rules,
+        exclusive=exclusive,
+    )
+
+    if isinstance(source_paths, (str, Path)):
+        sources = [Path(source_paths)]
+    else:
+        sources = [Path(path) for path in source_paths]
+    if not sources:
+        raise ValueError("source_paths must be non-empty")
+
+    indices: list[dict[str, Any]] = []
+    per_source_ids: list[set[tuple[str, ...]]] = []
+    for src in sources:
+        index = _ensure_output_index(src)
+        indices.append(index)
+        qids = _collect_qualified_ids(index)
+        per_source_ids.append(qids)
+        logger.info(
+            "Loaded index for %s: %d qualified IDs", src, len(qids),
+        )
+
+    common_ids = set(per_source_ids[0])
+    for qids in per_source_ids[1:]:
+        common_ids &= qids
+    logger.info(
+        "Hierarchy split intersection across %d sources: %d common qualified IDs",
+        len(sources), len(common_ids),
+    )
+
+    id_splits, matched_counts = _select_hierarchy_rule_splits(
+        common_ids,
+        rules,
+        exclusive=resolved_exclusive,
+        sample=sample,
+    )
+    selected_qualified_ids = set().union(*id_splits) if id_splits else set()
+    unassigned_qualified_ids = common_ids - selected_qualified_ids
+
+    per_source_results: list[dict[str, Any]] = []
+    for src, index, qids in zip(sources, indices, per_source_ids):
+        split_results: list[dict[str, Any]] = []
+        for rule, split_ids, matched_count in zip(rules, id_splits, matched_counts):
+            result = _write_split_index(
+                src,
+                index,
+                rule.name,
+                split_ids,
+                sample=sample,
+                execution={
+                    "allocation_mode": "hierarchy_rules",
+                    "hierarchy_clauses": rule.clauses_for_execution(),
+                    "exclusive": resolved_exclusive,
+                },
+            )
+            result["matched_ids"] = matched_count
+            split_results.append(result)
 
         per_source_results.append({
             "source": str(src),
