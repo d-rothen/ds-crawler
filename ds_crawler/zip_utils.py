@@ -157,9 +157,15 @@ def write_json_to_zip(
     # convention inside the archive.  Only apply when the prefix matches
     # the zip filename stem to avoid misinterpreting dataset structure.
     with zipfile.ZipFile(zip_path, "r") as zf:
-        prefix = _detect_root_prefix(zf.namelist())
+        names = set(zf.namelist())
+        prefix = _detect_root_prefix(list(names))
     if prefix and _matches_zip_stem(prefix, zip_path):
         entry_name = prefix + entry_name
+
+    if entry_name not in names:
+        with zipfile.ZipFile(zip_path, "a", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(entry_name, json_bytes)
+        return
 
     # Rebuild: copy every entry except the one we are replacing, then
     # add the new version.
@@ -196,9 +202,11 @@ def write_json_entries_to_zip(
         return
 
     resolved_entries = dict(entries)
+    existing_names: set[str] = set()
     if zip_path.exists():
         with zipfile.ZipFile(zip_path, "r") as zf:
-            prefix = _detect_root_prefix(zf.namelist())
+            existing_names = set(zf.namelist())
+            prefix = _detect_root_prefix(list(existing_names))
         if prefix and _matches_zip_stem(prefix, zip_path):
             resolved_entries = {
                 prefix + entry_name: data
@@ -217,6 +225,12 @@ def write_json_entries_to_zip(
         return
 
     replace_names = set(json_bytes)
+    if replace_names.isdisjoint(existing_names):
+        with zipfile.ZipFile(zip_path, "a", zipfile.ZIP_DEFLATED) as zf:
+            for entry_name, payload in json_bytes.items():
+                zf.writestr(entry_name, payload)
+        return
+
     fd, tmp_name = tempfile.mkstemp(suffix=".zip")
     tmp_path = Path(tmp_name)
     try:

@@ -237,6 +237,12 @@ def _select_hierarchy_rule_splits(
     return id_splits, matched_counts
 
 
+def _split_metadata_path(dataset_path: Path, filename: str) -> str:
+    if is_zip_path(dataset_path):
+        return str(dataset_path)
+    return str(dataset_path / METADATA_DIR / filename)
+
+
 def _ensure_output_index(
     dataset_path: Path,
     index: dict[str, Any] | None = None,
@@ -260,6 +266,45 @@ def _ensure_output_index(
     return index_dataset_from_path(dataset_path, save_index=True)
 
 
+def _build_split_index_payload(
+    dataset_path: Path,
+    index: dict[str, Any],
+    split_name: str,
+    split_ids: set[tuple[str, ...]],
+    *,
+    ratio: int | float | None = None,
+    seed: int | None = None,
+    sample: int | None = None,
+    execution: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a split artifact and result summary without writing it."""
+    filename = get_split_filename(split_name)
+    filtered_index = filter_index_by_qualified_ids(index, split_ids)
+    split_execution: dict[str, Any] = dict(execution or {})
+    if ratio is not None:
+        split_execution["ratio"] = ratio
+    if seed is not None:
+        split_execution["seed"] = seed
+    if sample is not None:
+        split_execution["sampled"] = sample
+    artifact = build_split_artifact(
+        filtered_index,
+        split_name=split_name,
+        execution=split_execution or None,
+    )
+    result: dict[str, Any] = {
+        "split": split_name,
+        "filename": filename,
+        "metadata_file": f"{METADATA_DIR}/{filename}",
+        "path": _split_metadata_path(dataset_path, filename),
+        "num_ids": len(split_ids),
+        "artifact": artifact,
+    }
+    if ratio is not None:
+        result["ratio"] = ratio
+    return result
+
+
 def _write_split_index(
     dataset_path: Path,
     index: dict[str, Any],
@@ -272,34 +317,39 @@ def _write_split_index(
     execution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Persist a single split dataset artifact under ``.ds_crawler/``."""
-    filename = get_split_filename(split_name)
-    filtered_index = filter_index_by_qualified_ids(index, split_ids)
-    split_execution: dict[str, Any] = dict(execution or {})
-    if ratio is not None:
-        split_execution["ratio"] = ratio
-    if seed is not None:
-        split_execution["seed"] = seed
-    if sample is not None:
-        split_execution["sampled"] = sample
-    output_path = write_metadata_json(
+    payload = _build_split_index_payload(
         dataset_path,
-        filename,
-        build_split_artifact(
-            filtered_index,
-            split_name=split_name,
-            execution=split_execution or None,
-        ),
+        index,
+        split_name,
+        split_ids,
+        ratio=ratio,
+        seed=seed,
+        sample=sample,
+        execution=execution,
     )
-    result: dict[str, Any] = {
-        "split": split_name,
-        "filename": filename,
-        "metadata_file": f"{METADATA_DIR}/{filename}",
-        "path": str(output_path),
-        "num_ids": len(split_ids),
-    }
-    if ratio is not None:
-        result["ratio"] = ratio
+    write_metadata_json(dataset_path, payload["filename"], payload["artifact"])
+    result = dict(payload)
+    result.pop("artifact")
     return result
+
+
+def _write_split_payloads_batch(
+    dataset_path: Path,
+    payloads: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Write split artifacts in one metadata pass and return public summaries."""
+    if not payloads:
+        return []
+    write_metadata_json_batch(
+        dataset_path,
+        {payload["filename"]: payload["artifact"] for payload in payloads},
+    )
+    results: list[dict[str, Any]] = []
+    for payload in payloads:
+        result = dict(payload)
+        result.pop("artifact")
+        results.append(result)
+    return results
 
 
 def list_dataset_splits(dataset_path: str | Path) -> list[str]:
@@ -383,10 +433,10 @@ def create_dataset_splits(
     assigned_qualified_ids = set().union(*id_splits) if id_splits else set()
     unassigned_qualified_ids = selected_qualified_ids - assigned_qualified_ids
 
-    split_results: list[dict[str, Any]] = []
+    split_payloads: list[dict[str, Any]] = []
     for split_name, ratio, split_ids in zip(normalized_names, ratios, id_splits):
-        split_results.append(
-            _write_split_index(
+        split_payloads.append(
+            _build_split_index_payload(
                 source_path,
                 output_index,
                 split_name,
@@ -396,6 +446,7 @@ def create_dataset_splits(
                 sample=sample,
             )
         )
+    split_results = _write_split_payloads_batch(source_path, split_payloads)
 
     return {
         "source": str(source_path),
@@ -494,7 +545,7 @@ def copy_dataset_splits(
     target_index = _ensure_output_index(target_path)
     target_qualified_ids = _collect_qualified_ids(target_index)
 
-    split_results: list[dict[str, Any]] = []
+    split_payloads: list[dict[str, Any]] = []
     for split_name in requested:
         split_filename = get_split_filename(split_name)
         split_artifact = read_metadata_json(source_path, split_filename)
@@ -527,28 +578,21 @@ def copy_dataset_splits(
             split_name, source_path, target_path, len(source_ids),
         )
 
-        filtered_index = filter_index_by_qualified_ids(target_index, source_ids)
-        execution = {
-            "copied_from": {
-                "source": str(source_path),
-                "split": split_name,
-            }
-        }
-        artifact = build_split_artifact(
-            filtered_index,
+        payload = _build_split_index_payload(
+            target_path,
+            target_index,
             split_name=split_name,
-            execution=execution,
+            split_ids=source_ids,
+            execution={
+                "copied_from": {
+                    "source": str(source_path),
+                    "split": split_name,
+                }
+            },
         )
-        output_path = write_metadata_json(target_path, split_filename, artifact)
-
-        split_results.append({
-            "split": split_name,
-            "filename": split_filename,
-            "metadata_file": f"{METADATA_DIR}/{split_filename}",
-            "path": str(output_path),
-            "num_ids": len(source_ids),
-            "overridden": split_name in existing_on_target,
-        })
+        payload["overridden"] = split_name in existing_on_target
+        split_payloads.append(payload)
+    split_results = _write_split_payloads_batch(target_path, split_payloads)
 
     return {
         "source": str(source_path),
@@ -614,10 +658,10 @@ def create_aligned_dataset_splits(
 
     per_source_results: list[dict[str, Any]] = []
     for src, index, qids in zip(sources, indices, per_source_ids):
-        split_results: list[dict[str, Any]] = []
+        split_payloads: list[dict[str, Any]] = []
         for split_name, ratio, split_ids in zip(normalized_names, ratios, id_splits):
-            split_results.append(
-                _write_split_index(
+            split_payloads.append(
+                _build_split_index_payload(
                     src,
                     index,
                     split_name,
@@ -627,6 +671,7 @@ def create_aligned_dataset_splits(
                     sample=sample,
                 )
             )
+        split_results = _write_split_payloads_batch(src, split_payloads)
 
         per_source_results.append({
             "source": str(src),
@@ -722,9 +767,9 @@ def create_hierarchy_dataset_splits(
 
     per_source_results: list[dict[str, Any]] = []
     for src, index, qids in zip(sources, indices, per_source_ids):
-        split_results: list[dict[str, Any]] = []
+        split_payloads: list[dict[str, Any]] = []
         for rule, split_ids, matched_count in zip(rules, id_splits, matched_counts):
-            result = _write_split_index(
+            payload = _build_split_index_payload(
                 src,
                 index,
                 rule.name,
@@ -736,8 +781,9 @@ def create_hierarchy_dataset_splits(
                     "exclusive": resolved_exclusive,
                 },
             )
-            result["matched_ids"] = matched_count
-            split_results.append(result)
+            payload["matched_ids"] = matched_count
+            split_payloads.append(payload)
+        split_results = _write_split_payloads_batch(src, split_payloads)
 
         per_source_results.append({
             "source": str(src),
