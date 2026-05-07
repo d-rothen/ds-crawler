@@ -15,7 +15,14 @@ from .artifacts import build_index_artifact
 from .config import CONFIG_FILENAME, CRAWLER_CONFIG_KIND, CRAWLER_CONFIG_VERSION, DatasetConfig
 from .parser import index_dataset_from_files
 from .traversal import get_files
-from .zip_utils import DATASET_HEAD_FILENAME, OUTPUT_FILENAME
+from .zip_utils import (
+    DATASET_HEAD_FILENAME,
+    OUTPUT_FILENAME,
+    SCOPES_FILENAME,
+    _scopes_manifest_with,
+    get_metadata_filename,
+    validate_metadata_scope,
+)
 
 
 def _require_mapping(value: Any, context: str) -> dict[str, Any]:
@@ -125,6 +132,7 @@ def build_crawler_config(
     source_path: str = ".",
     head_file: str = DATASET_HEAD_FILENAME,
     prebuilt_index_file: str | None = None,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Build and validate a canonical ``ds-crawler.json`` mapping."""
     indexing = _require_mapping(indexing, "indexing")
@@ -150,6 +158,8 @@ def build_crawler_config(
     }
     if prebuilt_index_file is not None:
         config["source"]["prebuilt_index_file"] = prebuilt_index_file
+    if metadata_scope is not None:
+        config["metadata_scope"] = validate_metadata_scope(metadata_scope)
 
     runtime_config = dict(config)
     runtime_config["head"] = deepcopy(head)
@@ -172,10 +182,20 @@ def build_dataset_artifacts_from_files(
     strict: bool = False,
     sample: int | None = None,
     match_index: dict[str, Any] | None = None,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Build canonical dataset artifacts from a parameter set and file list."""
+    normalized_scope = (
+        validate_metadata_scope(metadata_scope)
+        if metadata_scope is not None
+        else None
+    )
     head = build_dataset_head(dataset=dataset, modality=modality, addons=addons)
-    config = build_crawler_config(head=head, indexing=indexing)
+    config = build_crawler_config(
+        head=head,
+        indexing=indexing,
+        metadata_scope=normalized_scope,
+    )
 
     runtime_config = dict(config)
     runtime_config["head"] = deepcopy(head)
@@ -193,14 +213,33 @@ def build_dataset_artifacts_from_files(
         CONFIG_FILENAME: config,
         OUTPUT_FILENAME: build_index_artifact(output),
     }
+    if normalized_scope is not None:
+        unscoped_artifact_names = list(artifacts)
+        artifacts = {
+            get_metadata_filename(
+                filename,
+                metadata_scope=normalized_scope,
+            ): payload
+            for filename, payload in artifacts.items()
+        }
+        artifacts[SCOPES_FILENAME] = _scopes_manifest_with(
+            None,
+            metadata_scope=normalized_scope,
+            filenames=unscoped_artifact_names,
+        )
+
+    summary = {
+        "dataset_id": output["head"]["dataset"]["id"],
+        "dataset_name": output["head"]["dataset"]["name"],
+        "modality_key": output["head"]["modality"]["key"],
+        "file_count": len(get_files(output)),
+    }
+    if normalized_scope is not None:
+        summary["metadata_scope"] = normalized_scope
+
     return {
         "artifacts": artifacts,
-        "summary": {
-            "dataset_id": output["head"]["dataset"]["id"],
-            "dataset_name": output["head"]["dataset"]["name"],
-            "modality_key": output["head"]["modality"]["key"],
-            "file_count": len(get_files(output)),
-        },
+        "summary": summary,
     }
 
 

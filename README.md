@@ -550,6 +550,9 @@ The main public entry points are re-exported from `ds_crawler`.
 
 Indexing and config:
 
+- `build_crawler_config(...)`
+- `build_dataset_artifacts_from_files(...)`
+- `build_dataset_head(...)`
 - `index_dataset(...)`
 - `index_dataset_from_files(...)`
 - `index_dataset_from_path(...)`
@@ -560,6 +563,8 @@ Indexing and config:
 
 `index_dataset(...)`, `index_dataset_from_path(...)`, `load_dataset_config(...)`,
 and `validate_dataset(...)` accept `metadata_scope=...` for scoped metadata.
+`build_dataset_artifacts_from_files(...)` also accepts `metadata_scope=...` and
+returns scoped artifact names plus `scopes.json`.
 
 Dataset metadata:
 

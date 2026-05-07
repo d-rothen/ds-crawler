@@ -172,6 +172,8 @@ class DatasetConfig:
         }
         if self.prebuilt_index_file is not None:
             result["source"]["prebuilt_index_file"] = self.prebuilt_index_file
+        if self.metadata_scope is not None:
+            result["metadata_scope"] = self.metadata_scope
         return result
 
     def _normalize_file_extensions(self) -> None:

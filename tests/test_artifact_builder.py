@@ -100,6 +100,50 @@ def test_build_dataset_artifacts_from_files_returns_canonical_artifacts(
     assert dataset_config.name == "Demo RGB"
 
 
+def test_build_dataset_artifacts_from_files_returns_scoped_artifacts(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "rgb"
+    root.mkdir()
+    create_files(root, ["Scene01/0001.png"])
+
+    bundle = build_dataset_artifacts_from_files(
+        dataset={"name": "Demo RGB"},
+        modality={"key": "rgb"},
+        indexing={
+            "id": {
+                "regex": r"^[^/]+/(.+)\.png$",
+                "join_char": "+",
+            },
+            "constraints": {
+                "flat_ids_unique": True,
+            },
+        },
+        files=[root / "Scene01/0001.png"],
+        base_path=root,
+        metadata_scope="rgb",
+    )
+
+    artifacts = bundle["artifacts"]
+
+    assert bundle["summary"]["metadata_scope"] == "rgb"
+    assert set(artifacts) == {
+        "rgb/dataset-head.json",
+        "rgb/ds-crawler.json",
+        "rgb/index.json",
+        "scopes.json",
+    }
+    assert artifacts["rgb/ds-crawler.json"]["metadata_scope"] == "rgb"
+    assert artifacts["scopes.json"]["scopes"]["rgb"]["metadata_dir"] == (
+        ".ds_crawler/rgb"
+    )
+    assert artifacts["scopes.json"]["scopes"]["rgb"]["files"] == [
+        "dataset-head.json",
+        "ds-crawler.json",
+        "index.json",
+    ]
+
+
 def test_build_crawler_config_returns_canonical_mapping() -> None:
     head = build_dataset_head(
         dataset={"name": "Demo Depth"},
