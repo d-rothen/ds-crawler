@@ -16,7 +16,11 @@ from ._dataset_contract import (
     validate_contract_version,
 )
 from .path_filters import PathFilters
-from .zip_utils import DATASET_HEAD_FILENAME, read_metadata_json
+from .zip_utils import (
+    DATASET_HEAD_FILENAME,
+    read_metadata_json,
+    validate_metadata_scope,
+)
 
 
 CONFIG_FILENAME = "ds-crawler.json"
@@ -81,6 +85,7 @@ class DatasetConfig:
     path_filters: dict[str, Any] | None = None
     prebuilt_index_file: str | None = None
     file_extensions: list[str] | None = None
+    metadata_scope: str | None = None
     compiled_path_filters: PathFilters = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -242,11 +247,22 @@ class DatasetConfig:
         workdir: str | Path | None = None,
         dataset_root: str | Path | None = None,
         dataset_head: DatasetHeadContract | dict[str, Any] | None = None,
+        metadata_scope: str | None = None,
     ) -> "DatasetConfig":
         if not isinstance(data, dict):
             raise ValueError("Crawler config must be a JSON object")
 
         _normalize_config_contract(data, "config")
+        raw_metadata_scope = metadata_scope
+        if raw_metadata_scope is None:
+            config_scope = data.get("metadata_scope")
+            if config_scope is not None:
+                raw_metadata_scope = config_scope
+        normalized_metadata_scope = (
+            validate_metadata_scope(raw_metadata_scope)
+            if raw_metadata_scope is not None
+            else None
+        )
 
         source = _require_mapping(data.get("source", {}), "config.source")
         raw_source_path = source.get("path", ".")
@@ -271,10 +287,19 @@ class DatasetConfig:
             if embedded_head is not None:
                 dataset_head = embedded_head
             else:
-                raw_head = read_metadata_json(dataset_root_path, head_file)
+                raw_head = read_metadata_json(
+                    dataset_root_path,
+                    head_file,
+                    metadata_scope=normalized_metadata_scope,
+                )
                 if raw_head is None:
                     raise FileNotFoundError(
                         f"No {head_file} found at: {dataset_root_path}"
+                        + (
+                            f" (metadata_scope={normalized_metadata_scope!r})"
+                            if normalized_metadata_scope is not None
+                            else ""
+                        )
                     )
                 dataset_head = raw_head
 
@@ -375,30 +400,61 @@ class DatasetConfig:
             path_filters=files_cfg.get("path_filters"),
             prebuilt_index_file=prebuilt_index_file,
             file_extensions=file_extensions,
+            metadata_scope=normalized_metadata_scope,
         )
 
 
 def load_dataset_config(
     data: dict[str, Any],
     workdir: str | Path | None = None,
+    *,
+    metadata_scope: str | None = None,
 ) -> DatasetConfig:
     """Load a DatasetConfig, resolving from ``ds-crawler.json`` when needed."""
     if not isinstance(data, dict):
         raise ValueError("Crawler config must be a JSON object")
 
+    raw_metadata_scope = metadata_scope
+    if raw_metadata_scope is None:
+        config_scope = data.get("metadata_scope")
+        if config_scope is not None:
+            raw_metadata_scope = config_scope
+    normalized_metadata_scope = (
+        validate_metadata_scope(raw_metadata_scope)
+        if raw_metadata_scope is not None
+        else None
+    )
+
     if "indexing" in data or "source" in data:
-        return DatasetConfig.from_dict(data, workdir=workdir)
+        return DatasetConfig.from_dict(
+            data,
+            workdir=workdir,
+            metadata_scope=normalized_metadata_scope,
+        )
 
     if "path" not in data:
         raise ValueError("Crawler config shorthand requires a 'path' field")
 
     ds_root = Path(_resolve_path(data["path"], base_path=workdir))
-    file_config = read_metadata_json(ds_root, CONFIG_FILENAME)
+    file_config = read_metadata_json(
+        ds_root,
+        CONFIG_FILENAME,
+        metadata_scope=normalized_metadata_scope,
+    )
     if file_config is None:
         raise FileNotFoundError(
             f"No {CONFIG_FILENAME} found at: {ds_root}"
+            + (
+                f" (metadata_scope={normalized_metadata_scope!r})"
+                if normalized_metadata_scope is not None
+                else ""
+            )
         )
-    return DatasetConfig.from_dict(file_config, dataset_root=ds_root)
+    return DatasetConfig.from_dict(
+        file_config,
+        dataset_root=ds_root,
+        metadata_scope=normalized_metadata_scope,
+    )
 
 
 @dataclass
@@ -412,6 +468,8 @@ class Config:
         cls,
         path: str | Path,
         workdir: str | Path | None = None,
+        *,
+        metadata_scope: str | None = None,
     ) -> "Config":
         path = Path(path)
         if not path.exists():
@@ -423,13 +481,21 @@ class Config:
         base_workdir = Path(workdir) if workdir is not None else path.parent
 
         if "datasets" not in data:
-            dataset = load_dataset_config(data, workdir=base_workdir)
+            dataset = load_dataset_config(
+                data,
+                workdir=base_workdir,
+                metadata_scope=metadata_scope,
+            )
             return cls(datasets=[dataset])
 
         datasets: list[DatasetConfig] = []
         for i, ds_data in enumerate(data["datasets"]):
             try:
-                ds_config = load_dataset_config(ds_data, workdir=base_workdir)
+                ds_config = load_dataset_config(
+                    ds_data,
+                    workdir=base_workdir,
+                    metadata_scope=metadata_scope,
+                )
                 datasets.append(ds_config)
             except FileNotFoundError:
                 raise

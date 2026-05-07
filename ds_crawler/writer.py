@@ -50,7 +50,6 @@ ZIP output::
 from __future__ import annotations
 
 import io
-import json
 import logging
 import zipfile
 from pathlib import Path
@@ -73,7 +72,6 @@ from .schema import infer_dataset_file_types
 from .zip_utils import (
     COMPRESSED_EXTENSIONS,
     DATASET_HEAD_FILENAME,
-    METADATA_DIR,
     OUTPUT_FILENAME,
     write_metadata_json_batch,
 )
@@ -232,6 +230,7 @@ class _BaseDatasetWriter:
         euler_layout: dict[str, Any] | None = None,
         separator: str | None = ":",
         attributes: dict[str, Any] | None = None,
+        metadata_scope: str | None = None,
         **properties: Any,
     ) -> None:
         self._dataset_head = _coerce_dataset_head(
@@ -249,6 +248,7 @@ class _BaseDatasetWriter:
         self._name = self._dataset_head.dataset_name
         self._type = self._dataset_head.modality_key
         self._separator = separator
+        self._metadata_scope = metadata_scope
         self._dataset_node: dict[str, Any] = {}
         self._count = 0
 
@@ -516,7 +516,12 @@ class DatasetWriter(_BaseDatasetWriter):
             The :class:`~pathlib.Path` that was written to.
         """
         output = self.build_output()
-        path = save_output_artifacts(self._root, output, filename=filename)
+        path = save_output_artifacts(
+            self._root,
+            output,
+            filename=filename,
+            metadata_scope=self._metadata_scope,
+        )
         logger.info(
             "DatasetWriter: saved index with %d entries to %s",
             self._count,
@@ -598,6 +603,7 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         euler_layout: dict[str, Any] | None = None,
         separator: str | None = ":",
         attributes: dict[str, Any] | None = None,
+        metadata_scope: str | None = None,
         **properties: Any,
     ) -> None:
         super().__init__(
@@ -610,6 +616,7 @@ class ZipDatasetWriter(_BaseDatasetWriter):
             euler_layout=euler_layout,
             separator=separator,
             attributes=attributes,
+            metadata_scope=metadata_scope,
             **properties,
         )
         if self._root.suffix.lower() != ".zip":
@@ -737,23 +744,17 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         output = self.build_output()
         config_payload = build_crawler_config_for_output(output)
         index_artifact = build_index_artifact(output)
-        self._zf.writestr(
-            f"{METADATA_DIR}/{DATASET_HEAD_FILENAME}",
-            json.dumps(output["head"], indent=2),
-            compress_type=zipfile.ZIP_DEFLATED,
-        )
-        self._zf.writestr(
-            f"{METADATA_DIR}/{CONFIG_FILENAME}",
-            json.dumps(config_payload, indent=2),
-            compress_type=zipfile.ZIP_DEFLATED,
-        )
-        self._zf.writestr(
-            f"{METADATA_DIR}/{filename}",
-            json.dumps(index_artifact, indent=2),
-            compress_type=zipfile.ZIP_DEFLATED,
-        )
         self._zf.close()
         self._closed = True
+        write_metadata_json_batch(
+            self._root,
+            {
+                DATASET_HEAD_FILENAME: output["head"],
+                CONFIG_FILENAME: config_payload,
+                filename: index_artifact,
+            },
+            metadata_scope=self._metadata_scope,
+        )
         logger.info(
             "ZipDatasetWriter: saved index with %d entries to %s",
             self._count,

@@ -31,22 +31,38 @@ def extract_dataset_properties(data: dict[str, Any]) -> dict[str, Any]:
     return get_dataset_contract(data).to_properties_dict()
 
 
-def _read_single_dataset_head(source: str | Path | dict[str, Any]) -> dict[str, Any]:
+def _read_single_dataset_head(
+    source: str | Path | dict[str, Any],
+    *,
+    metadata_scope: str | None = None,
+) -> dict[str, Any]:
     if isinstance(source, dict):
         return _extract_head_mapping(source)
 
     dataset_path = Path(source)
-    head_data = read_metadata_json(dataset_path, DATASET_HEAD_FILENAME)
+    head_data = read_metadata_json(
+        dataset_path,
+        DATASET_HEAD_FILENAME,
+        metadata_scope=metadata_scope,
+    )
     if head_data is not None:
         if not isinstance(head_data, dict):
             raise ValueError(f"{DATASET_HEAD_FILENAME} must contain a JSON object")
         return head_data
 
-    config_data = read_metadata_json(dataset_path, CONFIG_FILENAME)
+    config_data = read_metadata_json(
+        dataset_path,
+        CONFIG_FILENAME,
+        metadata_scope=metadata_scope,
+    )
     if isinstance(config_data, dict):
         head_file = config_data.get("head_file")
         if isinstance(head_file, str) and head_file and head_file != DATASET_HEAD_FILENAME:
-            custom_head = read_metadata_json(dataset_path, head_file)
+            custom_head = read_metadata_json(
+                dataset_path,
+                head_file,
+                metadata_scope=metadata_scope,
+            )
             if custom_head is not None:
                 if not isinstance(custom_head, dict):
                     raise ValueError(f"{head_file} must contain a JSON object")
@@ -59,17 +75,24 @@ def _read_single_dataset_head(source: str | Path | dict[str, Any]) -> dict[str, 
 
 def get_dataset_contract(
     source: str | Path | dict[str, Any],
+    *,
+    metadata_scope: str | None = None,
 ) -> DatasetHeadContract:
     """Resolve a normalized dataset-head contract from a path or mapping."""
-    data = _read_single_dataset_head(source)
+    data = _read_single_dataset_head(source, metadata_scope=metadata_scope)
     return parse_dataset_head(data, context="dataset_head")
 
 
 def get_dataset_properties(
     source: str | Path | dict[str, Any],
+    *,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Resolve dataset properties from a path, head, or output dict."""
-    return get_dataset_contract(source).to_properties_dict()
+    return get_dataset_contract(
+        source,
+        metadata_scope=metadata_scope,
+    ).to_properties_dict()
 
 
 def infer_dataset_file_types(index_node: dict[str, Any]) -> list[str]:

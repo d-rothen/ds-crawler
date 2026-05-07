@@ -38,6 +38,7 @@ from .zip_utils import (
     DATASET_HEAD_FILENAME,
     METADATA_DIR,
     OUTPUT_FILENAME,
+    get_metadata_entry_name,
     get_split_filename,
     is_zip_path,
     list_split_names,
@@ -237,33 +238,61 @@ def _select_hierarchy_rule_splits(
     return id_splits, matched_counts
 
 
-def _split_metadata_path(dataset_path: Path, filename: str) -> str:
+def _split_metadata_path(
+    dataset_path: Path,
+    filename: str,
+    *,
+    metadata_scope: str | None = None,
+) -> str:
     if is_zip_path(dataset_path):
         return str(dataset_path)
+    if metadata_scope is not None:
+        return str(dataset_path / METADATA_DIR / metadata_scope / filename)
     return str(dataset_path / METADATA_DIR / filename)
 
 
 def _ensure_output_index(
     dataset_path: Path,
     index: dict[str, Any] | None = None,
+    *,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Return a full output index, indexing and saving it when needed."""
     if index is not None:
-        if read_metadata_json(dataset_path, OUTPUT_FILENAME) is None:
-            save_output_artifacts(dataset_path, index)
+        if read_metadata_json(
+            dataset_path,
+            OUTPUT_FILENAME,
+            metadata_scope=metadata_scope,
+        ) is None:
+            save_output_artifacts(
+                dataset_path,
+                index,
+                metadata_scope=metadata_scope,
+            )
         return index
 
     from .parser import index_dataset_from_path
-    cached = read_metadata_json(dataset_path, OUTPUT_FILENAME)
+    cached = read_metadata_json(
+        dataset_path,
+        OUTPUT_FILENAME,
+        metadata_scope=metadata_scope,
+    )
     if cached is not None:
-        return index_dataset_from_path(dataset_path)
+        return index_dataset_from_path(
+            dataset_path,
+            metadata_scope=metadata_scope,
+        )
 
     logger.info(
         "No %s found at %s, indexing dataset before writing splits",
         OUTPUT_FILENAME,
         dataset_path,
     )
-    return index_dataset_from_path(dataset_path, save_index=True)
+    return index_dataset_from_path(
+        dataset_path,
+        save_index=True,
+        metadata_scope=metadata_scope,
+    )
 
 
 def _build_split_index_payload(
@@ -276,6 +305,7 @@ def _build_split_index_payload(
     seed: int | None = None,
     sample: int | None = None,
     execution: dict[str, Any] | None = None,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Build a split artifact and result summary without writing it."""
     filename = get_split_filename(split_name)
@@ -295,8 +325,15 @@ def _build_split_index_payload(
     result: dict[str, Any] = {
         "split": split_name,
         "filename": filename,
-        "metadata_file": f"{METADATA_DIR}/{filename}",
-        "path": _split_metadata_path(dataset_path, filename),
+        "metadata_file": get_metadata_entry_name(
+            filename,
+            metadata_scope=metadata_scope,
+        ),
+        "path": _split_metadata_path(
+            dataset_path,
+            filename,
+            metadata_scope=metadata_scope,
+        ),
         "num_ids": len(split_ids),
         "artifact": artifact,
     }
@@ -315,6 +352,7 @@ def _write_split_index(
     seed: int | None = None,
     sample: int | None = None,
     execution: dict[str, Any] | None = None,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Persist a single split dataset artifact under ``.ds_crawler/``."""
     payload = _build_split_index_payload(
@@ -326,8 +364,14 @@ def _write_split_index(
         seed=seed,
         sample=sample,
         execution=execution,
+        metadata_scope=metadata_scope,
     )
-    write_metadata_json(dataset_path, payload["filename"], payload["artifact"])
+    write_metadata_json(
+        dataset_path,
+        payload["filename"],
+        payload["artifact"],
+        metadata_scope=metadata_scope,
+    )
     result = dict(payload)
     result.pop("artifact")
     return result
@@ -336,6 +380,8 @@ def _write_split_index(
 def _write_split_payloads_batch(
     dataset_path: Path,
     payloads: list[dict[str, Any]],
+    *,
+    metadata_scope: str | None = None,
 ) -> list[dict[str, Any]]:
     """Write split artifacts in one metadata pass and return public summaries."""
     if not payloads:
@@ -343,6 +389,7 @@ def _write_split_payloads_batch(
     write_metadata_json_batch(
         dataset_path,
         {payload["filename"]: payload["artifact"] for payload in payloads},
+        metadata_scope=metadata_scope,
     )
     results: list[dict[str, Any]] = []
     for payload in payloads:
@@ -352,9 +399,13 @@ def _write_split_payloads_batch(
     return results
 
 
-def list_dataset_splits(dataset_path: str | Path) -> list[str]:
+def list_dataset_splits(
+    dataset_path: str | Path,
+    *,
+    metadata_scope: str | None = None,
+) -> list[str]:
     """Return sorted split names available for a dataset."""
-    return list_split_names(Path(dataset_path))
+    return list_split_names(Path(dataset_path), metadata_scope=metadata_scope)
 
 
 def load_dataset_split(
@@ -364,6 +415,7 @@ def load_dataset_split(
     strict: bool = False,
     save_index: bool = False,
     force_reindex: bool = False,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Load a named split as a full output dict.
 
@@ -380,8 +432,13 @@ def load_dataset_split(
         strict=strict,
         save_index=save_index,
         force_reindex=force_reindex,
+        metadata_scope=metadata_scope,
     )
-    split_artifact = _load_required_index(dataset_path, get_split_filename(split_name))
+    split_artifact = _load_required_index(
+        dataset_path,
+        get_split_filename(split_name),
+        metadata_scope=metadata_scope,
+    )
     validate_split_artifact(split_artifact, context=f"split[{split_name!r}]")
 
     result = hydrate_split_artifact(split_artifact, base_output)
@@ -398,6 +455,7 @@ def create_dataset_splits(
     qualified_ids: set[tuple[str, ...]] | None = None,
     seed: int | None = None,
     sample: int | None = None,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Create inline split metadata files for a single dataset.
 
@@ -413,7 +471,11 @@ def create_dataset_splits(
 
     normalized_names = _normalize_split_names(split_names)
     source_path = Path(source_path)
-    output_index = _ensure_output_index(source_path, index=index)
+    output_index = _ensure_output_index(
+        source_path,
+        index=index,
+        metadata_scope=metadata_scope,
+    )
 
     source_ids = _collect_qualified_ids(output_index)
     if qualified_ids is not None:
@@ -444,9 +506,14 @@ def create_dataset_splits(
                 ratio=ratio,
                 seed=seed,
                 sample=sample,
+                metadata_scope=metadata_scope,
             )
         )
-    split_results = _write_split_payloads_batch(source_path, split_payloads)
+    split_results = _write_split_payloads_batch(
+        source_path,
+        split_payloads,
+        metadata_scope=metadata_scope,
+    )
 
     return {
         "source": str(source_path),
@@ -466,6 +533,9 @@ def copy_dataset_splits(
     *,
     split_names: list[str] | None = None,
     override: bool = False,
+    metadata_scope: str | None = None,
+    source_metadata_scope: str | None = None,
+    target_metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Replicate inline splits from a source dataset onto a target dataset.
 
@@ -512,8 +582,21 @@ def copy_dataset_splits(
     """
     source_path = Path(source_path)
     target_path = Path(target_path)
+    resolved_source_scope = (
+        source_metadata_scope
+        if source_metadata_scope is not None
+        else metadata_scope
+    )
+    resolved_target_scope = (
+        target_metadata_scope
+        if target_metadata_scope is not None
+        else metadata_scope
+    )
 
-    available = list_dataset_splits(source_path)
+    available = list_dataset_splits(
+        source_path,
+        metadata_scope=resolved_source_scope,
+    )
     if not available:
         raise FileNotFoundError(
             f"No inline splits found on source dataset {source_path}"
@@ -533,7 +616,9 @@ def copy_dataset_splits(
                 f"{sorted(missing_on_source)}. Available splits: {available}"
             )
 
-    existing_on_target = set(list_dataset_splits(target_path))
+    existing_on_target = set(
+        list_dataset_splits(target_path, metadata_scope=resolved_target_scope)
+    )
     if not override:
         conflicts = sorted(name for name in requested if name in existing_on_target)
         if conflicts:
@@ -542,17 +627,29 @@ def copy_dataset_splits(
                 "Pass override=True to replace them."
             )
 
-    target_index = _ensure_output_index(target_path)
+    target_index = _ensure_output_index(
+        target_path,
+        metadata_scope=resolved_target_scope,
+    )
     target_qualified_ids = _collect_qualified_ids(target_index)
 
     split_payloads: list[dict[str, Any]] = []
     for split_name in requested:
         split_filename = get_split_filename(split_name)
-        split_artifact = read_metadata_json(source_path, split_filename)
+        split_artifact = read_metadata_json(
+            source_path,
+            split_filename,
+            metadata_scope=resolved_source_scope,
+        )
         if split_artifact is None:
             raise FileNotFoundError(
                 f"Split {split_name!r} not found on source dataset "
-                f"{source_path} (expected {split_filename})"
+                f"{source_path} (expected {split_filename}"
+                + (
+                    f" in metadata_scope={resolved_source_scope!r})"
+                    if resolved_source_scope is not None
+                    else ")"
+                )
             )
         validate_split_artifact(
             split_artifact, context=f"split[{split_name!r}]"
@@ -587,12 +684,22 @@ def copy_dataset_splits(
                 "copied_from": {
                     "source": str(source_path),
                     "split": split_name,
+                    **(
+                        {"metadata_scope": resolved_source_scope}
+                        if resolved_source_scope is not None
+                        else {}
+                    ),
                 }
             },
+            metadata_scope=resolved_target_scope,
         )
         payload["overridden"] = split_name in existing_on_target
         split_payloads.append(payload)
-    split_results = _write_split_payloads_batch(target_path, split_payloads)
+    split_results = _write_split_payloads_batch(
+        target_path,
+        split_payloads,
+        metadata_scope=resolved_target_scope,
+    )
 
     return {
         "source": str(source_path),
@@ -608,6 +715,7 @@ def create_aligned_dataset_splits(
     *,
     seed: int | None = None,
     sample: int | None = None,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Create matching inline split metadata across multiple datasets.
 
@@ -628,7 +736,7 @@ def create_aligned_dataset_splits(
     indices: list[dict[str, Any]] = []
     per_source_ids: list[set[tuple[str, ...]]] = []
     for src in sources:
-        index = _ensure_output_index(src)
+        index = _ensure_output_index(src, metadata_scope=metadata_scope)
         indices.append(index)
         qids = _collect_qualified_ids(index)
         per_source_ids.append(qids)
@@ -669,9 +777,14 @@ def create_aligned_dataset_splits(
                     ratio=ratio,
                     seed=seed,
                     sample=sample,
+                    metadata_scope=metadata_scope,
                 )
             )
-        split_results = _write_split_payloads_batch(src, split_payloads)
+        split_results = _write_split_payloads_batch(
+            src,
+            split_payloads,
+            metadata_scope=metadata_scope,
+        )
 
         per_source_results.append({
             "source": str(src),
@@ -696,6 +809,7 @@ def create_hierarchy_dataset_splits(
     *,
     exclusive: bool | None = None,
     sample: int | None = None,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Create inline split metadata from hierarchy-path selection rules.
 
@@ -740,7 +854,7 @@ def create_hierarchy_dataset_splits(
     indices: list[dict[str, Any]] = []
     per_source_ids: list[set[tuple[str, ...]]] = []
     for src in sources:
-        index = _ensure_output_index(src)
+        index = _ensure_output_index(src, metadata_scope=metadata_scope)
         indices.append(index)
         qids = _collect_qualified_ids(index)
         per_source_ids.append(qids)
@@ -780,10 +894,15 @@ def create_hierarchy_dataset_splits(
                     "hierarchy_clauses": rule.clauses_for_execution(),
                     "exclusive": resolved_exclusive,
                 },
+                metadata_scope=metadata_scope,
             )
             payload["matched_ids"] = matched_count
             split_payloads.append(payload)
-        split_results = _write_split_payloads_batch(src, split_payloads)
+        split_results = _write_split_payloads_batch(
+            src,
+            split_payloads,
+            metadata_scope=metadata_scope,
+        )
 
         per_source_results.append({
             "source": str(src),
@@ -811,6 +930,7 @@ def _resolve_dataset_source(
     source: str | Path | dict[str, Any],
     *,
     split: str | None = None,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Resolve a dataset source to a hydrated dataset index dict.
 
@@ -824,10 +944,10 @@ def _resolve_dataset_source(
     # Lazy import to avoid circular dependency (parser → traversal is fine,
     # but operations → parser closes the loop).
     if split is not None:
-        return load_dataset_split(source, split)
+        return load_dataset_split(source, split, metadata_scope=metadata_scope)
 
     from .parser import index_dataset_from_path
-    return index_dataset_from_path(source)
+    return index_dataset_from_path(source, metadata_scope=metadata_scope)
 
 
 def align_datasets(
@@ -843,6 +963,8 @@ def align_datasets(
       dataset root, or an already-loaded dataset index dict.
     - ``split`` (str, optional): Load ``source`` through a named inline
       split stored as ``.ds_crawler/split_<name>.json``.
+    - ``metadata_scope`` (str, optional): Load metadata from
+      ``.ds_crawler/<metadata_scope>/``.
 
     When *source* is a path, the function first looks for an existing
     ``index.json``.  If none is found it looks for a ``ds-crawler.json``
@@ -873,7 +995,11 @@ def align_datasets(
     for arg in args:
         modality = arg["modality"]
         source = arg["source"]
-        output = _resolve_dataset_source(source, split=arg.get("split"))
+        output = _resolve_dataset_source(
+            source,
+            split=arg.get("split"),
+            metadata_scope=arg.get("metadata_scope"),
+        )
         entries = _collect_file_entries_by_id(_get_index_node(output))
         per_modality[modality] = entries
         logger.info(
@@ -917,6 +1043,9 @@ def copy_dataset(
     *,
     index: dict[str, Any] | None = None,
     sample: int | None = None,
+    metadata_scope: str | None = None,
+    input_metadata_scope: str | None = None,
+    output_metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Copy files referenced in a dataset index to a new location.
 
@@ -949,13 +1078,26 @@ def copy_dataset(
 
     input_path = Path(input_path)
     output_path = Path(output_path)
+    resolved_input_scope = (
+        input_metadata_scope
+        if input_metadata_scope is not None
+        else metadata_scope
+    )
+    resolved_output_scope = (
+        output_metadata_scope
+        if output_metadata_scope is not None
+        else metadata_scope
+    )
     zip_input = is_zip_path(input_path)
     zip_output = output_path.suffix.lower() == ".zip"
 
     if index is None:
         from .parser import index_dataset_from_path
 
-        index = index_dataset_from_path(input_path)
+        index = index_dataset_from_path(
+            input_path,
+            metadata_scope=resolved_input_scope,
+        )
 
     assert index is not None  # ensured by the branch above
     all_paths = _collect_all_referenced_paths(index)
@@ -1052,33 +1194,21 @@ def copy_dataset(
         head_file = str(index.get("head_file", DATASET_HEAD_FILENAME))
         config_payload = build_crawler_config_for_output(index)
         index_artifact = build_index_artifact(index)
-        # Write the (possibly filtered) index
-        if dst_zf is not None:
-            if isinstance(index.get("head"), dict):
-                dst_zf.writestr(
-                    f"{METADATA_DIR}/{head_file}",
-                    json.dumps(index["head"], indent=2),
-                    compress_type=zipfile.ZIP_DEFLATED,
-                )
-            dst_zf.writestr(
-                f"{METADATA_DIR}/{CONFIG_FILENAME}",
-                json.dumps(config_payload, indent=2),
-                compress_type=zipfile.ZIP_DEFLATED,
-            )
-            dst_zf.writestr(
-                f"{METADATA_DIR}/{OUTPUT_FILENAME}",
-                json.dumps(index_artifact, indent=2),
-                compress_type=zipfile.ZIP_DEFLATED,
-            )
-        else:
-            output_path.mkdir(parents=True, exist_ok=True)
-            save_payload = {
-                CONFIG_FILENAME: config_payload,
-                OUTPUT_FILENAME: index_artifact,
-            }
-            if isinstance(index.get("head"), dict):
-                save_payload[head_file] = index["head"]
-            write_metadata_json_batch(output_path, save_payload)
+        save_payload = {
+            CONFIG_FILENAME: config_payload,
+            OUTPUT_FILENAME: index_artifact,
+        }
+        if isinstance(index.get("head"), dict):
+            save_payload[head_file] = index["head"]
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if not zip_output:
+        output_path.mkdir(parents=True, exist_ok=True)
+    write_metadata_json_batch(
+        output_path,
+        save_payload,
+        metadata_scope=resolved_output_scope,
+    )
 
     logger.info(
         "copy_dataset complete: %d files copied, %d missing", copied, missing
@@ -1097,18 +1227,33 @@ def copy_dataset(
 
 
 def _load_required_index(
-    dataset_path: Path, filename: str = OUTPUT_FILENAME
+    dataset_path: Path,
+    filename: str = OUTPUT_FILENAME,
+    *,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Load an output index from *dataset_path*, raising if absent."""
     if filename == OUTPUT_FILENAME:
         from .parser import index_dataset_from_path
 
-        return index_dataset_from_path(dataset_path)
+        return index_dataset_from_path(
+            dataset_path,
+            metadata_scope=metadata_scope,
+        )
 
-    index = read_metadata_json(dataset_path, filename)
+    index = read_metadata_json(
+        dataset_path,
+        filename,
+        metadata_scope=metadata_scope,
+    )
     if index is None:
         raise FileNotFoundError(
             f"No {filename} found at {dataset_path}"
+            + (
+                f" in metadata_scope={metadata_scope!r}"
+                if metadata_scope is not None
+                else ""
+            )
         )
     return index
 
@@ -1132,6 +1277,9 @@ def split_dataset(
     qualified_ids: set[tuple[str, ...]] | None = None,
     seed: int | None = None,
     sample: int | None = None,
+    metadata_scope: str | None = None,
+    source_metadata_scope: str | None = None,
+    target_metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Split a dataset into multiple targets according to numeric ratios.
 
@@ -1159,6 +1307,12 @@ def split_dataset(
             means deterministic sorted order without shuffling.
         sample: Optional stride applied before splitting. ``sample=5``
             keeps every fifth eligible ID from the sorted candidate pool.
+        metadata_scope: Use the same scoped metadata namespace for reading
+            the source index and writing target indices.
+        source_metadata_scope: Optional source-only metadata namespace. Takes
+            precedence over ``metadata_scope`` for reading.
+        target_metadata_scope: Optional target-only metadata namespace. Takes
+            precedence over ``metadata_scope`` for writing.
 
     Returns:
         A dict with keys:
@@ -1185,7 +1339,20 @@ def split_dataset(
         )
 
     source_path = Path(source_path)
-    index = _load_required_index(source_path)
+    resolved_source_scope = (
+        source_metadata_scope
+        if source_metadata_scope is not None
+        else metadata_scope
+    )
+    resolved_target_scope = (
+        target_metadata_scope
+        if target_metadata_scope is not None
+        else metadata_scope
+    )
+    index = _load_required_index(
+        source_path,
+        metadata_scope=resolved_source_scope,
+    )
 
     # Collect IDs from the source index
     source_ids = _collect_qualified_ids(index)
@@ -1213,7 +1380,13 @@ def split_dataset(
     split_results: list[dict[str, Any]] = []
     for split_ids, target, ratio in zip(id_splits, target_paths, ratios):
         filtered_index = filter_index_by_qualified_ids(index, split_ids)
-        result = copy_dataset(source_path, target, index=filtered_index)
+        result = copy_dataset(
+            source_path,
+            target,
+            index=filtered_index,
+            input_metadata_scope=resolved_source_scope,
+            output_metadata_scope=resolved_target_scope,
+        )
         result["target"] = str(target)
         result["ratio"] = ratio
         result["num_ids"] = len(split_ids)
@@ -1234,6 +1407,9 @@ def split_datasets(
     *,
     seed: int | None = None,
     sample: int | None = None,
+    metadata_scope: str | None = None,
+    source_metadata_scopes: list[str | None] | None = None,
+    target_metadata_scopes: list[str | None] | None = None,
 ) -> dict[str, Any]:
     """Split multiple aligned datasets using a common ID intersection.
 
@@ -1265,6 +1441,13 @@ def split_datasets(
             means deterministic sorted order without shuffling.
         sample: Optional stride applied before splitting. ``sample=5``
             keeps every fifth common ID from the sorted candidate pool.
+        metadata_scope: Use the same scoped metadata namespace for every
+            source and target.
+        source_metadata_scopes: Optional per-source namespaces for reading
+            each source index.
+        target_metadata_scopes: Optional per-source namespaces for writing
+            each source's derived target indices. When omitted, each target
+            uses the matching source scope.
 
     Returns:
         A dict with keys:
@@ -1296,14 +1479,40 @@ def split_datasets(
         )
     if not source_paths:
         raise ValueError("source_paths must be non-empty")
+    if (
+        source_metadata_scopes is not None
+        and len(source_metadata_scopes) != len(source_paths)
+    ):
+        raise ValueError(
+            "source_metadata_scopes must have the same length as source_paths"
+        )
+    if (
+        target_metadata_scopes is not None
+        and len(target_metadata_scopes) != len(source_paths)
+    ):
+        raise ValueError(
+            "target_metadata_scopes must have the same length as source_paths"
+        )
 
     sources = [Path(p) for p in source_paths]
+    resolved_source_scopes = [
+        source_metadata_scopes[i]
+        if source_metadata_scopes is not None
+        else metadata_scope
+        for i in range(len(sources))
+    ]
+    resolved_target_scopes = [
+        target_metadata_scopes[i]
+        if target_metadata_scopes is not None
+        else resolved_source_scopes[i]
+        for i in range(len(sources))
+    ]
 
     # --- Load indices and collect qualified IDs per source ---
     indices: list[dict[str, Any]] = []
     per_source_ids: list[set[tuple[str, ...]]] = []
-    for src in sources:
-        index = _load_required_index(src)
+    for src, source_scope in zip(sources, resolved_source_scopes):
+        index = _load_required_index(src, metadata_scope=source_scope)
         indices.append(index)
         qids = _collect_qualified_ids(index)
         per_source_ids.append(qids)
@@ -1345,12 +1554,24 @@ def split_datasets(
 
     # --- Copy each split for each source ---
     per_source_results: list[dict[str, Any]] = []
-    for src, index, qids in zip(sources, indices, per_source_ids):
+    for src, index, qids, source_scope, target_scope in zip(
+        sources,
+        indices,
+        per_source_ids,
+        resolved_source_scopes,
+        resolved_target_scopes,
+    ):
         source_split_results: list[dict[str, Any]] = []
         for split_ids, suffix, ratio in zip(id_splits, suffixes, ratios):
             target = _derive_split_path(src, suffix)
             filtered_index = filter_index_by_qualified_ids(index, split_ids)
-            result = copy_dataset(src, target, index=filtered_index)
+            result = copy_dataset(
+                src,
+                target,
+                index=filtered_index,
+                input_metadata_scope=source_scope,
+                output_metadata_scope=target_scope,
+            )
             result["target"] = str(target)
             result["suffix"] = suffix
             result["ratio"] = ratio
@@ -1362,6 +1583,8 @@ def split_datasets(
             "total_ids": len(qids),
             "excluded_ids": len(qids - common_ids),
             "splits": source_split_results,
+            "source_metadata_scope": source_scope,
+            "target_metadata_scope": target_scope,
         })
 
     return {
@@ -1385,6 +1608,8 @@ def extract_datasets(
     strict: bool = False,
     sample: int | None = None,
     match_index: dict[str, Any] | None = None,
+    metadata_scope: str | None = None,
+    metadata_scopes: list[str | None] | None = None,
 ) -> dict[str, Any]:
     """Extract multiple datasets from source directories using per-config regex patterns.
 
@@ -1413,6 +1638,10 @@ def extract_datasets(
             indexing (deterministic subsampling).
         match_index: External filter -- only files whose ID appears in
             this index are included.
+        metadata_scope: Use the same scoped metadata namespace for each
+            config and output.
+        metadata_scopes: Optional per-config namespaces. Takes precedence
+            over ``metadata_scope`` and config-embedded ``metadata_scope``.
 
     Returns:
         A dict with keys:
@@ -1438,21 +1667,40 @@ def extract_datasets(
         )
     if not configs:
         raise ValueError("configs must be non-empty")
+    if metadata_scopes is not None and len(metadata_scopes) != len(configs):
+        raise ValueError(
+            "metadata_scopes must have the same length as configs"
+        )
 
     from .parser import index_dataset
+
+    resolved_scopes = [
+        metadata_scopes[i]
+        if metadata_scopes is not None
+        else (
+            metadata_scope
+            if metadata_scope is not None
+            else config.get("metadata_scope")
+        )
+        for i, config in enumerate(configs)
+    ]
 
     # --- Index each config ---
     indices: list[dict[str, Any]] = []
     per_config_ids: list[set[tuple[str, ...]]] = []
 
-    for i, config in enumerate(configs):
+    for i, (config, config_scope) in enumerate(zip(configs, resolved_scopes)):
         config_name = config.get("name", "unnamed")
         logger.info(
             "extract_datasets: indexing config %d/%d ('%s') from %s",
             i + 1, len(configs), config_name, config.get("path", "?"),
         )
         index = index_dataset(
-            config, strict=strict, sample=sample, match_index=match_index,
+            config,
+            strict=strict,
+            sample=sample,
+            match_index=match_index,
+            metadata_scope=config_scope,
         )
         indices.append(index)
         qids = _collect_qualified_ids(index)
@@ -1487,8 +1735,8 @@ def extract_datasets(
     # --- Copy each indexed dataset to its output path ---
     extraction_results: list[dict[str, Any]] = []
 
-    for config, index, output_path, qids in zip(
-        configs, indices, output_paths, per_config_ids,
+    for config, index, output_path, qids, config_scope in zip(
+        configs, indices, output_paths, per_config_ids, resolved_scopes,
     ):
         config_name = config.get("name", "unnamed")
         source_path = config["path"]
@@ -1496,11 +1744,17 @@ def extract_datasets(
             "extract_datasets: copying '%s' from %s to %s",
             config_name, source_path, output_path,
         )
-        result = copy_dataset(source_path, output_path, index=index)
+        result = copy_dataset(
+            source_path,
+            output_path,
+            index=index,
+            output_metadata_scope=config_scope,
+        )
         result["config_name"] = config_name
         result["source"] = str(source_path)
         result["target"] = str(output_path)
         result["num_ids"] = len(qids)
+        result["metadata_scope"] = config_scope
         extraction_results.append(result)
 
     return {

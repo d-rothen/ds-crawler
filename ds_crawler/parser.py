@@ -661,7 +661,12 @@ class DatasetParser:
         with open(output_path, "w") as f:
             json.dump(output, f, indent=2)
 
-    def write_outputs_per_dataset(self, filename: str = OUTPUT_FILENAME) -> list[Path]:
+    def write_outputs_per_dataset(
+        self,
+        filename: str = OUTPUT_FILENAME,
+        *,
+        metadata_scope: str | None = None,
+    ) -> list[Path]:
         """Parse each dataset and write output to its root folder.
 
         When the dataset path is a ``.zip`` file the output is written
@@ -678,7 +683,16 @@ class DatasetParser:
             output = self._build_output(ds_config, dataset_node)
 
             ds_path = Path(ds_config.dataset_root)
-            output_path = save_output_artifacts(ds_path, output, filename=filename)
+            output_path = save_output_artifacts(
+                ds_path,
+                output,
+                filename=filename,
+                metadata_scope=(
+                    metadata_scope
+                    if metadata_scope is not None
+                    else ds_config.metadata_scope
+                ),
+            )
 
             output_paths.append(output_path)
 
@@ -692,6 +706,7 @@ def index_dataset(
     save_index: bool = False,
     sample: int | None = None,
     match_index: dict[str, Any] | None = None,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Index a single dataset and return its output dict.
 
@@ -713,7 +728,7 @@ def index_dataset(
     Returns:
         The output object (same structure as the hydrated dataset index output).
     """
-    ds_config = DatasetConfig.from_dict(config)
+    ds_config = DatasetConfig.from_dict(config, metadata_scope=metadata_scope)
     parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
     dataset_node = parser.parse_dataset(
         ds_config, sample=sample, match_index=match_index,
@@ -722,7 +737,12 @@ def index_dataset(
     if sample is not None:
         output.setdefault("execution", {})["sampled"] = sample
     if save_index:
-        _save_output(output, Path(ds_config.dataset_root), head_file=ds_config.head_file)
+        _save_output(
+            output,
+            Path(ds_config.dataset_root),
+            head_file=ds_config.head_file,
+            metadata_scope=ds_config.metadata_scope,
+        )
     return output
 
 
@@ -780,6 +800,7 @@ def index_dataset_from_path(
     force_reindex: bool = False,
     sample: int | None = None,
     match_index: dict[str, Any] | None = None,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Index a dataset by path, loading config from ``ds-crawler.json``.
 
@@ -806,16 +827,27 @@ def index_dataset_from_path(
     dataset_path = Path(path)
 
     if not force_reindex and sample is None and match_index is None:
-        cached = load_saved_output(dataset_path)
+        cached = load_saved_output(
+            dataset_path,
+            metadata_scope=metadata_scope,
+        )
         if cached is not None:
             logger.info(
-                "Found existing %s for %s, skipping reindex",
+                "Found existing %s for %s%s, skipping reindex",
                 OUTPUT_FILENAME,
                 dataset_path,
+                (
+                    f" (metadata_scope={metadata_scope})"
+                    if metadata_scope is not None
+                    else ""
+                ),
             )
             return cached
 
-    ds_config = load_dataset_config({"path": str(path)})
+    ds_config = load_dataset_config(
+        {"path": str(path)},
+        metadata_scope=metadata_scope,
+    )
     if ds_config.prebuilt_index_file is not None and sample is None and match_index is None:
         return load_prebuilt_output(ds_config)
     parser = DatasetParser(Config(datasets=[ds_config]), strict=strict)
@@ -826,7 +858,12 @@ def index_dataset_from_path(
     if sample is not None:
         output.setdefault("execution", {})["sampled"] = sample
     if save_index:
-        _save_output(output, Path(ds_config.dataset_root), head_file=ds_config.head_file)
+        _save_output(
+            output,
+            Path(ds_config.dataset_root),
+            head_file=ds_config.head_file,
+            metadata_scope=ds_config.metadata_scope,
+        )
     return output
 
 
@@ -836,6 +873,7 @@ def _save_output(
     *,
     filename: str = OUTPUT_FILENAME,
     head_file: str = DATASET_HEAD_FILENAME,
+    metadata_scope: str | None = None,
 ) -> None:
     """Write an output dict to ``.ds_crawler/{filename}`` inside *dataset_path*.
 
@@ -845,4 +883,9 @@ def _save_output(
     if head_file != output.get("head_file", DATASET_HEAD_FILENAME):
         output = dict(output)
         output["head_file"] = head_file
-    save_output_artifacts(dataset_path, output, filename=filename)
+    save_output_artifacts(
+        dataset_path,
+        output,
+        filename=filename,
+        metadata_scope=metadata_scope,
+    )

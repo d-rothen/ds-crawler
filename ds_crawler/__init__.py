@@ -46,6 +46,7 @@ from .migration import (
     migrate_dataset_zips_in_folder,
 )
 from .writer import DatasetWriter, ZipDatasetWriter
+from .zip_utils import list_metadata_scopes, validate_metadata_scope
 from .layout import (
     EULER_LAYOUT_ADDON,
     EULER_LAYOUT_VERSION,
@@ -86,6 +87,7 @@ __all__ = [
     "index_dataset_from_files",
     "index_dataset_from_path",
     "list_dataset_splits",
+    "list_metadata_scopes",
     "load_dataset_config",
     "load_dataset_split",
     "migrate_dataset_metadata",
@@ -96,6 +98,7 @@ __all__ = [
     "split_qualified_ids",
     "validate_crawler_config",
     "validate_dataset",
+    "validate_metadata_scope",
     "validate_layout_addon",
     "validate_output",
     "extract_dataset_properties",

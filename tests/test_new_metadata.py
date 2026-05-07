@@ -290,6 +290,36 @@ def test_migrate_dataset_zip_rewrites_prefixed_archive(tmp_path) -> None:
     assert split["index"]["files"][0]["path"] == "0001.png"
 
 
+def test_migrate_dataset_metadata_supports_scope(tmp_path) -> None:
+    root = tmp_path / "legacy_rgb_tree"
+    root.mkdir()
+    _write_legacy_dataset_tree(root, path_value=".", include_split=True)
+    metadata_dir = root / ".ds_crawler"
+    scoped_dir = metadata_dir / "rgb"
+    scoped_dir.mkdir()
+    for path in list(metadata_dir.glob("*.json")):
+        path.rename(scoped_dir / path.name)
+
+    result = migrate_dataset_metadata(
+        root,
+        require_metadata_dir=True,
+        metadata_scope="rgb",
+    )
+
+    assert result["metadata_scope"] == "rgb"
+    assert read_metadata_json(root, OUTPUT_FILENAME) is None
+    assert read_metadata_json(
+        root,
+        DATASET_HEAD_FILENAME,
+        metadata_scope="rgb",
+    )["dataset"]["id"] == "legacy_rgb"
+    assert read_metadata_json(
+        root,
+        "split_train.json",
+        metadata_scope="rgb",
+    )["contract"]["kind"] == "dataset_split"
+
+
 def test_migrate_dataset_zips_in_folder_logs_missing_metadata(tmp_path, caplog) -> None:
     valid_root = tmp_path / "nested" / "valid_tree"
     valid_root.parent.mkdir(parents=True)

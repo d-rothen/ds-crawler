@@ -85,13 +85,27 @@ def _run_index(argv: list[str]) -> int:
         metavar="PATH",
         help="Path to an index.json whose file IDs are used as a filter.",
     )
+    parser.add_argument(
+        "--metadata-scope",
+        type=str,
+        default=None,
+        metavar="SCOPE",
+        help=(
+            "Read/write ds-crawler artifacts below .ds_crawler/SCOPE/ "
+            "instead of the root .ds_crawler directory."
+        ),
+    )
 
     args = parser.parse_args(argv)
 
     setup_logging(args.verbose)
 
     try:
-        config = Config.from_file(args.config, workdir=args.workdir)
+        config = Config.from_file(
+            args.config,
+            workdir=args.workdir,
+            metadata_scope=args.metadata_scope,
+        )
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -122,7 +136,9 @@ def _run_index(argv: list[str]) -> int:
             parser_instance.write_output(args.output)
             logger.info(f"Output written to: {args.output}")
         else:
-            output_paths = parser_instance.write_outputs_per_dataset()
+            output_paths = parser_instance.write_outputs_per_dataset(
+                metadata_scope=args.metadata_scope,
+            )
             for path in output_paths:
                 logger.info(f"Output written to: {path}")
     except Exception as e:
@@ -166,6 +182,13 @@ def _run_migrate(argv: list[str]) -> int:
         help="When used with --scan-zips, only scan the provided directory itself.",
     )
     parser.add_argument(
+        "--metadata-scope",
+        help=(
+            "Read/write legacy migration artifacts below "
+            ".ds_crawler/SCOPE/."
+        ),
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -188,6 +211,7 @@ def _run_migrate(argv: list[str]) -> int:
                 result = migrate_inline_splits(
                     path,
                     logger=logger,
+                    metadata_scope=args.metadata_scope,
                 )
                 logger.info(
                     "Migrated inline splits %s (splits=%d)",
@@ -202,6 +226,7 @@ def _run_migrate(argv: list[str]) -> int:
                     recursive=not args.top_level_only,
                     write_output=not args.no_index,
                     logger=logger,
+                    metadata_scope=args.metadata_scope,
                 )
                 if result["failed"]:
                     failed = True
@@ -222,6 +247,7 @@ def _run_migrate(argv: list[str]) -> int:
                 path,
                 write_output=not args.no_index,
                 logger=logger,
+                metadata_scope=args.metadata_scope,
             )
         except Exception as exc:
             failed = True
@@ -275,6 +301,27 @@ def _run_copy_splits(argv: list[str]) -> int:
         help="Replace existing splits on the target if they share a name.",
     )
     parser.add_argument(
+        "--metadata-scope",
+        type=str,
+        default=None,
+        metavar="SCOPE",
+        help="Use the same scoped .ds_crawler/SCOPE metadata for source and target.",
+    )
+    parser.add_argument(
+        "--source-metadata-scope",
+        type=str,
+        default=None,
+        metavar="SCOPE",
+        help="Read source splits from .ds_crawler/SCOPE/.",
+    )
+    parser.add_argument(
+        "--target-metadata-scope",
+        type=str,
+        default=None,
+        metavar="SCOPE",
+        help="Write target splits to .ds_crawler/SCOPE/.",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -291,6 +338,9 @@ def _run_copy_splits(argv: list[str]) -> int:
             args.target,
             split_names=args.splits,
             override=args.override,
+            metadata_scope=args.metadata_scope,
+            source_metadata_scope=args.source_metadata_scope,
+            target_metadata_scope=args.target_metadata_scope,
         )
     except (FileNotFoundError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)

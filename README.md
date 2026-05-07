@@ -43,6 +43,31 @@ The files have distinct roles:
 | `.ds_crawler/index.json` | Materialized full dataset index. No duplicated head/config metadata. |
 | `.ds_crawler/split_<name>.json` | Named split artifact with its own contract, provenance, and filtered `index` node. |
 
+When several logical modalities share one physical root or zip, store each
+metadata set under a scope:
+
+```text
+dataset_root/
+├── .ds_crawler/
+│   ├── scopes.json
+│   ├── rgb/
+│   │   ├── dataset-head.json
+│   │   ├── ds-crawler.json
+│   │   └── index.json
+│   └── camera_extrinsics/
+│       ├── dataset-head.json
+│       ├── ds-crawler.json
+│       └── index.json
+├── calib.json
+└── ...
+```
+
+Pass `metadata_scope="rgb"` or `metadata_scope="camera_extrinsics"` to the
+path-based APIs to read/write that scoped artifact set. Scoped writes update
+`.ds_crawler/scopes.json`, a discoverability manifest listing known scopes and
+their artifact filenames. Omitting `metadata_scope` preserves the legacy
+unscoped layout exactly.
+
 The in-memory objects returned by `index_dataset_from_path(...)` and
 `load_dataset_split(...)` are hydrated outputs. They include `head` and
 `indexing` for convenience, even though the on-disk `index.json` only stores
@@ -146,6 +171,21 @@ print(output["index"].keys())
 - `.ds_crawler/ds-crawler.json`
 - `.ds_crawler/index.json`
 
+For a shared physical root, pass a metadata scope:
+
+```python
+rgb = index_dataset_from_path(
+    "/data/muses",
+    save_index=True,
+    metadata_scope="rgb",
+)
+extrinsics = index_dataset_from_path(
+    "/data/muses",
+    save_index=True,
+    metadata_scope="camera_extrinsics",
+)
+```
+
 ### 3. Align multiple modalities
 
 ```python
@@ -235,6 +275,19 @@ create_dataset_splits(
 train_output = load_dataset_split("/data/foggy_rgb", "train")
 print(train_output["split"]["name"])
 print(train_output["execution"]["split"])
+```
+
+Scoped split artifacts use the same namespace as the index:
+
+```python
+create_dataset_splits(
+    "/data/muses",
+    split_names=["train", "val"],
+    ratios=[80, 20],
+    metadata_scope="rgb",
+)
+
+train_output = load_dataset_split("/data/muses", "train", metadata_scope="rgb")
 ```
 
 To reuse an existing partition on a sibling dataset (same qualified file
@@ -505,14 +558,20 @@ Indexing and config:
 - `validate_dataset(...)`
 - `validate_output(...)`
 
+`index_dataset(...)`, `index_dataset_from_path(...)`, `load_dataset_config(...)`,
+and `validate_dataset(...)` accept `metadata_scope=...` for scoped metadata.
+
 Dataset metadata:
 
 - `get_dataset_contract(source)`
 - `get_dataset_properties(source)`
 - `extract_dataset_properties(mapping)`
+- `list_metadata_scopes(path)`
 
 `get_dataset_contract(...)` returns a `DatasetHeadContract`. Use
 `contract.get_namespace("euler_train")` to access addon payloads.
+`get_dataset_contract(path, metadata_scope=...)` and
+`get_dataset_properties(path, metadata_scope=...)` read scoped heads.
 
 Traversal and filtering:
 
@@ -535,16 +594,29 @@ Operations:
 - `list_dataset_splits(...)`
 - `load_dataset_split(...)`
 
+Split, copy, align, and extraction operations accept `metadata_scope=...`.
+`copy_dataset(...)`, `copy_dataset_splits(...)`, and `split_dataset(...)` also
+accept source/target scope overrides when the two sides use different scope
+names. `split_datasets(...)` and `extract_datasets(...)` accept per-source or
+per-config scope lists for multi-dataset workflows.
+
 Writers:
 
 - `DatasetWriter(...)`
 - `ZipDatasetWriter(...)`
+
+Both writers accept `metadata_scope=...` and write scoped artifacts plus the
+`scopes.json` manifest.
 
 Migration helpers:
 
 - `migrate_dataset_metadata(...)`
 - `migrate_dataset_zip(...)`
 - `migrate_dataset_zips_in_folder(...)`
+- `migrate_inline_splits(...)`
+
+Migration helpers and `ds-crawler migrate` also accept `metadata_scope=...`
+or `--metadata-scope` for scoped legacy metadata conversion.
 
 ## ZIP support
 

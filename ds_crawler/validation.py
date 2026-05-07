@@ -59,6 +59,8 @@ def _validate_contract(
 def validate_crawler_config(
     config: dict[str, Any],
     workdir: str | Path | None = None,
+    *,
+    metadata_scope: str | None = None,
 ) -> DatasetConfig:
     if not isinstance(config, dict):
         raise ValueError("Crawler config must be a JSON object")
@@ -73,7 +75,11 @@ def validate_crawler_config(
     validate_contract_version(version, "config.contract.version")
 
     try:
-        return DatasetConfig.from_dict(config, workdir=workdir)
+        return DatasetConfig.from_dict(
+            config,
+            workdir=workdir,
+            metadata_scope=metadata_scope,
+        )
     except KeyError as exc:
         raise ValueError(f"Crawler config missing required field: {exc}") from exc
 
@@ -365,11 +371,27 @@ def validate_output(
     return output
 
 
-def validate_dataset(path: str | Path) -> dict[str, Any]:
+def validate_dataset(
+    path: str | Path,
+    *,
+    metadata_scope: str | None = None,
+) -> dict[str, Any]:
     dataset_path = Path(path)
-    config_data = read_metadata_json(dataset_path, CONFIG_FILENAME)
-    head_data = read_metadata_json(dataset_path, DATASET_HEAD_FILENAME)
-    index_data = read_metadata_json(dataset_path, OUTPUT_FILENAME)
+    config_data = read_metadata_json(
+        dataset_path,
+        CONFIG_FILENAME,
+        metadata_scope=metadata_scope,
+    )
+    head_data = read_metadata_json(
+        dataset_path,
+        DATASET_HEAD_FILENAME,
+        metadata_scope=metadata_scope,
+    )
+    index_data = read_metadata_json(
+        dataset_path,
+        OUTPUT_FILENAME,
+        metadata_scope=metadata_scope,
+    )
 
     if config_data is None and head_data is None and index_data is None:
         raise FileNotFoundError(
@@ -379,7 +401,11 @@ def validate_dataset(path: str | Path) -> dict[str, Any]:
 
     validated_config: DatasetConfig | None = None
     if config_data is not None:
-        validated_config = validate_crawler_config(config_data, workdir=dataset_path)
+        validated_config = validate_crawler_config(
+            config_data,
+            workdir=dataset_path,
+            metadata_scope=metadata_scope,
+        )
 
     if head_data is not None:
         parse_dataset_head(head_data, context="dataset_head")
@@ -392,10 +418,14 @@ def validate_dataset(path: str | Path) -> dict[str, Any]:
                 f"{CONFIG_FILENAME} and {DATASET_HEAD_FILENAME} are required when "
                 f"{OUTPUT_FILENAME} is present at: {dataset_path}"
             )
-        hydrated_output = load_saved_output(dataset_path)
+        hydrated_output = load_saved_output(
+            dataset_path,
+            metadata_scope=metadata_scope,
+        )
 
     return {
         "path": str(dataset_path),
+        "metadata_scope": metadata_scope,
         "has_config": config_data is not None,
         "has_head": head_data is not None,
         "has_output": index_data is not None,

@@ -173,13 +173,21 @@ def load_saved_output(
     dataset_path: str | Path,
     *,
     filename: str = OUTPUT_FILENAME,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any] | None:
     """Load and hydrate a persisted dataset index artifact from disk."""
     dataset_root = Path(dataset_path)
-    index_artifact = read_metadata_json(dataset_root, filename)
+    index_artifact = read_metadata_json(
+        dataset_root,
+        filename,
+        metadata_scope=metadata_scope,
+    )
     if index_artifact is None:
         return None
-    ds_config = load_dataset_config({"path": str(dataset_root)})
+    ds_config = load_dataset_config(
+        {"path": str(dataset_root)},
+        metadata_scope=metadata_scope,
+    )
     return hydrate_index_artifact(index_artifact, ds_config)
 
 
@@ -196,6 +204,7 @@ def load_prebuilt_output(ds_config: DatasetConfig) -> dict[str, Any]:
         index_artifact = read_metadata_json(
             Path(ds_config.dataset_root),
             prebuilt_path.name,
+            metadata_scope=ds_config.metadata_scope,
         )
         if index_artifact is None:
             raise FileNotFoundError(
@@ -210,6 +219,7 @@ def save_output_artifacts(
     output: dict[str, Any],
     *,
     filename: str = OUTPUT_FILENAME,
+    metadata_scope: str | None = None,
 ) -> Path:
     """Persist head/config/index artifacts for a dataset output."""
     dataset_root = Path(dataset_path)
@@ -227,8 +237,11 @@ def save_output_artifacts(
             CONFIG_FILENAME: build_crawler_config_for_output(output),
             filename: build_index_artifact(output),
         },
+        metadata_scope=metadata_scope,
     )
 
     if is_zip_path(dataset_root):
         return dataset_root
+    if metadata_scope is not None:
+        return dataset_root / METADATA_DIR / metadata_scope / filename
     return dataset_root / METADATA_DIR / filename

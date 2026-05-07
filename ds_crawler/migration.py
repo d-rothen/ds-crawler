@@ -355,11 +355,16 @@ def _read_metadata_mapping(
     filename: str,
     *,
     allowed_filenames: set[str] | None = None,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any] | None:
     if allowed_filenames is not None and filename not in allowed_filenames:
         return None
     return _unwrap_single_output(
-        read_metadata_json(dataset_root, filename),
+        read_metadata_json(
+            dataset_root,
+            filename,
+            metadata_scope=metadata_scope,
+        ),
         filename,
     )
 
@@ -368,11 +373,23 @@ def _require_metadata_dir_entries(
     dataset_root: Path,
     *,
     logger: logging.Logger,
+    metadata_scope: str | None = None,
 ) -> set[str]:
-    metadata_filenames = set(list_metadata_json_filenames(dataset_root))
+    metadata_filenames = set(
+        list_metadata_json_filenames(
+            dataset_root,
+            metadata_scope=metadata_scope,
+        )
+    )
     if not metadata_filenames:
+        metadata_location = (
+            f"{METADATA_DIR}/{metadata_scope}/"
+            if metadata_scope is not None
+            else f"{METADATA_DIR}/"
+        )
         message = (
-            f"No metadata JSON files found under {METADATA_DIR}/ at {dataset_root}"
+            f"No metadata JSON files found under {metadata_location} "
+            f"at {dataset_root}"
         )
         logger.warning(message)
         raise FileNotFoundError(message)
@@ -407,6 +424,7 @@ def migrate_dataset_metadata(
     write_output: bool = True,
     logger: logging.Logger | None = None,
     require_metadata_dir: bool = False,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Rewrite one legacy dataset's metadata into the new schema."""
     logger = _get_logger(logger)
@@ -418,6 +436,7 @@ def migrate_dataset_metadata(
         allowed_filenames = _require_metadata_dir_entries(
             dataset_root,
             logger=logger,
+            metadata_scope=metadata_scope,
         )
         logger.debug(
             "Found %s metadata files for %s: %s",
@@ -430,11 +449,13 @@ def migrate_dataset_metadata(
         dataset_root,
         CONFIG_FILENAME,
         allowed_filenames=allowed_filenames,
+        metadata_scope=metadata_scope,
     )
     raw_output = _read_metadata_mapping(
         dataset_root,
         _LEGACY_OUTPUT_FILENAME,
         allowed_filenames=allowed_filenames,
+        metadata_scope=metadata_scope,
     )
 
     legacy_config = None if _is_new_config(raw_config) else raw_config
@@ -480,13 +501,20 @@ def migrate_dataset_metadata(
         output_written = True
 
     migrated_splits: list[str] = []
-    for filename in list_metadata_json_filenames(dataset_root):
+    for filename in list_metadata_json_filenames(
+        dataset_root,
+        metadata_scope=metadata_scope,
+    ):
         if not (
             filename.startswith("split_")
             and filename.endswith(".json")
         ):
             continue
-        node = read_metadata_json(dataset_root, filename)
+        node = read_metadata_json(
+            dataset_root,
+            filename,
+            metadata_scope=metadata_scope,
+        )
         if node is None:
             continue
         if _is_new_split(node):
@@ -525,11 +553,20 @@ def migrate_dataset_metadata(
             dataset_root,
             len(metadata_updates),
         )
-        write_metadata_json_batch(dataset_root, metadata_updates)
+        write_metadata_json_batch(
+            dataset_root,
+            metadata_updates,
+            metadata_scope=metadata_scope,
+        )
     else:
         for filename, payload in metadata_updates.items():
             logger.debug("Writing %s for %s", filename, dataset_root)
-            write_metadata_json(dataset_root, filename, payload)
+            write_metadata_json(
+                dataset_root,
+                filename,
+                payload,
+                metadata_scope=metadata_scope,
+            )
 
     result = {
         "path": str(dataset_root),
@@ -537,6 +574,7 @@ def migrate_dataset_metadata(
         "wrote_config": True,
         "wrote_output": output_written,
         "migrated_splits": migrated_splits,
+        "metadata_scope": metadata_scope,
     }
     logger.info(
         "Migrated dataset metadata for %s (output=%s, splits=%d)",
@@ -552,6 +590,7 @@ def migrate_inline_splits(
     *,
     logger: logging.Logger | None = None,
     require_metadata_dir: bool = False,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Migrate only split files for a partially-migrated dataset.
 
@@ -564,9 +603,17 @@ def migrate_inline_splits(
     logger.info("Migrating inline splits for %s", dataset_root)
 
     if require_metadata_dir:
-        _require_metadata_dir_entries(dataset_root, logger=logger)
+        _require_metadata_dir_entries(
+            dataset_root,
+            logger=logger,
+            metadata_scope=metadata_scope,
+        )
 
-    raw_output = read_metadata_json(dataset_root, OUTPUT_FILENAME)
+    raw_output = read_metadata_json(
+        dataset_root,
+        OUTPUT_FILENAME,
+        metadata_scope=metadata_scope,
+    )
     if raw_output is None or not _is_new_output(raw_output):
         raise FileNotFoundError(
             f"index.json not found or not yet migrated at {dataset_root}; "
@@ -576,13 +623,20 @@ def migrate_inline_splits(
     migrated_splits: list[str] = []
     metadata_updates: dict[str, Any] = {}
 
-    for filename in list_metadata_json_filenames(dataset_root):
+    for filename in list_metadata_json_filenames(
+        dataset_root,
+        metadata_scope=metadata_scope,
+    ):
         if not (
             filename.startswith("split_")
             and filename.endswith(".json")
         ):
             continue
-        node = read_metadata_json(dataset_root, filename)
+        node = read_metadata_json(
+            dataset_root,
+            filename,
+            metadata_scope=metadata_scope,
+        )
         if node is None:
             continue
         if _is_new_split(node):
@@ -605,15 +659,25 @@ def migrate_inline_splits(
 
     if is_zip_path(dataset_root):
         if metadata_updates:
-            write_metadata_json_batch(dataset_root, metadata_updates)
+            write_metadata_json_batch(
+                dataset_root,
+                metadata_updates,
+                metadata_scope=metadata_scope,
+            )
     else:
         for filename, payload in metadata_updates.items():
             logger.debug("Writing %s for %s", filename, dataset_root)
-            write_metadata_json(dataset_root, filename, payload)
+            write_metadata_json(
+                dataset_root,
+                filename,
+                payload,
+                metadata_scope=metadata_scope,
+            )
 
     result = {
         "path": str(dataset_root),
         "migrated_splits": migrated_splits,
+        "metadata_scope": metadata_scope,
     }
     logger.info(
         "Migrated inline splits for %s (splits=%d)",
@@ -628,6 +692,7 @@ def migrate_dataset_zip(
     *,
     write_output: bool = True,
     logger: logging.Logger | None = None,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Migrate one dataset archive in-place.
 
@@ -649,6 +714,7 @@ def migrate_dataset_zip(
         write_output=write_output,
         logger=logger,
         require_metadata_dir=True,
+        metadata_scope=metadata_scope,
     )
 
 
@@ -658,6 +724,7 @@ def migrate_dataset_zips_in_folder(
     recursive: bool = True,
     write_output: bool = True,
     logger: logging.Logger | None = None,
+    metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Scan a folder for dataset ZIPs and attempt migration on each archive."""
     logger = _get_logger(logger)
@@ -682,6 +749,7 @@ def migrate_dataset_zips_in_folder(
                 archive_path,
                 write_output=write_output,
                 logger=logger,
+                metadata_scope=metadata_scope,
             )
         except Exception as exc:
             logger.warning("Archive migration failed for %s: %s", archive_path, exc)
