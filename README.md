@@ -260,6 +260,34 @@ MultiModalDataset(
 A runnable end-to-end example is in
 [`examples/augmented_rgb_example.py`](examples/augmented_rgb_example.py).
 
+### Recipe: root-level calibration shared by every sample
+
+Some archives keep calibration at the dataset root, for example
+`rgb.zip/calib.json`, while regular samples live below path-based hierarchy
+folders. Model that calibration as a hierarchical modality with no
+`indexing.hierarchy` block. ds-crawler then stores `calib.json` directly in
+the root `index.files` list, i.e. at hierarchy path `()`. Consumers such as
+`euler-loading` treat root-level hierarchical files as ancestors of every
+sample, so the calibration applies globally.
+
+```json
+{
+  "indexing": {
+    "id": {"regex": "^(calib)\\.json$", "join_char": "+"},
+    "files": {
+      "extensions": [".json"],
+      "path_filters": {"include_regex": ["^calib\\.json$"]}
+    },
+    "constraints": {"flat_ids_unique": true}
+  }
+}
+```
+
+This is the same hierarchy model as per-scene or per-camera calibration: the
+only difference is that the applicable hierarchy level is the root rather than
+`scene:<id>` or `camera:<id>`. Do not add a `hierarchy.regex` for this case;
+there is no path segment to extract.
+
 ### 4. Create named split artifacts
 
 ```python

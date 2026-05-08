@@ -34,6 +34,39 @@ def test_index_dataset_from_files_emits_current_output_shape(tmp_path: Path) -> 
     ]
 
 
+def test_root_level_hierarchical_file_is_indexed_at_root(tmp_path: Path) -> None:
+    root = tmp_path / "muses"
+    files = create_files(
+        root,
+        [
+            "calib.json",
+            "frames/REC0001/000001.png",
+        ],
+    )
+    config = sample_config(
+        root,
+        name="MUSES Calibration",
+        modality="camera_extrinsics",
+        extensions=[".json"],
+        id_regex=r"^(calib)\.json$",
+    )
+    config["indexing"]["files"]["path_filters"] = {
+        "include_regex": [r"^calib\.json$"],
+    }
+
+    output = index_dataset_from_files(config, files, base_path=root)
+
+    assert "children" not in output["index"]
+    assert output["index"]["files"] == [
+        {
+            "path": "calib.json",
+            "id": "calib",
+            "path_properties": {},
+            "basename_properties": {},
+        }
+    ]
+
+
 def test_index_dataset_from_path_writes_canonical_metadata_files(tmp_path: Path) -> None:
     root = tmp_path / "rgb"
     create_files(root, ["scene/0001.png", "scene/0002.png"])
