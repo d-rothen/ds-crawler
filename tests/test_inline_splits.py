@@ -182,11 +182,14 @@ def test_create_mapped_dataset_splits_uses_full_qualified_ids(tmp_path: Path) ->
     result = create_mapped_dataset_splits(
         root,
         {
-            "fog": [
-                "camera_0~fog~day~0001",
-                ["camera_1", "fog", "day", "0002"],
-            ],
-            "clear": ["camera_0~clear~day~0003"],
+            "separator": "|",
+            "splits": {
+                "fog": [
+                    "camera_0|fog|day|0001",
+                    ["camera_1", "fog", "day", "0002"],
+                ],
+                "clear": ["camera_0|clear|day|0003"],
+            },
         },
     )
 
@@ -204,7 +207,7 @@ def test_create_mapped_dataset_splits_uses_full_qualified_ids(tmp_path: Path) ->
     assert result["qualified_id_splits"][0] == collect_qualified_ids(fog)
     assert fog["execution"]["split"] == {
         "allocation_mode": "qualified_id_mapping",
-        "qualified_id_separator": "~",
+        "qualified_id_separator": "|",
     }
 
 
@@ -218,8 +221,10 @@ def test_create_mapped_dataset_splits_validates_before_writing(tmp_path: Path) -
         create_mapped_dataset_splits(
             root,
             {
-                "train": ["scene~0001"],
-                "val": ["scene~0002"],
+                "splits": {
+                    "train": ["scene~0001"],
+                    "val": ["scene~0002"],
+                },
             },
         )
 
@@ -236,8 +241,10 @@ def test_create_mapped_dataset_splits_rejects_cross_split_duplicates(tmp_path: P
         create_mapped_dataset_splits(
             root,
             {
-                "train": ["scene~0001"],
-                "val": ["scene~0001"],
+                "splits": {
+                    "train": ["scene~0001"],
+                    "val": ["scene~0001"],
+                },
             },
         )
 

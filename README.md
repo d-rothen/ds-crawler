@@ -404,16 +404,20 @@ from ds_crawler import create_mapped_dataset_splits
 create_mapped_dataset_splits(
     "/data/foggy_rgb",
     {
-        "fog": ["camera_0~fog~day~0001", "camera_1~fog~day~0002"],
-        "clear": ["camera_0~clear~day~0003"],
+        "separator": "~",
+        "splits": {
+            "fog": ["camera_0~fog~day~0001", "camera_1~fog~day~0002"],
+            "clear": ["camera_0~clear~day~0003"],
+        },
     },
 )
 ```
 
-String IDs are split by `qualified_id_separator="~"` into
-`(*hierarchy_keys, file_id)`. If a path segment itself contains `~`, pass that
-ID as a JSON array of path segments instead. All requested IDs are validated
-before writing, so an invalid mapping never leaves partial split artifacts.
+String IDs are split by the optional top-level `separator` (default `"~"`) into
+`(*hierarchy_keys, file_id)`. If a path segment itself contains the separator,
+pass that ID as a JSON array of path segments instead. All requested IDs are
+validated before writing, so an invalid mapping never leaves partial split
+artifacts.
 
 ### 5. Write generated outputs back to disk
 

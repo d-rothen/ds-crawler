@@ -154,16 +154,22 @@ def _resolve_mapping_qualified_id(
 
 
 def _normalize_split_mapping(
-    split_mapping: dict[str, Any],
+    split_mapping_document: dict[str, Any],
     *,
     available_ids: set[tuple[str, ...]],
-    separator: str,
-) -> tuple[list[str], list[set[tuple[str, ...]]]]:
-    """Validate ``{split_name: [qualified_id, ...]}`` input."""
-    if not isinstance(separator, str) or not separator:
-        raise ValueError("qualified_id_separator must be a non-empty string")
-    if not isinstance(split_mapping, dict) or not split_mapping:
+    fallback_separator: str | None = "~",
+) -> tuple[str, list[str], list[set[tuple[str, ...]]]]:
+    """Validate ``{separator?, splits: {split_name: [qualified_id, ...]}}`` input."""
+    if not isinstance(split_mapping_document, dict) or not split_mapping_document:
         raise ValueError("split_mapping must be a non-empty object")
+
+    separator = split_mapping_document.get("separator", fallback_separator)
+    if not isinstance(separator, str) or not separator:
+        raise ValueError("split_mapping.separator must be a non-empty string")
+
+    split_mapping = split_mapping_document.get("splits")
+    if not isinstance(split_mapping, dict) or not split_mapping:
+        raise ValueError("split_mapping.splits must be a non-empty object")
 
     raw_names = list(split_mapping.keys())
     normalized_names = _normalize_split_names(raw_names)
@@ -221,7 +227,7 @@ def _normalize_split_mapping(
             f"present in every source dataset. Examples: {preview}{suffix}"
         )
 
-    return normalized_names, split_sets
+    return separator, normalized_names, split_sets
 
 
 def _normalize_hierarchy_split_rules(
@@ -938,14 +944,15 @@ def create_mapped_dataset_splits(
     source_paths: str | Path | list[str | Path],
     split_mapping: dict[str, Any],
     *,
-    qualified_id_separator: str = "~",
+    qualified_id_separator: str | None = "~",
     metadata_scope: str | None = None,
 ) -> dict[str, Any]:
     """Create inline split metadata from an explicit qualified-ID mapping.
 
     ``split_mapping`` has the JSON-friendly shape
-    ``{"train": ["scene~0001", "scene~0002"], "val": [...]}``.
-    String IDs are split by *qualified_id_separator* into
+    ``{"separator": "~", "splits": {"train": ["scene~0001"], "val": [...]}}``.
+    The ``separator`` field is optional and defaults to ``"~"``. String IDs are
+    split by the resolved separator into
     ``(*hierarchy_keys, file_id)`` tuples.  Individual IDs may also be
     provided as arrays of path segments, e.g. ``["scene", "0001"]``, when a
     raw segment itself contains the separator.
@@ -979,10 +986,10 @@ def create_mapped_dataset_splits(
         len(sources), len(common_ids),
     )
 
-    split_names, id_splits = _normalize_split_mapping(
+    resolved_separator, split_names, id_splits = _normalize_split_mapping(
         split_mapping,
         available_ids=common_ids,
-        separator=qualified_id_separator,
+        fallback_separator=qualified_id_separator,
     )
     selected_qualified_ids = set().union(*id_splits) if id_splits else set()
     unassigned_qualified_ids = common_ids - selected_qualified_ids
@@ -998,7 +1005,7 @@ def create_mapped_dataset_splits(
                 split_ids,
                 execution={
                     "allocation_mode": "qualified_id_mapping",
-                    "qualified_id_separator": qualified_id_separator,
+                    "qualified_id_separator": resolved_separator,
                 },
                 metadata_scope=metadata_scope,
             )
