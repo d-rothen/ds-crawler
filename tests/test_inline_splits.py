@@ -11,6 +11,7 @@ from ds_crawler import (
     create_aligned_dataset_splits,
     create_dataset_splits,
     create_hierarchy_dataset_splits,
+    create_mapped_dataset_splits,
     list_dataset_splits,
     load_dataset_split,
 )
@@ -164,6 +165,79 @@ def test_create_hierarchy_dataset_splits_validates_before_writing(tmp_path: Path
                         "clauses": [{"levelIndex": 1, "values": ["rain"]}],
                     },
                 ]
+            },
+        )
+
+    assert list_dataset_splits(root) == []
+
+
+def test_create_mapped_dataset_splits_uses_full_qualified_ids(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    writer = DatasetWriter(root, head=sample_head(name="RGB"))
+    writer.get_path("/camera_0/fog/day/0001", "0001.png").write_bytes(b"data")
+    writer.get_path("/camera_1/fog/day/0002", "0002.png").write_bytes(b"data")
+    writer.get_path("/camera_0/clear/day/0003", "0003.png").write_bytes(b"data")
+    writer.save_index()
+
+    result = create_mapped_dataset_splits(
+        root,
+        {
+            "fog": [
+                "camera_0~fog~day~0001",
+                ["camera_1", "fog", "day", "0002"],
+            ],
+            "clear": ["camera_0~clear~day~0003"],
+        },
+    )
+
+    fog = load_dataset_split(root, "fog")
+    clear = load_dataset_split(root, "clear")
+
+    assert list_dataset_splits(root) == ["clear", "fog"]
+    assert collect_qualified_ids(fog) == {
+        ("camera_0", "fog", "day", "0001"),
+        ("camera_1", "fog", "day", "0002"),
+    }
+    assert collect_qualified_ids(clear) == {
+        ("camera_0", "clear", "day", "0003"),
+    }
+    assert result["qualified_id_splits"][0] == collect_qualified_ids(fog)
+    assert fog["execution"]["split"] == {
+        "allocation_mode": "qualified_id_mapping",
+        "qualified_id_separator": "~",
+    }
+
+
+def test_create_mapped_dataset_splits_validates_before_writing(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    writer = DatasetWriter(root, head=sample_head(name="RGB"))
+    writer.get_path("/scene/0001", "0001.png").write_bytes(b"data")
+    writer.save_index()
+
+    with pytest.raises(ValueError, match="not present"):
+        create_mapped_dataset_splits(
+            root,
+            {
+                "train": ["scene~0001"],
+                "val": ["scene~0002"],
+            },
+        )
+
+    assert list_dataset_splits(root) == []
+
+
+def test_create_mapped_dataset_splits_rejects_cross_split_duplicates(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    writer = DatasetWriter(root, head=sample_head(name="RGB"))
+    writer.get_path("/scene/0001", "0001.png").write_bytes(b"data")
+    writer.save_index()
+
+    with pytest.raises(ValueError, match="assigned to both"):
+        create_mapped_dataset_splits(
+            root,
+            {
+                "train": ["scene~0001"],
+                "val": ["scene~0001"],
             },
         )
 

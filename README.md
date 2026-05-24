@@ -288,6 +288,30 @@ only difference is that the applicable hierarchy level is the root rather than
 `scene:<id>` or `camera:<id>`. Do not add a `hierarchy.regex` for this case;
 there is no path segment to extract.
 
+Use `indexing.id.override` when the matched file's natural name is not the
+logical calibration slot. For example, a file named `calib.json` or a UUID JSON
+can be indexed as `intrinsics`, `extrinsics`, or `calibration`:
+
+```json
+{
+  "indexing": {
+    "id": {
+      "regex": "^(calib)\\.json$",
+      "join_char": "+",
+      "override": "intrinsics"
+    }
+  }
+}
+```
+
+The override replaces the ID extracted by `id.regex` after the regex has
+matched. This matters for hierarchical modalities because downstream consumers
+use the file ID as the semantic key, and repeated IDs at different ancestor
+levels intentionally mean "the deeper file overrides the shallower one". Do not
+set `id.override` when multiple distinct files can exist at the same hierarchy
+level; they would all receive the same ID and ds-crawler will treat all but one
+as duplicates.
+
 ### 4. Create named split artifacts
 
 ```python
@@ -370,6 +394,26 @@ create_hierarchy_dataset_splits(
 Directory and `.zip` datasets are both supported. With multiple source paths,
 the split rules are applied to the intersection of hierarchy-qualified IDs so
 the generated split artifacts stay aligned across modalities.
+
+To split from an explicit JSON mapping of split name to full qualified file
+IDs, use `create_mapped_dataset_splits`:
+
+```python
+from ds_crawler import create_mapped_dataset_splits
+
+create_mapped_dataset_splits(
+    "/data/foggy_rgb",
+    {
+        "fog": ["camera_0~fog~day~0001", "camera_1~fog~day~0002"],
+        "clear": ["camera_0~clear~day~0003"],
+    },
+)
+```
+
+String IDs are split by `qualified_id_separator="~"` into
+`(*hierarchy_keys, file_id)`. If a path segment itself contains `~`, pass that
+ID as a JSON array of path segments instead. All requested IDs are validated
+before writing, so an invalid mapping never leaves partial split artifacts.
 
 ### 5. Write generated outputs back to disk
 
@@ -624,6 +668,7 @@ Operations:
 - `create_dataset_splits(...)`
 - `create_aligned_dataset_splits(...)`
 - `create_hierarchy_dataset_splits(...)`
+- `create_mapped_dataset_splits(...)`
 - `list_dataset_splits(...)`
 - `load_dataset_split(...)`
 

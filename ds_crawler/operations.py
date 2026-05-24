@@ -93,6 +93,137 @@ def _normalize_split_names(split_names: list[str]) -> list[str]:
     return normalized
 
 
+def _format_qualified_id(
+    qualified_id: tuple[str, ...],
+    *,
+    separator: str,
+) -> str:
+    return separator.join(qualified_id)
+
+
+def _resolve_mapping_qualified_id(
+    value: Any,
+    *,
+    available_ids: set[tuple[str, ...]],
+    separator: str,
+) -> tuple[str, ...]:
+    """Normalize one user-provided qualified ID from a JSON mapping."""
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            raise ValueError("Qualified ID mapping values must be non-empty")
+
+        candidates: list[tuple[str, ...]] = []
+        if separator in raw:
+            split_candidate = tuple(raw.split(separator))
+            if any(part == "" for part in split_candidate):
+                raise ValueError(
+                    f"Qualified ID {raw!r} contains an empty path segment"
+                )
+            candidates.append(split_candidate)
+        candidates.append((raw,))
+
+        matches: list[tuple[str, ...]] = []
+        for candidate in candidates:
+            if candidate in available_ids and candidate not in matches:
+                matches.append(candidate)
+
+        if len(matches) > 1:
+            raise ValueError(
+                f"Qualified ID {raw!r} is ambiguous. Pass it as a JSON array "
+                "of path segments to disambiguate."
+            )
+        return matches[0] if matches else candidates[0]
+
+    if isinstance(value, (list, tuple)):
+        if not value:
+            raise ValueError("Qualified ID path segment arrays must be non-empty")
+        parts: list[str] = []
+        for part in value:
+            if not isinstance(part, str) or part == "":
+                raise ValueError(
+                    "Qualified ID path segment arrays must contain only "
+                    "non-empty strings"
+                )
+            parts.append(part)
+        return tuple(parts)
+
+    raise ValueError(
+        "Qualified ID mapping values must be strings or arrays of path segments"
+    )
+
+
+def _normalize_split_mapping(
+    split_mapping: dict[str, Any],
+    *,
+    available_ids: set[tuple[str, ...]],
+    separator: str,
+) -> tuple[list[str], list[set[tuple[str, ...]]]]:
+    """Validate ``{split_name: [qualified_id, ...]}`` input."""
+    if not isinstance(separator, str) or not separator:
+        raise ValueError("qualified_id_separator must be a non-empty string")
+    if not isinstance(split_mapping, dict) or not split_mapping:
+        raise ValueError("split_mapping must be a non-empty object")
+
+    raw_names = list(split_mapping.keys())
+    normalized_names = _normalize_split_names(raw_names)
+    id_owner: dict[tuple[str, ...], str] = {}
+    split_sets: list[set[tuple[str, ...]]] = []
+
+    for raw_name, split_name in zip(raw_names, normalized_names):
+        raw_values = split_mapping[raw_name]
+        if not isinstance(raw_values, list) or not raw_values:
+            raise ValueError(
+                f"Split mapping for {split_name!r} must be a non-empty array"
+            )
+
+        split_ids: set[tuple[str, ...]] = set()
+        for raw_value in raw_values:
+            qualified_id = _resolve_mapping_qualified_id(
+                raw_value,
+                available_ids=available_ids,
+                separator=separator,
+            )
+            display_id = _format_qualified_id(
+                qualified_id,
+                separator=separator,
+            )
+            if qualified_id in split_ids:
+                raise ValueError(
+                    f"Qualified ID {display_id!r} is duplicated in split "
+                    f"{split_name!r}"
+                )
+            existing_owner = id_owner.get(qualified_id)
+            if existing_owner is not None:
+                raise ValueError(
+                    f"Qualified ID {display_id!r} is assigned to both "
+                    f"{existing_owner!r} and {split_name!r}"
+                )
+
+            split_ids.add(qualified_id)
+            id_owner[qualified_id] = split_name
+
+        split_sets.append(split_ids)
+
+    requested_ids = set().union(*split_sets) if split_sets else set()
+    missing_ids = requested_ids - available_ids
+    if missing_ids:
+        preview = [
+            _format_qualified_id(qualified_id, separator=separator)
+            for qualified_id in sorted(missing_ids)[:10]
+        ]
+        suffix = (
+            f" (showing first 10 of {len(missing_ids)})"
+            if len(missing_ids) > 10 else ""
+        )
+        raise ValueError(
+            f"{len(missing_ids)} qualified ID(s) from split_mapping are not "
+            f"present in every source dataset. Examples: {preview}{suffix}"
+        )
+
+    return normalized_names, split_sets
+
+
 def _normalize_hierarchy_split_rules(
     hierarchy_rules: dict[str, Any] | list[dict[str, Any]],
     *,
@@ -780,6 +911,99 @@ def create_aligned_dataset_splits(
                     metadata_scope=metadata_scope,
                 )
             )
+        split_results = _write_split_payloads_batch(
+            src,
+            split_payloads,
+            metadata_scope=metadata_scope,
+        )
+
+        per_source_results.append({
+            "source": str(src),
+            "total_ids": len(qids),
+            "selected_ids": len(selected_qualified_ids),
+            "excluded_ids": len(qids - common_ids),
+            "splits": split_results,
+        })
+
+    return {
+        "common_ids": common_ids,
+        "selected_qualified_ids": selected_qualified_ids,
+        "unassigned_qualified_ids": unassigned_qualified_ids,
+        "qualified_id_splits": id_splits,
+        "per_source": per_source_results,
+    }
+
+
+def create_mapped_dataset_splits(
+    source_paths: str | Path | list[str | Path],
+    split_mapping: dict[str, Any],
+    *,
+    qualified_id_separator: str = "~",
+    metadata_scope: str | None = None,
+) -> dict[str, Any]:
+    """Create inline split metadata from an explicit qualified-ID mapping.
+
+    ``split_mapping`` has the JSON-friendly shape
+    ``{"train": ["scene~0001", "scene~0002"], "val": [...]}``.
+    String IDs are split by *qualified_id_separator* into
+    ``(*hierarchy_keys, file_id)`` tuples.  Individual IDs may also be
+    provided as arrays of path segments, e.g. ``["scene", "0001"]``, when a
+    raw segment itself contains the separator.
+
+    All requested IDs are validated against the common qualified-ID set across
+    *source_paths* before any split artifact is written.
+    """
+    if isinstance(source_paths, (str, Path)):
+        sources = [Path(source_paths)]
+    else:
+        sources = [Path(path) for path in source_paths]
+    if not sources:
+        raise ValueError("source_paths must be non-empty")
+
+    indices: list[dict[str, Any]] = []
+    per_source_ids: list[set[tuple[str, ...]]] = []
+    for src in sources:
+        index = _ensure_output_index(src, metadata_scope=metadata_scope)
+        indices.append(index)
+        qids = _collect_qualified_ids(index)
+        per_source_ids.append(qids)
+        logger.info(
+            "Loaded index for %s: %d qualified IDs", src, len(qids),
+        )
+
+    common_ids = set(per_source_ids[0])
+    for qids in per_source_ids[1:]:
+        common_ids &= qids
+    logger.info(
+        "Mapped split intersection across %d sources: %d common qualified IDs",
+        len(sources), len(common_ids),
+    )
+
+    split_names, id_splits = _normalize_split_mapping(
+        split_mapping,
+        available_ids=common_ids,
+        separator=qualified_id_separator,
+    )
+    selected_qualified_ids = set().union(*id_splits) if id_splits else set()
+    unassigned_qualified_ids = common_ids - selected_qualified_ids
+
+    per_source_results: list[dict[str, Any]] = []
+    for src, index, qids in zip(sources, indices, per_source_ids):
+        split_payloads: list[dict[str, Any]] = []
+        for split_name, split_ids in zip(split_names, id_splits):
+            payload = _build_split_index_payload(
+                src,
+                index,
+                split_name,
+                split_ids,
+                execution={
+                    "allocation_mode": "qualified_id_mapping",
+                    "qualified_id_separator": qualified_id_separator,
+                },
+                metadata_scope=metadata_scope,
+            )
+            payload["mapped_ids"] = len(split_ids)
+            split_payloads.append(payload)
         split_results = _write_split_payloads_batch(
             src,
             split_payloads,
