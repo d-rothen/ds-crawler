@@ -115,7 +115,44 @@ For a self-contained example that creates a temporary dataset, see
 
 ## Artifact layout
 
-Every indexed dataset stores metadata below `.ds_crawler/`:
+For a physical root containing several logical modalities, prefer the scoped
+layout. Each modality gets a complete, isolated artifact set and `scopes.json`
+provides the discovery manifest:
+
+```text
+foggy_rgb/
+├── .ds_crawler/
+│   ├── scopes.json
+│   ├── rgb/
+│   │   ├── dataset-head.json
+│   │   ├── ds-crawler.json
+│   │   ├── index.json
+│   │   └── split_train.json
+│   └── camera_extrinsics/
+│       ├── dataset-head.json
+│       ├── ds-crawler.json
+│       └── index.json
+└── ...
+```
+
+Pass `metadata_scope="rgb"` (or another safe modality name) to path-based APIs
+to read and write `.ds_crawler/rgb/`. Scoped writes maintain `scopes.json`
+automatically.
+
+For a root with just one logical dataset, the compact unscoped layout remains
+supported:
+
+```text
+foggy_rgb/
+├── .ds_crawler/
+│   ├── dataset-head.json
+│   ├── ds-crawler.json
+│   ├── index.json
+│   └── split_train.json
+└── ...
+```
+
+The files in either artifact set are:
 
 | File | Purpose |
 |---|---|
@@ -123,10 +160,6 @@ Every indexed dataset stores metadata below `.ds_crawler/`:
 | `ds-crawler.json` | Source and indexing recipe. |
 | `index.json` | Materialized recursive file index. |
 | `split_<name>.json` | A named, filtered index with provenance. |
-
-Several logical modalities can share one physical root. Pass
-`metadata_scope="rgb"` (or another safe scope name) to path-based APIs to use
-`.ds_crawler/rgb/`; scoped writes also maintain `.ds_crawler/scopes.json`.
 
 See [the configuration reference](docs/configuration.md) for every supported
 field, artifact shape, path filter, and hierarchy pattern.
@@ -268,8 +301,7 @@ uv build
 Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a change. To
 report a vulnerability, follow [SECURITY.md](SECURITY.md).
 
-## License status
+## License
 
-This repository does not yet declare a software license. A maintainer must
-select and add an open-source license before the project is represented or
-distributed as open-source software.
+Licensed under the [MIT License](LICENSE). Copyright © 2026 Daniel Rothenpieler
+<rothenpielerdaniel@gmail.com>.

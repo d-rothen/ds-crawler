@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 SDIST_FILES = {
     ".gitignore",
     "CONTRIBUTING.md",
+    "LICENSE",
     "PKG-INFO",
     "README.md",
     "SECURITY.md",

@@ -3,9 +3,11 @@ name = "ds-crawler"
 version = "2.10.0"
 description = "Regex-based dataset crawler, indexer, and artifact toolkit"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.9"
 authors = [
-  { name = "Daniel Rothenpieler" },
+  { name = "Daniel Rothenpieler", email = "rothenpielerdaniel@gmail.com" },
 ]
 keywords = ["dataset", "indexing", "metadata", "machine-learning", "zip"]
 classifiers = [
@@ -55,6 +57,7 @@ packages = ["ds_crawler", "meta"]
 [tool.hatch.build.targets.sdist]
 only-include = [
   "CONTRIBUTING.md",
+  "LICENSE",
   "SECURITY.md",
   "ds_crawler",
   "docs",
