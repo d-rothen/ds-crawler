@@ -1,20 +1,14 @@
-"""Dataset writers for constructing output directories/archives and index files.
+"""Dataset writers for constructing output directories, archives, and metadata.
 
 Provides :class:`DatasetWriter` (filesystem) and :class:`ZipDatasetWriter`
 (ZIP archive), both backed by :class:`_BaseDatasetWriter` which handles
-index accumulation and ``output.json`` generation.
+index accumulation and canonical artifact generation.
 
 Typical usage with ``euler-loading``::
 
     from ds_crawler import DatasetWriter
 
-    writer = DatasetWriter(
-        "/output/segmentation",
-        name="segmentation",
-        type="segmentation",
-        euler_train={"used_as": "target", "modality_type": "semantic"},
-        separator=":",
-    )
+    writer = DatasetWriter("/output/segmentation", head=dataset_head)
 
     for sample in dataloader:
         prediction = model(sample["rgb"], sample["depth"])
@@ -24,7 +18,7 @@ Typical usage with ``euler-loading``::
         )
         save_image(prediction, out_path)
 
-    writer.save_index()  # writes .ds_crawler/output.json
+    writer.save_index()  # writes the canonical .ds_crawler artifacts
 
 ZIP output::
 
@@ -32,10 +26,7 @@ ZIP output::
 
     with ZipDatasetWriter(
         "/output/segmentation.zip",
-        name="segmentation",
-        type="segmentation",
-        euler_train={"used_as": "target", "modality_type": "semantic"},
-        separator=":",
+        head=dataset_head,
     ) as writer:
         for sample in dataloader:
             with writer.open(
@@ -212,7 +203,7 @@ def _split_hierarchy_key(
 
 
 class _BaseDatasetWriter:
-    """Shared logic for accumulating file entries and building ``output.json``.
+    """Shared logic for accumulating file entries and building an index.
 
     Not intended for direct use.  Subclass and provide a storage-specific
     write interface (filesystem paths or ZIP entries).
@@ -276,27 +267,13 @@ class _BaseDatasetWriter:
         *,
         source_entry: dict[str, Any] | None = None,
         attributes: dict[str, Any] | None = None,
-        source_meta: dict[str, Any] | None = None,
     ) -> tuple[str, list[str]]:
         """Parse *full_id*, record the entry, return ``(rel_path_str, hierarchy_keys)``.
 
         This is the shared core of both :meth:`DatasetWriter.get_path` and
         :meth:`ZipDatasetWriter.open` / :meth:`ZipDatasetWriter.write`.
 
-        ``source_meta`` is the deprecated name for ``source_entry`` and is
-        kept as an alias for one release.  The kwarg always referred to a
-        source *file entry* dict, never a dedicated meta field.
         """
-        if source_meta is not None:
-            if source_entry is not None:
-                raise TypeError(
-                    "Pass either source_entry= or the deprecated source_meta=, not both."
-                )
-            logger.debug(
-                "source_meta= is deprecated on writer methods; use source_entry=."
-            )
-            source_entry = source_meta
-
         hierarchy_keys, file_id = _parse_full_id(full_id)
 
         # --- Build directory segments and path_properties ---------------
@@ -421,28 +398,31 @@ class _BaseDatasetWriter:
 
 
 class DatasetWriter(_BaseDatasetWriter):
-    """Accumulates file entries and produces ``output.json``-compatible output.
+    """Accumulate files in a directory and produce canonical metadata.
 
     Each call to :meth:`get_path` registers a file entry and returns the
     absolute path where the caller should write the actual data.  When all
     files have been written, :meth:`save_index` persists the accumulated
-    index as ``.ds_crawler/output.json`` — ready for consumption by
+    ``dataset-head.json``, ``ds-crawler.json``, and ``index.json`` artifacts,
+    ready for consumption by
     :func:`~ds_crawler.parser.index_dataset_from_path`,
     :func:`~ds_crawler.parser.align_datasets`, or
     ``euler_loading.MultiModalDataset``.
 
     Args:
         root: Output directory.  Subdirectories are created as needed.
+        head: Canonical dataset-head contract. When omitted, ``name`` and
+            ``type`` are required and a head is built from the remaining
+            metadata arguments.
         name: Dataset name (written to the index).
         type: Semantic label for the data modality (e.g. ``"rgb"``,
             ``"depth"``).
-        euler_train: Training metadata dict.  Must contain at least
-            ``used_as`` and ``modality_type``.
+        euler_train: Optional training addon metadata.
         euler_layout: Optional layout addon describing sample and variant
             axes for layout-aware loaders.
         separator: The character used to join hierarchy key names and
             values (e.g. ``":"`` for ``"scene:Scene01"``).  Should match
-            the ``named_capture_group_value_separator`` of the source
+            the ``indexing.hierarchy.separator`` of the source
             datasets.  Pass ``None`` for unnamed hierarchy keys.
         **properties: Arbitrary extra metadata written to the index
             (e.g. ``gt=False``, ``model="MyModel"``).
@@ -459,7 +439,6 @@ class DatasetWriter(_BaseDatasetWriter):
         *,
         source_entry: dict[str, Any] | None = None,
         attributes: dict[str, Any] | None = None,
-        source_meta: dict[str, Any] | None = None,
     ) -> Path:
         """Register a file entry and return the absolute path to write to.
 
@@ -484,8 +463,6 @@ class DatasetWriter(_BaseDatasetWriter):
                 hash, noise level).  Stored verbatim on the entry under
                 the ``"attributes"`` key.  When omitted, falls back to
                 ``source_entry["attributes"]`` if present.
-            source_meta: Deprecated alias for *source_entry*.
-
         Returns:
             Absolute :class:`~pathlib.Path` to the file.  Parent
             directories are created automatically.
@@ -495,7 +472,6 @@ class DatasetWriter(_BaseDatasetWriter):
             basename,
             source_entry=source_entry,
             attributes=attributes,
-            source_meta=source_meta,
         )
         abs_path = self._root / rel_path_str
         abs_path.parent.mkdir(parents=True, exist_ok=True)
@@ -654,7 +630,6 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         *,
         source_entry: dict[str, Any] | None = None,
         attributes: dict[str, Any] | None = None,
-        source_meta: dict[str, Any] | None = None,
     ) -> _ZipEntryFile:
         """Register a file entry and return a writable file-like object.
 
@@ -671,8 +646,6 @@ class ZipDatasetWriter(_BaseDatasetWriter):
             source_entry: Optional source file entry dict.
             attributes: Optional dict of arbitrary per-file metadata
                 stored under ``"attributes"`` on the new entry.
-            source_meta: Deprecated alias for *source_entry*.
-
         Returns:
             A writable :class:`io.BytesIO` subclass that writes into
             the ZIP on ``.close()``.
@@ -684,7 +657,6 @@ class ZipDatasetWriter(_BaseDatasetWriter):
             basename,
             source_entry=source_entry,
             attributes=attributes,
-            source_meta=source_meta,
         )
         entry_name = rel_path_str.replace("\\", "/")
         compress = self._compress_type_for(basename)
@@ -698,7 +670,6 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         *,
         source_entry: dict[str, Any] | None = None,
         attributes: dict[str, Any] | None = None,
-        source_meta: dict[str, Any] | None = None,
     ) -> None:
         """Register a file entry and write raw bytes into the archive.
 
@@ -711,7 +682,6 @@ class ZipDatasetWriter(_BaseDatasetWriter):
             data: Raw file contents.
             source_entry: Optional source file entry dict.
             attributes: Optional dict of arbitrary per-file metadata.
-            source_meta: Deprecated alias for *source_entry*.
         """
         if self._closed:
             raise RuntimeError("ZipDatasetWriter is closed")
@@ -720,7 +690,6 @@ class ZipDatasetWriter(_BaseDatasetWriter):
             basename,
             source_entry=source_entry,
             attributes=attributes,
-            source_meta=source_meta,
         )
         entry_name = rel_path_str.replace("\\", "/")
         compress = self._compress_type_for(basename)

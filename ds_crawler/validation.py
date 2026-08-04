@@ -25,7 +25,6 @@ from .config import (
 from .path_filters import PathFilters
 from .zip_utils import DATASET_HEAD_FILENAME, OUTPUT_FILENAME, read_metadata_json
 
-
 DATASET_INDEX_KIND = "dataset_index"
 DATASET_INDEX_VERSION = "1.0"
 

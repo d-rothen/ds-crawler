@@ -20,7 +20,11 @@ from ds_crawler.migration import (
     migrate_dataset_zips_in_folder,
     migrate_inline_splits,
 )
-from ds_crawler.zip_utils import DATASET_HEAD_FILENAME, OUTPUT_FILENAME, read_metadata_json
+from ds_crawler.zip_utils import (
+    DATASET_HEAD_FILENAME,
+    OUTPUT_FILENAME,
+    read_metadata_json,
+)
 
 
 def _sample_head() -> dict:

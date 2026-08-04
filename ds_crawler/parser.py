@@ -109,8 +109,8 @@ class DatasetParser:
 
         Args:
             config: Loaded configuration.
-            strict: If True, abort on duplicate IDs or excessive regex
-                misses instead of warning and continuing.
+            strict: If True, abort on duplicate IDs instead of warning and
+                continuing.
             sample: If set, keep only every *sample*-th regex-matched file
                 (after sorting for deterministic ordering).
             match_index: If set, a dataset output dict whose file IDs are
@@ -495,66 +495,6 @@ class DatasetParser:
 
         return _get_hierarchy_keys(match, ds_config.named_capture_group_value_separator)
 
-    def _process_camera_files(
-        self,
-        files: list[Path],
-        base_path: Path,
-        ds_config: DatasetConfig,
-        dataset_root: dict,
-        camera_type: str,
-    ) -> int:
-        """Process intrinsics or extrinsics files and place paths in hierarchy.
-
-        Matches files against the intrinsics/extrinsics regex, extracts
-        hierarchy keys, and stores the relative file path at the appropriate
-        hierarchy level. The file content is NOT read — the consumer is
-        responsible for reading the file in whatever format it uses.
-
-        Args:
-            files: List of all files in the dataset
-            base_path: Base path of the dataset
-            ds_config: Dataset configuration
-            dataset_root: Root node of the hierarchy
-            camera_type: Either "intrinsics" or "extrinsics"
-
-        Returns:
-            Number of camera files processed
-        """
-        if camera_type == "intrinsics":
-            regex = ds_config.compiled_intrinsics_regex
-        elif camera_type == "extrinsics":
-            regex = ds_config.compiled_extrinsics_regex
-        else:
-            return 0
-
-        if not regex:
-            return 0
-
-        count = 0
-        key_name = f"camera_{camera_type}"
-
-        for file_path in files:
-            relative_path = file_path.relative_to(base_path)
-            path_str = str(relative_path)
-            if not ds_config.matches_path_filters(path_str):
-                continue
-
-            match = regex.match(path_str)
-            if not match:
-                continue
-
-            # Get hierarchy keys from the match
-            hierarchy_keys = _get_hierarchy_keys(
-                match, ds_config.named_capture_group_value_separator
-            )
-
-            # Place the relative path at the appropriate hierarchy level
-            target_node = _ensure_hierarchy_path(dataset_root, hierarchy_keys)
-            target_node[key_name] = path_str
-            count += 1
-
-        return count
-
     def _process_file(
         self,
         file_path: Path,
@@ -716,7 +656,7 @@ def index_dataset(
 
     Args:
         config: A dataset configuration dict.
-        strict: Abort on duplicate IDs or excessive regex misses.
+        strict: Abort on duplicate IDs.
         save_index: If True, persist the output as ``index.json`` in the
             dataset's root directory.
         sample: If set, keep only every *sample*-th regex-matched file
@@ -770,7 +710,7 @@ def index_dataset_from_files(
         base_path: Root path used to compute relative paths for regex
             matching.  Defaults to the ``path`` key in *config* when
             *None*.
-        strict: Abort on duplicate IDs or excessive regex misses.
+        strict: Abort on duplicate IDs.
         sample: If set, keep only every *sample*-th regex-matched file
             (after sorting for deterministic ordering).
         match_index: If set, a dataset output dict whose file IDs are
@@ -809,7 +749,7 @@ def index_dataset_from_path(
 
     Args:
         path: Root directory (or ``.zip`` file) of the dataset.
-        strict: Abort on duplicate IDs or excessive regex misses.
+        strict: Abort on duplicate IDs.
         save_index: If True, persist the output as ``index.json`` in the
             dataset's root directory (or inside the ZIP archive).
         force_reindex: If False (default) and ``index.json`` already exists

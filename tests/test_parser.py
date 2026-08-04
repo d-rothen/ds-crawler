@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from ds_crawler import get_files, index_dataset_from_files, index_dataset_from_path
 
 from .current_helpers import create_files, sample_config, write_crawler_metadata

@@ -12,7 +12,12 @@ from ._dataset_contract import (
     parse_dataset_head,
 )
 from .artifacts import build_index_artifact
-from .config import CONFIG_FILENAME, CRAWLER_CONFIG_KIND, CRAWLER_CONFIG_VERSION, DatasetConfig
+from .config import (
+    CONFIG_FILENAME,
+    CRAWLER_CONFIG_KIND,
+    CRAWLER_CONFIG_VERSION,
+    DatasetConfig,
+)
 from .parser import index_dataset_from_files
 from .traversal import get_files
 from .zip_utils import (

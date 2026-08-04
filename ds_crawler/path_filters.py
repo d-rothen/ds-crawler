@@ -6,7 +6,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-
 _ALLOWED_KEYS: frozenset[str] = frozenset({
     "include_regex",
     "exclude_regex",

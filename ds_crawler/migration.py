@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ._dataset_contract import DATASET_CONTRACT_VERSION, parse_dataset_head
+from ._version import get_package_version
 from .artifacts import (
     DATASET_SPLIT_KIND,
     build_index_artifact,
@@ -20,18 +21,16 @@ from .config import (
     DatasetConfig,
 )
 from .validation import DATASET_INDEX_KIND, DATASET_INDEX_VERSION, validate_output
-from ._version import get_package_version
 from .zip_utils import (
     DATASET_HEAD_FILENAME,
-    OUTPUT_FILENAME,
     METADATA_DIR,
+    OUTPUT_FILENAME,
     is_zip_path,
     list_metadata_json_filenames,
     read_metadata_json,
-    write_metadata_json_batch,
     write_metadata_json,
+    write_metadata_json_batch,
 )
-
 
 _LEGACY_STRUCTURAL_KEYS = frozenset({
     "dataset_contract_version",

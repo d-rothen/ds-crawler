@@ -4,8 +4,8 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Iterator
 
-from .base import BaseHandler
 from ..zip_utils import _detect_root_prefix, _matches_zip_stem
+from .base import BaseHandler
 
 
 class ZipHandler(BaseHandler):

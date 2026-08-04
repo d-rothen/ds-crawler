@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from meta.build_meta_schema import build_schema
 
 
 class TestMetaSchema:
+    def test_checked_in_schema_is_current(self) -> None:
+        schema_path = Path(__file__).parents[1] / "meta" / "schema.json"
+
+        assert json.loads(schema_path.read_text()) == build_schema()
+
     def test_dimensions_schema_supports_dynamic_form_hints(self) -> None:
         schema = build_schema()
         dimensions = schema["properties"]["rgb"]["properties"]["dimensions"]

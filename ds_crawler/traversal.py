@@ -2,7 +2,7 @@
 
 Pure functions that walk the nested ``children`` / ``files`` structure
 produced by :class:`~ds_crawler.parser.DatasetParser` and returned in
-``output.json`` dicts.  These functions have no dependencies on the
+hydrated index dictionaries. These functions have no dependencies on the
 rest of the package — they operate on plain dicts.
 """
 
@@ -13,7 +13,6 @@ import random
 from numbers import Real
 from typing import Any
 
-
 _RATIO_EPSILON = 1e-9
 
 
@@ -21,9 +20,6 @@ def _get_index_node(output_json: dict[str, Any]) -> dict[str, Any]:
     node = output_json.get("index")
     if isinstance(node, dict):
         return node
-    legacy = output_json.get("dataset")
-    if isinstance(legacy, dict):
-        return legacy
     return {}
 
 

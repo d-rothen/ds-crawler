@@ -9,11 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from ._dataset_contract import (
-    DATASET_CONTRACT_VERSION,
     DatasetHeadContract,
-    normalize_meta_dict as _normalize_meta_dict,
     parse_dataset_head,
     validate_contract_version,
+)
+from ._dataset_contract import (
+    normalize_meta_dict as _normalize_meta_dict,
 )
 from .path_filters import PathFilters
 from .zip_utils import (
@@ -21,7 +22,6 @@ from .zip_utils import (
     read_metadata_json,
     validate_metadata_scope,
 )
-
 
 CONFIG_FILENAME = "ds-crawler.json"
 CRAWLER_CONFIG_KIND = "ds_crawler_config"

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Generate ``schema.json`` from the shared dataset-contract registry."""
 
 from __future__ import annotations

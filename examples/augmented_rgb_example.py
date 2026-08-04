@@ -34,7 +34,6 @@ from pathlib import Path
 
 from ds_crawler import index_dataset_from_files
 
-
 RGB_CONFIG = {
     "contract": {"kind": "ds_crawler_config", "version": "2.0"},
     "name": "Augmented RGB",

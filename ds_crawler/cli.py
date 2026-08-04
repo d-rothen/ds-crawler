@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Dataset crawler main entry point."""
 
 import argparse
@@ -69,7 +68,7 @@ def _run_index(argv: list[str]) -> int:
         "-s",
         "--strict",
         action="store_true",
-        help="Strict mode: abort on duplicate IDs or excessive regex misses.",
+        help="Strict mode: abort on duplicate IDs.",
     )
     parser.add_argument(
         "--sample",

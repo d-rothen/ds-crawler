@@ -7,7 +7,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ._dataset_contract import DATASET_HEAD_KIND, DatasetHeadContract, parse_dataset_head
+from ._dataset_contract import (
+    DATASET_HEAD_KIND,
+    DatasetHeadContract,
+    parse_dataset_head,
+)
 from .config import CONFIG_FILENAME
 from .zip_utils import DATASET_HEAD_FILENAME, read_metadata_json
 

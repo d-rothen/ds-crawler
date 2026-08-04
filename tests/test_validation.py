@@ -2,9 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ds_crawler import create_dataset_splits, get_dataset_contract, index_dataset_from_files
-from ds_crawler.validation import validate_dataset, validate_output, validate_split_artifact
 import pytest
+
+from ds_crawler import (
+    create_dataset_splits,
+    get_dataset_contract,
+    index_dataset_from_files,
+)
+from ds_crawler.validation import (
+    validate_dataset,
+    validate_output,
+    validate_split_artifact,
+)
 
 from .current_helpers import create_files, sample_config, write_crawler_metadata
 

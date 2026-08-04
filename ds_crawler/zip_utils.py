@@ -11,7 +11,6 @@ from pathlib import Path
 from posixpath import normpath
 from typing import Any
 
-
 METADATA_DIR = ".ds_crawler"
 DATASET_HEAD_FILENAME = "dataset-head.json"
 INDEX_FILENAME = "index.json"

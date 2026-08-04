@@ -7,7 +7,6 @@ These functions compose the traversal utilities from
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 from dataclasses import dataclass
@@ -33,6 +32,7 @@ from .traversal import (
     get_files,
     split_qualified_ids,
 )
+from .validation import validate_split_artifact
 from .zip_utils import (
     COMPRESSED_EXTENSIONS,
     DATASET_HEAD_FILENAME,
@@ -44,16 +44,11 @@ from .zip_utils import (
     list_split_names,
     read_metadata_json,
     validate_split_name,
-    write_metadata_json_batch,
     write_metadata_json,
+    write_metadata_json_batch,
 )
-from .validation import validate_split_artifact
 
 logger = logging.getLogger(__name__)
-
-# Backwards-compatible alias
-_COMPRESSED_EXTENSIONS = COMPRESSED_EXTENSIONS
-
 
 # ---------------------------------------------------------------------------
 # Inline splits
@@ -1405,7 +1400,7 @@ def copy_dataset(
                 suffix = Path(rel_path_str).suffix.lower()
                 compress = (
                     zipfile.ZIP_STORED
-                    if suffix in _COMPRESSED_EXTENSIONS
+                    if suffix in COMPRESSED_EXTENSIONS
                     else zipfile.ZIP_DEFLATED
                 )
                 dst_zf.writestr(
@@ -1863,8 +1858,7 @@ def extract_datasets(
             ``path`` key.
         output_paths: Destination directories (or ``.zip`` archives),
             one per config entry.  Created if they do not exist.
-        strict: Abort on duplicate IDs or excessive regex misses during
-            indexing.
+        strict: Abort on duplicate IDs during indexing.
         sample: Keep only every *sample*-th regex-matched file during
             indexing (deterministic subsampling).
         match_index: External filter -- only files whose ID appears in

@@ -10,7 +10,6 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Mapping
 
-
 EULER_LAYOUT_ADDON = "euler_layout"
 EULER_LAYOUT_VERSION = "1.0"
 AXIS_LOCATIONS = {"file_id", "hierarchy", "attributes"}

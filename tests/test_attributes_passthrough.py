@@ -9,17 +9,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 from ds_crawler import (
     DatasetWriter,
     align_datasets,
     copy_dataset,
     create_dataset_splits,
-    extract_datasets,
     index_dataset_from_path,
     load_dataset_split,
-    split_dataset,
 )
 from ds_crawler.traversal import filter_index_by_qualified_ids
 
@@ -104,7 +100,7 @@ def test_attributes_survive_create_and_load_split(tmp_path: Path) -> None:
 
 def test_attributes_survive_filter_by_qualified_ids(tmp_path: Path) -> None:
     rgb_root = tmp_path / "rgb"
-    out = _build_writer_with_attributes(rgb_root)
+    _build_writer_with_attributes(rgb_root)
     output = index_dataset_from_path(rgb_root)
 
     filtered = filter_index_by_qualified_ids(

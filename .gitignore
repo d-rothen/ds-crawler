@@ -1,7 +1,23 @@
-__pycache__
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.coverage
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+
+# Editors and operating systems
 .DS_Store
 .vscode/
+
+# Local tooling and agent state
+.ao-mcp/
+.ao-provider-auth/
 .claude/
-/.pytest_cache
-SHOULD_MATCH
+
+# Local datasets and scratch output
 /cluster/
+/SHOULD_MATCH

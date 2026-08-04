@@ -37,13 +37,13 @@ def test_zip_dataset_writer_saves_canonical_artifacts(tmp_path: Path) -> None:
     assert loaded["head"]["dataset"]["name"] == "Segmentation"
 
 
-def test_dataset_writer_get_path_uses_hierarchy_values_and_source_meta(tmp_path: Path) -> None:
+def test_dataset_writer_get_path_uses_hierarchy_values_and_source_entry(tmp_path: Path) -> None:
     root = tmp_path / "dataset"
     writer = DatasetWriter(root, head=sample_head(name="Segmentation", modality="rgb"))
     path = writer.get_path(
         "/scene:Scene01/cam:Cam0/0001",
         "0001.png",
-        source_meta={
+        source_entry={
             "path_properties": {"scene": "override_scene"},
             "basename_properties": {"frame": "0001", "ext": "png"},
         },
@@ -126,36 +126,6 @@ def test_explicit_attributes_override_source_entry_attributes(tmp_path: Path) ->
     ).write_bytes(b"data")
     entry = _first_file_entry(writer.build_output(), "scene")
     assert entry["attributes"] == {"src": "houdini"}
-
-
-def test_source_meta_alias_still_works(tmp_path: Path) -> None:
-    """``source_meta`` is the deprecated kwarg name for ``source_entry``."""
-    root = tmp_path / "dataset"
-    writer = DatasetWriter(root, head=sample_head(name="Aug", modality="rgb"))
-    writer.get_path(
-        "/scene/0001", "0001.png",
-        source_meta={
-            "path_properties": {"scene": "Scene01"},
-            "basename_properties": {"ext": "png"},
-            "attributes": {"src": "deprecated_kwarg"},
-        },
-    ).write_bytes(b"data")
-    entry = _first_file_entry(writer.build_output(), "scene")
-    assert entry["path_properties"] == {"scene": "Scene01"}
-    assert entry["attributes"] == {"src": "deprecated_kwarg"}
-
-
-def test_passing_both_source_entry_and_source_meta_raises(tmp_path: Path) -> None:
-    import pytest
-
-    root = tmp_path / "dataset"
-    writer = DatasetWriter(root, head=sample_head(name="Aug", modality="rgb"))
-    with pytest.raises(TypeError):
-        writer.get_path(
-            "/scene/0001", "0001.png",
-            source_entry={"path_properties": {}, "basename_properties": {}},
-            source_meta={"path_properties": {}, "basename_properties": {}},
-        )
 
 
 def test_zip_writer_open_records_attributes(tmp_path: Path) -> None:

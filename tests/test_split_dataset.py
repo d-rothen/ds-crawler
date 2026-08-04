@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ds_crawler import DatasetWriter, index_dataset_from_path, split_dataset, split_datasets
+from ds_crawler import (
+    DatasetWriter,
+    index_dataset_from_path,
+    split_dataset,
+    split_datasets,
+)
 from ds_crawler.traversal import collect_qualified_ids
 
 from .current_helpers import sample_head
