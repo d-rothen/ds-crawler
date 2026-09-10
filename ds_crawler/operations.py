@@ -1326,6 +1326,10 @@ def copy_dataset(
         )
 
     assert index is not None  # ensured by the branch above
+    if index.get("head", {}).get("addons", {}).get("euler_transforms", {}).get("version") == "2.0":
+        from .records import copy_materialized_dataset
+        return copy_materialized_dataset(input_path, output_path, index,
+            sample=sample, input_scope=resolved_input_scope, output_scope=resolved_output_scope)
     all_paths = _collect_all_referenced_paths(index)
 
     if sample is not None and sample > 1:

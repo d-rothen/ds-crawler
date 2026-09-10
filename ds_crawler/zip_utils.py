@@ -396,9 +396,73 @@ def read_metadata_json(
     """
     normalized_scope = _normalize_metadata_scope(metadata_scope)
     metadata_filename = get_metadata_filename(
-        filename, metadata_scope=normalized_scope,
+        filename,
+        metadata_scope=normalized_scope,
     )
     new_name = f"{METADATA_DIR}/{metadata_filename}"
+
+    if filename == "publication.json":
+        from euler_dataset_contract.canonical import parse_json
+
+        from .records import read_artifact
+
+        try:
+            return parse_json(read_artifact(dataset_path, new_name).decode("utf-8"))
+        except (FileNotFoundError, KeyError):
+            return None
+
+    if filename != "publication.json":
+        publication = read_metadata_json(
+            dataset_path, "publication.json", metadata_scope=normalized_scope
+        )
+        if publication is not None:
+            import re
+
+            from .config import CONFIG_FILENAME
+
+            if not isinstance(publication, dict):
+                raise ValueError("invalid metadata publication pointer")
+            generation = publication.get("generation", "")
+            if (
+                publication.get("version") != "1.0"
+                or not isinstance(generation, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", generation)
+            ):
+                raise ValueError("invalid metadata publication pointer")
+            files, digests = publication.get("files"), publication.get("digests")
+            if (
+                not isinstance(files, list)
+                or not all(isinstance(p, str) for p in files)
+                or not isinstance(digests, dict)
+                or len(set(files)) != len(files)
+                or set(files) != set(digests)
+                or not {DATASET_HEAD_FILENAME, OUTPUT_FILENAME, CONFIG_FILENAME}
+                <= set(files)
+            ):
+                raise ValueError("incomplete metadata publication inventory")
+            from euler_dataset_contract.canonical import canonical_digest
+
+            if canonical_digest(publication.get("digests", {}))[7:] != generation:
+                raise ValueError("metadata publication digest mismatch")
+            if filename in publication.get("files", []):
+                from euler_dataset_contract.canonical import parse_json
+
+                from .records import read_artifact
+
+                value = parse_json(
+                    read_artifact(
+                        dataset_path,
+                        get_metadata_entry_name(
+                            f"generations/{generation}/{filename}",
+                            metadata_scope=normalized_scope,
+                        ),
+                    ).decode("utf-8")
+                )
+                if canonical_digest(value) != publication["digests"].get(filename):
+                    raise ValueError("published metadata/record digest mismatch")
+                return value
+            if filename.startswith("records/"):
+                raise ValueError("missing receipt record in published generation")
 
     if is_zip_path(dataset_path):
         result = read_json_from_zip(dataset_path, new_name)
@@ -518,6 +582,8 @@ def list_metadata_scopes(dataset_path: Path) -> list[str]:
                 if path.is_dir() and _METADATA_SCOPE_PATTERN.match(path.name)
             )
 
+    if read_metadata_json(dataset_path, "publication.json") is not None:
+        scopes.discard("generations")
     return sorted(scopes)
 
 

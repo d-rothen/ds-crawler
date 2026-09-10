@@ -57,6 +57,11 @@ from .writer import DatasetWriter, ZipDatasetWriter
 from .zip_utils import list_metadata_scopes, validate_metadata_scope
 
 __all__ = [
+    'ValidatedDatasetWriter',
+    'finalize_output',
+    'read_record',
+    'validate_output_records',
+
     "DatasetDescriptor",
     "DatasetWriter",
     "ZipDatasetWriter",
@@ -105,3 +110,10 @@ __all__ = [
     "validate_output",
     "extract_dataset_properties",
 ]
+
+from .records import (  # noqa: F401
+    ValidatedDatasetWriter,
+    finalize_output,
+    read_record,
+    validate_output_records,
+)

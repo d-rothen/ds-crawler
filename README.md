@@ -305,3 +305,5 @@ report a vulnerability, follow [SECURITY.md](SECURITY.md).
 
 Licensed under the [MIT License](LICENSE). Copyright © 2026 Daniel Rothenpieler
 <rothenpielerdaniel@gmail.com>.
+
+See [Phase 2 validated-publication](docs/validated-publication.md) for the opt-in captured spatial workflow (2.11.0, unreleased).

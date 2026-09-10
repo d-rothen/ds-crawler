@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 
 SDIST_FILES = {
     ".gitignore",
+    "CHANGELOG.md",
     "CONTRIBUTING.md",
     "LICENSE",
     "PKG-INFO",
@@ -35,6 +36,7 @@ def _verify_sdist(path: Path) -> None:
         if len(roots) != 1:
             raise ValueError(f"Expected one source root in {path}, found {roots}")
 
+        present = set()
         for member in members:
             if member.issym() or member.islnk():
                 raise ValueError(f"Links are not allowed in {path}: {member.name}")
@@ -42,15 +44,21 @@ def _verify_sdist(path: Path) -> None:
             if len(parts) == 1:
                 continue
             relative = parts[1:]
+            present.add("/".join(relative))
             if relative[0] in SDIST_DIRECTORIES:
                 continue
             if len(relative) == 1 and relative[0] in SDIST_FILES:
                 continue
             raise ValueError(f"Unexpected source distribution file: {member.name}")
+        required = {"CHANGELOG.md", "ds_crawler/records.py", "docs/validated-publication.md", "tests/test_records.py"}
+        if not required <= present:
+            raise ValueError(f"Missing Phase 2 source files: {sorted(required - present)}")
 
 
 def _verify_wheel(path: Path) -> None:
     with zipfile.ZipFile(path) as archive:
+        if "ds_crawler/records.py" not in archive.namelist():
+            raise ValueError("Wheel is missing validated publication support")
         for info in archive.infolist():
             parts = _safe_parts(info.filename)
             if not parts:

@@ -43,6 +43,7 @@ from __future__ import annotations
 import io
 import logging
 import zipfile
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -114,8 +115,8 @@ def _coerce_dataset_head(
 ) -> DatasetHeadContract:
     if head is not None:
         if isinstance(head, DatasetHeadContract):
-            return head
-        return parse_dataset_head(head, context="head")
+            return parse_dataset_head(deepcopy(head.to_mapping()), context="head")
+        return parse_dataset_head(deepcopy(head), context="head")
 
     if name is None:
         raise ValueError("name is required when head is not provided")
@@ -251,6 +252,25 @@ class _BaseDatasetWriter:
     def root(self) -> Path:
         """The output root (directory or ``.zip`` path)."""
         return self._root
+
+    @property
+    def head(self):
+        """Detached public head snapshot."""
+        return deepcopy(self._dataset_head.to_mapping())
+
+    @property
+    def separator(self):
+        return self._separator
+
+    def set_hierarchy_separator(self, separator):
+        if self._count:
+            raise ValueError("cannot change hierarchy separator after writing entries")
+        self._separator = separator
+
+    def set_head_addon(self, name, payload):
+        head = self.head
+        head.setdefault("addons", {})[name] = deepcopy(payload)
+        self._dataset_head = parse_dataset_head(head, context="output head")
 
     def __len__(self) -> int:
         """Number of file entries registered so far."""
