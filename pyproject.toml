@@ -1,6 +1,6 @@
 [project]
 name = "ds-crawler"
-version = "2.11.0"
+version = "2.12.0"
 description = "Regex-based dataset crawler, indexer, and artifact toolkit"
 readme = "README.md"
 license = "MIT"
