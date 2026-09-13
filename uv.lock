@@ -17,7 +17,7 @@ wheels = [
 
 [[package]]
 name = "ds-crawler"
-version = "2.11.0"
+version = "2.12.0"
 source = { editable = "." }
 dependencies = [
     { name = "euler-dataset-contract" },
@@ -36,7 +36,7 @@ progress = [
 
 [package.metadata]
 requires-dist = [
-    { name = "euler-dataset-contract", editable = "../euler-dataset-contract" },
+    { name = "euler-dataset-contract", specifier = ">=0.8.0" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "tqdm", marker = "extra == 'dev'" },
@@ -46,17 +46,12 @@ provides-extras = ["progress", "dev"]
 
 [[package]]
 name = "euler-dataset-contract"
-version = "0.5.0"
-source = { editable = "../euler-dataset-contract" }
-
-[package.metadata]
-requires-dist = [
-    { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.18" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4" },
-    { name = "pytest", marker = "extra == 'testing'", specifier = ">=7.4" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12" },
+version = "0.8.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/11/bc/fd7a666f8274d3415fdba2244f515d0f70b2273b9b4c09538009b1646780/euler_dataset_contract-0.8.0.tar.gz", hash = "sha256:df8309a41998fe64493ecdf7f8e89e94518595e1596c5961333d7abfb1cbc4b8", size = 194509, upload-time = "2026-09-13T10:57:22.682Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1a/38/4cac02036ff11a4980d60b00c9ef6f9467948b9d51e4196fbe637bc9ba57/euler_dataset_contract-0.8.0-py3-none-any.whl", hash = "sha256:ac3fd635ab55924081e48cb070b1a53b8d7b78603d726cb5ea51e27ea007b974", size = 157732, upload-time = "2026-09-13T10:57:21.446Z" },
 ]
-provides-extras = ["testing", "dev"]
 
 [[package]]
 name = "exceptiongroup"

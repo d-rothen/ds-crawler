@@ -28,7 +28,7 @@ jobs:
           enable-cache: true
 
       - name: Install development dependencies
-        run: uv sync --extra dev --locked
+        run: uv sync --extra dev
 
       - name: Verify the release
         run: |

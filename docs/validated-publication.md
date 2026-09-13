@@ -58,9 +58,8 @@ validated directory finalizer for callers that already constructed an index.
 Plain filesystem data is files-only until an explicit finalization. Legacy
 `save_index()` is not retroactively an encoding transaction.
 
-Local coordinated development uses `tool.uv.sources` to resolve the contract
-from a sibling `../euler-dataset-contract` checkout. The Phase 2 worktree setup
-provides a sibling symlink to its assigned contract worktree. `uv lock --check`
-checks that development lock; `uv --no-sources ...` uses the published dependency
-requirement when these package versions are released. Wheel metadata contains
-`euler-dataset-contract>=0.5.0`, not a local path.
+The contract resolves from PyPI through the normal dependency declaration; no
+local source override or sibling checkout is required. When maintainers update
+the lock with `uv lock --upgrade-package euler-dataset-contract`, it selects the
+latest compatible public release. Wheel metadata requires
+`euler-dataset-contract>=0.8.0`.
