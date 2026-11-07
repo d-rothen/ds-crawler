@@ -25,8 +25,8 @@ callback for additional checks; executable callbacks are never persisted.
 The loading strict producer uses this boundary for source-backed replay.
 
 `head` returns a detached snapshot. Legacy writers now expose
-`set_head_addon()` and `set_hierarchy_separator()` so consumers need not mutate
-private state. A validated writer freezes semantic head data and rejects
+`set_head_addon()`, `set_modality_meta()` and `set_hierarchy_separator()` so
+consumers need not mutate private state. A validated writer freezes semantic head data and rejects
 changing it after writes. `get_path()` is refused on this writer because it
 cannot establish that encoding succeeded; use `commit_bytes()` instead.
 

@@ -43,6 +43,7 @@ from __future__ import annotations
 import io
 import logging
 import zipfile
+from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -198,6 +199,25 @@ def _split_hierarchy_key(
     return None, key
 
 
+def _normalize_path_prefix(path_prefix: str | None) -> str | None:
+    """Return *path_prefix* as a relative POSIX path, or ``None`` when empty.
+
+    Absolute paths and ``..`` components are rejected: the prefix must stay
+    inside the writer's root.
+    """
+    if path_prefix is None:
+        return None
+    if not isinstance(path_prefix, str):
+        raise TypeError("path_prefix must be a string")
+    text = path_prefix.replace("\\", "/")
+    if text.startswith("/"):
+        raise ValueError(f"path_prefix must be relative to the root, got {path_prefix!r}")
+    parts = [part for part in text.split("/") if part and part != "."]
+    if any(part == ".." for part in parts):
+        raise ValueError(f"path_prefix must stay inside the root, got {path_prefix!r}")
+    return "/".join(parts) or None
+
+
 # ======================================================================
 # Base class — shared index-building logic
 # ======================================================================
@@ -223,6 +243,7 @@ class _BaseDatasetWriter:
         separator: str | None = ":",
         attributes: dict[str, Any] | None = None,
         metadata_scope: str | None = None,
+        path_prefix: str | None = None,
         **properties: Any,
     ) -> None:
         self._dataset_head = _coerce_dataset_head(
@@ -241,6 +262,7 @@ class _BaseDatasetWriter:
         self._type = self._dataset_head.modality_key
         self._separator = separator
         self._metadata_scope = metadata_scope
+        self._path_prefix = _normalize_path_prefix(path_prefix)
         self._dataset_node: dict[str, Any] = {}
         self._count = 0
 
@@ -262,6 +284,11 @@ class _BaseDatasetWriter:
     def separator(self):
         return self._separator
 
+    @property
+    def path_prefix(self) -> str | None:
+        """Directory below :attr:`root` holding this dataset's files, if any."""
+        return self._path_prefix
+
     def set_hierarchy_separator(self, separator):
         if self._count:
             raise ValueError("cannot change hierarchy separator after writing entries")
@@ -270,6 +297,19 @@ class _BaseDatasetWriter:
     def set_head_addon(self, name, payload):
         head = self.head
         head.setdefault("addons", {})[name] = deepcopy(payload)
+        self._dataset_head = parse_dataset_head(head, context="output head")
+
+    def set_modality_meta(self, meta: Mapping[str, Any]) -> None:
+        """Replace the head's ``modality.meta`` before the index is saved.
+
+        The new head is validated like any head, so ``meta`` must still carry
+        the keys the modality requires (e.g. ``range`` for ``rgb``). Start
+        from ``writer.head["modality"]["meta"]`` to change single keys.
+        """
+        if not isinstance(meta, Mapping):
+            raise TypeError("modality meta must be a mapping")
+        head = self.head
+        head.setdefault("modality", {})["meta"] = deepcopy(dict(meta))
         self._dataset_head = parse_dataset_head(head, context="output head")
 
     def __len__(self) -> int:
@@ -312,6 +352,8 @@ class _BaseDatasetWriter:
                 path_properties = dict(source_entry["path_properties"])
 
         # --- Compute relative path --------------------------------------
+        if self._path_prefix is not None:
+            dir_parts = [self._path_prefix, *dir_parts]
         rel_dir = Path(*dir_parts) if dir_parts else Path()
         rel_path = rel_dir / basename
 
@@ -444,6 +486,12 @@ class DatasetWriter(_BaseDatasetWriter):
             values (e.g. ``":"`` for ``"scene:Scene01"``).  Should match
             the ``indexing.hierarchy.separator`` of the source
             datasets.  Pass ``None`` for unnamed hierarchy keys.
+        metadata_scope: Store the artifacts below ``.ds_crawler/<scope>/``
+            so several datasets can share one root.
+        path_prefix: Directory below *root* that holds this dataset's files;
+            the index paths include it. Together with *metadata_scope* it
+            keeps the files of datasets sharing one root apart (e.g.
+            ``rgb/...`` and ``depth/...`` with the same IDs and basenames).
         **properties: Arbitrary extra metadata written to the index
             (e.g. ``gt=False``, ``model="MyModel"``).
     """
@@ -584,6 +632,8 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         euler_layout: Optional layout addon describing sample and variant
             axes for layout-aware loaders.
         separator: Hierarchy key separator (see :class:`DatasetWriter`).
+        metadata_scope: See :class:`DatasetWriter`.
+        path_prefix: See :class:`DatasetWriter`.
         **properties: Extra metadata written to the index.
     """
 
@@ -600,6 +650,7 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         separator: str | None = ":",
         attributes: dict[str, Any] | None = None,
         metadata_scope: str | None = None,
+        path_prefix: str | None = None,
         **properties: Any,
     ) -> None:
         super().__init__(
@@ -613,6 +664,7 @@ class ZipDatasetWriter(_BaseDatasetWriter):
             separator=separator,
             attributes=attributes,
             metadata_scope=metadata_scope,
+            path_prefix=path_prefix,
             **properties,
         )
         if self._root.suffix.lower() != ".zip":

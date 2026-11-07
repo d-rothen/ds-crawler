@@ -137,7 +137,10 @@ foggy_rgb/
 
 Pass `metadata_scope="rgb"` (or another safe modality name) to path-based APIs
 to read and write `.ds_crawler/rgb/`. Scoped writes maintain `scopes.json`
-automatically.
+automatically. When several writers share one root, give each a
+`path_prefix` as well (e.g. `DatasetWriter(root, ..., metadata_scope="rgb",
+path_prefix="rgb")`): its files then go to `rgb/...` and the index paths say so,
+so datasets with the same IDs and basenames do not overwrite each other.
 
 For a root with just one logical dataset, the compact unscoped layout remains
 supported:

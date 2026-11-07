@@ -167,3 +167,69 @@ def test_attributes_survive_index_save_load_roundtrip(tmp_path: Path) -> None:
     loaded = index_dataset_from_path(root)
     entry = _first_file_entry(loaded, "scene")
     assert entry["attributes"] == {"nested": {"a": 1}, "list": [1, 2, 3], "s": "ok"}
+
+
+def test_set_modality_meta_replaces_the_saved_meta(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    writer = DatasetWriter(root, head=sample_head(name="Cropped", modality="rgb"))
+    meta = writer.head["modality"]["meta"]
+    meta["crop"] = {"top": 2, "left": 3, "height": 4, "width": 5}
+    writer.set_modality_meta(meta)
+    writer.get_path("/scene/0001", "0001.png").write_bytes(b"data")
+    writer.save_index()
+
+    saved = index_dataset_from_path(root)["head"]["modality"]["meta"]
+    assert saved["crop"] == {"top": 2, "left": 3, "height": 4, "width": 5}
+    assert saved["range"] == sample_head(modality="rgb")["modality"]["meta"]["range"]
+
+
+def test_set_modality_meta_is_validated_like_the_head(tmp_path: Path) -> None:
+    import pytest
+
+    writer = DatasetWriter(tmp_path / "dataset", head=sample_head(modality="rgb"))
+    with pytest.raises(ValueError, match="range"):
+        writer.set_modality_meta({})
+    with pytest.raises(TypeError, match="mapping"):
+        writer.set_modality_meta(None)  # type: ignore[arg-type]
+
+
+def test_path_prefix_keeps_scoped_datasets_apart_in_one_root(tmp_path: Path) -> None:
+    root = tmp_path / "bundle"
+    for scope in ("rgb", "rgb_copy"):
+        writer = DatasetWriter(
+            root,
+            head=sample_head(name=scope, modality="rgb"),
+            metadata_scope=scope,
+            path_prefix=scope,
+        )
+        assert writer.path_prefix == scope
+        path = writer.get_path("/scene/0001", "0001.png")
+        path.write_bytes(scope.encode())
+        writer.save_index()
+
+    for scope in ("rgb", "rgb_copy"):
+        loaded = index_dataset_from_path(root, metadata_scope=scope)
+        files = loaded["index"]["children"]["scene"]["files"]
+        assert [entry["path"] for entry in files] == [f"{scope}/scene/0001.png"]
+        assert (root / scope / "scene" / "0001.png").read_bytes() == scope.encode()
+
+
+def test_zip_writer_path_prefix_prefixes_entry_names(tmp_path: Path) -> None:
+    import zipfile
+
+    zip_path = tmp_path / "bundle.zip"
+    with ZipDatasetWriter(zip_path, head=sample_head(modality="rgb"), path_prefix="rgb/") as writer:
+        writer.write("/0001", "0001.png", b"data")
+        writer.save_index()
+    with zipfile.ZipFile(zip_path) as archive:
+        assert "rgb/0001.png" in archive.namelist()
+
+
+def test_path_prefix_must_stay_inside_the_root(tmp_path: Path) -> None:
+    import pytest
+
+    for prefix in ("../outside", "/absolute", "a/../../b"):
+        with pytest.raises(ValueError, match="path_prefix"):
+            DatasetWriter(tmp_path / "dataset", head=sample_head(modality="rgb"), path_prefix=prefix)
+    writer = DatasetWriter(tmp_path / "dataset", head=sample_head(modality="rgb"), path_prefix="./")
+    assert writer.path_prefix is None
