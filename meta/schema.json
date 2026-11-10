@@ -4,6 +4,252 @@
   "description": "Defines shared and modality-specific meta fields for each modality.key value.",
   "type": "object",
   "properties": {
+    "camera_extrinsics": {
+      "type": "object",
+      "description": "Optional meta fields when modality.key is 'camera_extrinsics'.",
+      "properties": {
+        "dimensions": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "examples": [
+            {
+              "height": 375,
+              "width": 1242,
+              "channels": 3
+            },
+            {
+              "time": 16,
+              "features": 512
+            },
+            {
+              "x": 256,
+              "y": 256,
+              "z": 64
+            }
+          ],
+          "x-ui": {
+            "widget": "keyValueTable",
+            "keyLabel": "Axis",
+            "valueLabel": "Size",
+            "allowCustomKeys": true,
+            "suggestedKeys": [
+              "height",
+              "width",
+              "channels",
+              "depth",
+              "time",
+              "features"
+            ]
+          },
+          "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape."
+        },
+        "file_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^./\\\\\\s][^/\\\\\\s]*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "examples": [
+            [
+              "png"
+            ],
+            [
+              "jpg",
+              "png"
+            ],
+            [
+              "npy"
+            ]
+          ],
+          "description": "Observed data file types for this modality, stored as lowercase extensions without leading dots (for example ['jpg', 'png'])."
+        },
+        "invalid": {
+          "type": "object",
+          "properties": {
+            "non_finite": {
+              "type": "boolean",
+              "description": "Whether NaN or infinite values can appear; they mark invalid pixels."
+            },
+            "sentinel": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The finite value that marks invalid pixels, or null for none."
+            }
+          },
+          "required": [
+            "non_finite",
+            "sentinel"
+          ],
+          "additionalProperties": false,
+          "examples": [
+            {
+              "non_finite": false,
+              "sentinel": 0
+            },
+            {
+              "non_finite": true,
+              "sentinel": null
+            }
+          ],
+          "description": "How pixels without a valid value are marked in the values the loader returns: 'sentinel' is the finite value that marks them (null: none), and 'non_finite' whether NaN or infinite values can appear, which then mark invalid pixels too. The same shape and meaning as a representation profile's 'invalid'. Omitted: not declared, so consumers apply their own rule (for depth, a value that is non-finite or not positive is invalid)."
+        },
+        "sparse": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the raster holds measurements at only some of its pixels, the rest invalid as 'invalid' declares (without it, consumers take 0 for depth), as in lidar-derived depth or disparity. Consumers must not interpolate between samples: a resize moves each measurement to its nearest target pixel, keeping the nearest surface, and evaluation scores the measured pixels. Default false."
+        },
+        "source_grid": {
+          "type": "object",
+          "required": [
+            "size",
+            "affine"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "size": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "affine": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "examples": [
+            {
+              "source": "rgb",
+              "size": [
+                400,
+                879
+              ],
+              "affine": [
+                [
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0
+                ]
+              ]
+            },
+            {
+              "size": [
+                480,
+                960
+              ],
+              "affine": [
+                [
+                  0.8,
+                  0,
+                  -0.1
+                ],
+                [
+                  0,
+                  0.8,
+                  -0.1
+                ]
+              ]
+            }
+          ],
+          "description": "How this dataset's pixel grid derives from the grid of the images it was computed from, such as a prediction from its model input: the source [height, width] and the affine [[sx, 0, tx], [0, sy, ty]] mapping source pixel centres to this grid (K_out = T @ K_in). A file's attributes.source_grid overrides it for that sample."
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "target_from_source",
+            "source_from_target"
+          ],
+          "description": "How the stored 4x4 matrix relates the two frames: 'target_from_source' maps points from source_frame into target_frame (p_target = T @ p_source); 'source_from_target' is its inverse."
+        },
+        "source_frame": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "LIDAR_TOP",
+            "camera_0",
+            "lidar"
+          ],
+          "description": "Frame the transform maps points from, e.g. a sensor name such as 'LIDAR_TOP' or 'HDL_64E'."
+        },
+        "target_frame": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "camera_optical",
+            "world",
+            "CS_FRONT"
+          ],
+          "description": "Frame the transform maps points into, e.g. 'camera_optical' or 'world'."
+        }
+      },
+      "required": [],
+      "additionalProperties": true
+    },
     "depth": {
       "type": "object",
       "description": "Required meta fields when modality.key is 'depth'.",
@@ -245,6 +491,1766 @@
         "range",
         "scale_to_meters"
       ],
+      "additionalProperties": true
+    },
+    "extrinsics": {
+      "type": "object",
+      "description": "Optional meta fields when modality.key is 'extrinsics'.",
+      "properties": {
+        "dimensions": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "examples": [
+            {
+              "height": 375,
+              "width": 1242,
+              "channels": 3
+            },
+            {
+              "time": 16,
+              "features": 512
+            },
+            {
+              "x": 256,
+              "y": 256,
+              "z": 64
+            }
+          ],
+          "x-ui": {
+            "widget": "keyValueTable",
+            "keyLabel": "Axis",
+            "valueLabel": "Size",
+            "allowCustomKeys": true,
+            "suggestedKeys": [
+              "height",
+              "width",
+              "channels",
+              "depth",
+              "time",
+              "features"
+            ]
+          },
+          "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape."
+        },
+        "file_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^./\\\\\\s][^/\\\\\\s]*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "examples": [
+            [
+              "png"
+            ],
+            [
+              "jpg",
+              "png"
+            ],
+            [
+              "npy"
+            ]
+          ],
+          "description": "Observed data file types for this modality, stored as lowercase extensions without leading dots (for example ['jpg', 'png'])."
+        },
+        "invalid": {
+          "type": "object",
+          "properties": {
+            "non_finite": {
+              "type": "boolean",
+              "description": "Whether NaN or infinite values can appear; they mark invalid pixels."
+            },
+            "sentinel": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The finite value that marks invalid pixels, or null for none."
+            }
+          },
+          "required": [
+            "non_finite",
+            "sentinel"
+          ],
+          "additionalProperties": false,
+          "examples": [
+            {
+              "non_finite": false,
+              "sentinel": 0
+            },
+            {
+              "non_finite": true,
+              "sentinel": null
+            }
+          ],
+          "description": "How pixels without a valid value are marked in the values the loader returns: 'sentinel' is the finite value that marks them (null: none), and 'non_finite' whether NaN or infinite values can appear, which then mark invalid pixels too. The same shape and meaning as a representation profile's 'invalid'. Omitted: not declared, so consumers apply their own rule (for depth, a value that is non-finite or not positive is invalid)."
+        },
+        "sparse": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the raster holds measurements at only some of its pixels, the rest invalid as 'invalid' declares (without it, consumers take 0 for depth), as in lidar-derived depth or disparity. Consumers must not interpolate between samples: a resize moves each measurement to its nearest target pixel, keeping the nearest surface, and evaluation scores the measured pixels. Default false."
+        },
+        "source_grid": {
+          "type": "object",
+          "required": [
+            "size",
+            "affine"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "size": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "affine": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "examples": [
+            {
+              "source": "rgb",
+              "size": [
+                400,
+                879
+              ],
+              "affine": [
+                [
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0
+                ]
+              ]
+            },
+            {
+              "size": [
+                480,
+                960
+              ],
+              "affine": [
+                [
+                  0.8,
+                  0,
+                  -0.1
+                ],
+                [
+                  0,
+                  0.8,
+                  -0.1
+                ]
+              ]
+            }
+          ],
+          "description": "How this dataset's pixel grid derives from the grid of the images it was computed from, such as a prediction from its model input: the source [height, width] and the affine [[sx, 0, tx], [0, sy, ty]] mapping source pixel centres to this grid (K_out = T @ K_in). A file's attributes.source_grid overrides it for that sample."
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "target_from_source",
+            "source_from_target"
+          ],
+          "description": "How the stored 4x4 matrix relates the two frames: 'target_from_source' maps points from source_frame into target_frame (p_target = T @ p_source); 'source_from_target' is its inverse."
+        },
+        "source_frame": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "LIDAR_TOP",
+            "camera_0",
+            "lidar"
+          ],
+          "description": "Frame the transform maps points from, e.g. a sensor name such as 'LIDAR_TOP' or 'HDL_64E'."
+        },
+        "target_frame": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "camera_optical",
+            "world",
+            "CS_FRONT"
+          ],
+          "description": "Frame the transform maps points into, e.g. 'camera_optical' or 'world'."
+        }
+      },
+      "required": [],
+      "additionalProperties": true
+    },
+    "intrinsics": {
+      "type": "object",
+      "description": "Optional meta fields when modality.key is 'intrinsics'.",
+      "properties": {
+        "dimensions": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "examples": [
+            {
+              "height": 375,
+              "width": 1242,
+              "channels": 3
+            },
+            {
+              "time": 16,
+              "features": 512
+            },
+            {
+              "x": 256,
+              "y": 256,
+              "z": 64
+            }
+          ],
+          "x-ui": {
+            "widget": "keyValueTable",
+            "keyLabel": "Axis",
+            "valueLabel": "Size",
+            "allowCustomKeys": true,
+            "suggestedKeys": [
+              "height",
+              "width",
+              "channels",
+              "depth",
+              "time",
+              "features"
+            ]
+          },
+          "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape."
+        },
+        "file_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^./\\\\\\s][^/\\\\\\s]*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "examples": [
+            [
+              "png"
+            ],
+            [
+              "jpg",
+              "png"
+            ],
+            [
+              "npy"
+            ]
+          ],
+          "description": "Observed data file types for this modality, stored as lowercase extensions without leading dots (for example ['jpg', 'png'])."
+        },
+        "invalid": {
+          "type": "object",
+          "properties": {
+            "non_finite": {
+              "type": "boolean",
+              "description": "Whether NaN or infinite values can appear; they mark invalid pixels."
+            },
+            "sentinel": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The finite value that marks invalid pixels, or null for none."
+            }
+          },
+          "required": [
+            "non_finite",
+            "sentinel"
+          ],
+          "additionalProperties": false,
+          "examples": [
+            {
+              "non_finite": false,
+              "sentinel": 0
+            },
+            {
+              "non_finite": true,
+              "sentinel": null
+            }
+          ],
+          "description": "How pixels without a valid value are marked in the values the loader returns: 'sentinel' is the finite value that marks them (null: none), and 'non_finite' whether NaN or infinite values can appear, which then mark invalid pixels too. The same shape and meaning as a representation profile's 'invalid'. Omitted: not declared, so consumers apply their own rule (for depth, a value that is non-finite or not positive is invalid)."
+        },
+        "sparse": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the raster holds measurements at only some of its pixels, the rest invalid as 'invalid' declares (without it, consumers take 0 for depth), as in lidar-derived depth or disparity. Consumers must not interpolate between samples: a resize moves each measurement to its nearest target pixel, keeping the nearest surface, and evaluation scores the measured pixels. Default false."
+        },
+        "source_grid": {
+          "type": "object",
+          "required": [
+            "size",
+            "affine"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "size": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "affine": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "examples": [
+            {
+              "source": "rgb",
+              "size": [
+                400,
+                879
+              ],
+              "affine": [
+                [
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0
+                ]
+              ]
+            },
+            {
+              "size": [
+                480,
+                960
+              ],
+              "affine": [
+                [
+                  0.8,
+                  0,
+                  -0.1
+                ],
+                [
+                  0,
+                  0.8,
+                  -0.1
+                ]
+              ]
+            }
+          ],
+          "description": "How this dataset's pixel grid derives from the grid of the images it was computed from, such as a prediction from its model input: the source [height, width] and the affine [[sx, 0, tx], [0, sy, ty]] mapping source pixel centres to this grid (K_out = T @ K_in). A file's attributes.source_grid overrides it for that sample."
+        },
+        "camera_model": {
+          "type": "string",
+          "enum": [
+            "pinhole",
+            "fisheye",
+            "other"
+          ],
+          "description": "Projection model of the camera matrix. 'pinhole' is an ideal pinhole without distortion coefficients."
+        },
+        "image_plane": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "Identifier of the image grid the matrix describes, shared with the image modalities it applies to (e.g. 'camera_0')."
+        }
+      },
+      "required": [],
+      "additionalProperties": true
+    },
+    "lidar_point_cloud": {
+      "type": "object",
+      "description": "Optional meta fields when modality.key is 'lidar_point_cloud'.",
+      "properties": {
+        "dimensions": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "examples": [
+            {
+              "height": 375,
+              "width": 1242,
+              "channels": 3
+            },
+            {
+              "time": 16,
+              "features": 512
+            },
+            {
+              "x": 256,
+              "y": 256,
+              "z": 64
+            }
+          ],
+          "x-ui": {
+            "widget": "keyValueTable",
+            "keyLabel": "Axis",
+            "valueLabel": "Size",
+            "allowCustomKeys": true,
+            "suggestedKeys": [
+              "height",
+              "width",
+              "channels",
+              "depth",
+              "time",
+              "features"
+            ]
+          },
+          "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape."
+        },
+        "file_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^./\\\\\\s][^/\\\\\\s]*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "examples": [
+            [
+              "png"
+            ],
+            [
+              "jpg",
+              "png"
+            ],
+            [
+              "npy"
+            ]
+          ],
+          "description": "Observed data file types for this modality, stored as lowercase extensions without leading dots (for example ['jpg', 'png'])."
+        },
+        "invalid": {
+          "type": "object",
+          "properties": {
+            "non_finite": {
+              "type": "boolean",
+              "description": "Whether NaN or infinite values can appear; they mark invalid pixels."
+            },
+            "sentinel": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The finite value that marks invalid pixels, or null for none."
+            }
+          },
+          "required": [
+            "non_finite",
+            "sentinel"
+          ],
+          "additionalProperties": false,
+          "examples": [
+            {
+              "non_finite": false,
+              "sentinel": 0
+            },
+            {
+              "non_finite": true,
+              "sentinel": null
+            }
+          ],
+          "description": "How pixels without a valid value are marked in the values the loader returns: 'sentinel' is the finite value that marks them (null: none), and 'non_finite' whether NaN or infinite values can appear, which then mark invalid pixels too. The same shape and meaning as a representation profile's 'invalid'. Omitted: not declared, so consumers apply their own rule (for depth, a value that is non-finite or not positive is invalid)."
+        },
+        "sparse": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the raster holds measurements at only some of its pixels, the rest invalid as 'invalid' declares (without it, consumers take 0 for depth), as in lidar-derived depth or disparity. Consumers must not interpolate between samples: a resize moves each measurement to its nearest target pixel, keeping the nearest surface, and evaluation scores the measured pixels. Default false."
+        },
+        "source_grid": {
+          "type": "object",
+          "required": [
+            "size",
+            "affine"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "size": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "affine": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "examples": [
+            {
+              "source": "rgb",
+              "size": [
+                400,
+                879
+              ],
+              "affine": [
+                [
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0
+                ]
+              ]
+            },
+            {
+              "size": [
+                480,
+                960
+              ],
+              "affine": [
+                [
+                  0.8,
+                  0,
+                  -0.1
+                ],
+                [
+                  0,
+                  0.8,
+                  -0.1
+                ]
+              ]
+            }
+          ],
+          "description": "How this dataset's pixel grid derives from the grid of the images it was computed from, such as a prediction from its model input: the source [height, width] and the affine [[sx, 0, tx], [0, sy, ty]] mapping source pixel centres to this grid (K_out = T @ K_in). A file's attributes.source_grid overrides it for that sample."
+        },
+        "axes": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "x forward, y left, z up",
+            "x right, y forward, z up"
+          ],
+          "description": "Axis convention of the frame, e.g. 'x forward, y left, z up'."
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Names of a point cloud's columns in order, starting with the coordinates (e.g. ['x', 'y', 'z', 'intensity', 'ring'])."
+        },
+        "coordinate_unit": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "meters"
+          ],
+          "description": "Unit of the point coordinates, e.g. 'meters'."
+        },
+        "frame": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "LIDAR_TOP",
+            "lidar",
+            "camera_0_optical"
+          ],
+          "description": "Coordinate frame the points are expressed in, e.g. 'LIDAR_TOP'."
+        },
+        "representation": {
+          "type": "string",
+          "enum": [
+            "point_cloud",
+            "point_map"
+          ],
+          "description": "Layout of the points: 'point_cloud' is an unordered (N, C) list, 'point_map' one point per pixel."
+        }
+      },
+      "required": [],
+      "additionalProperties": true
+    },
+    "lidar_pose": {
+      "type": "object",
+      "description": "Optional meta fields when modality.key is 'lidar_pose'.",
+      "properties": {
+        "dimensions": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "examples": [
+            {
+              "height": 375,
+              "width": 1242,
+              "channels": 3
+            },
+            {
+              "time": 16,
+              "features": 512
+            },
+            {
+              "x": 256,
+              "y": 256,
+              "z": 64
+            }
+          ],
+          "x-ui": {
+            "widget": "keyValueTable",
+            "keyLabel": "Axis",
+            "valueLabel": "Size",
+            "allowCustomKeys": true,
+            "suggestedKeys": [
+              "height",
+              "width",
+              "channels",
+              "depth",
+              "time",
+              "features"
+            ]
+          },
+          "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape."
+        },
+        "file_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^./\\\\\\s][^/\\\\\\s]*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "examples": [
+            [
+              "png"
+            ],
+            [
+              "jpg",
+              "png"
+            ],
+            [
+              "npy"
+            ]
+          ],
+          "description": "Observed data file types for this modality, stored as lowercase extensions without leading dots (for example ['jpg', 'png'])."
+        },
+        "invalid": {
+          "type": "object",
+          "properties": {
+            "non_finite": {
+              "type": "boolean",
+              "description": "Whether NaN or infinite values can appear; they mark invalid pixels."
+            },
+            "sentinel": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The finite value that marks invalid pixels, or null for none."
+            }
+          },
+          "required": [
+            "non_finite",
+            "sentinel"
+          ],
+          "additionalProperties": false,
+          "examples": [
+            {
+              "non_finite": false,
+              "sentinel": 0
+            },
+            {
+              "non_finite": true,
+              "sentinel": null
+            }
+          ],
+          "description": "How pixels without a valid value are marked in the values the loader returns: 'sentinel' is the finite value that marks them (null: none), and 'non_finite' whether NaN or infinite values can appear, which then mark invalid pixels too. The same shape and meaning as a representation profile's 'invalid'. Omitted: not declared, so consumers apply their own rule (for depth, a value that is non-finite or not positive is invalid)."
+        },
+        "sparse": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the raster holds measurements at only some of its pixels, the rest invalid as 'invalid' declares (without it, consumers take 0 for depth), as in lidar-derived depth or disparity. Consumers must not interpolate between samples: a resize moves each measurement to its nearest target pixel, keeping the nearest surface, and evaluation scores the measured pixels. Default false."
+        },
+        "source_grid": {
+          "type": "object",
+          "required": [
+            "size",
+            "affine"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "size": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "affine": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "examples": [
+            {
+              "source": "rgb",
+              "size": [
+                400,
+                879
+              ],
+              "affine": [
+                [
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0
+                ]
+              ]
+            },
+            {
+              "size": [
+                480,
+                960
+              ],
+              "affine": [
+                [
+                  0.8,
+                  0,
+                  -0.1
+                ],
+                [
+                  0,
+                  0.8,
+                  -0.1
+                ]
+              ]
+            }
+          ],
+          "description": "How this dataset's pixel grid derives from the grid of the images it was computed from, such as a prediction from its model input: the source [height, width] and the affine [[sx, 0, tx], [0, sy, ty]] mapping source pixel centres to this grid (K_out = T @ K_in). A file's attributes.source_grid overrides it for that sample."
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "target_from_source",
+            "source_from_target"
+          ],
+          "description": "How the stored 4x4 matrix relates the two frames: 'target_from_source' maps points from source_frame into target_frame (p_target = T @ p_source); 'source_from_target' is its inverse."
+        },
+        "source_frame": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "LIDAR_TOP",
+            "camera_0",
+            "lidar"
+          ],
+          "description": "Frame the transform maps points from, e.g. a sensor name such as 'LIDAR_TOP' or 'HDL_64E'."
+        },
+        "target_frame": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "camera_optical",
+            "world",
+            "CS_FRONT"
+          ],
+          "description": "Frame the transform maps points into, e.g. 'camera_optical' or 'world'."
+        }
+      },
+      "required": [],
+      "additionalProperties": true
+    },
+    "lidar_to_gnss": {
+      "type": "object",
+      "description": "Optional meta fields when modality.key is 'lidar_to_gnss'.",
+      "properties": {
+        "dimensions": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "examples": [
+            {
+              "height": 375,
+              "width": 1242,
+              "channels": 3
+            },
+            {
+              "time": 16,
+              "features": 512
+            },
+            {
+              "x": 256,
+              "y": 256,
+              "z": 64
+            }
+          ],
+          "x-ui": {
+            "widget": "keyValueTable",
+            "keyLabel": "Axis",
+            "valueLabel": "Size",
+            "allowCustomKeys": true,
+            "suggestedKeys": [
+              "height",
+              "width",
+              "channels",
+              "depth",
+              "time",
+              "features"
+            ]
+          },
+          "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape."
+        },
+        "file_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^./\\\\\\s][^/\\\\\\s]*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "examples": [
+            [
+              "png"
+            ],
+            [
+              "jpg",
+              "png"
+            ],
+            [
+              "npy"
+            ]
+          ],
+          "description": "Observed data file types for this modality, stored as lowercase extensions without leading dots (for example ['jpg', 'png'])."
+        },
+        "invalid": {
+          "type": "object",
+          "properties": {
+            "non_finite": {
+              "type": "boolean",
+              "description": "Whether NaN or infinite values can appear; they mark invalid pixels."
+            },
+            "sentinel": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The finite value that marks invalid pixels, or null for none."
+            }
+          },
+          "required": [
+            "non_finite",
+            "sentinel"
+          ],
+          "additionalProperties": false,
+          "examples": [
+            {
+              "non_finite": false,
+              "sentinel": 0
+            },
+            {
+              "non_finite": true,
+              "sentinel": null
+            }
+          ],
+          "description": "How pixels without a valid value are marked in the values the loader returns: 'sentinel' is the finite value that marks them (null: none), and 'non_finite' whether NaN or infinite values can appear, which then mark invalid pixels too. The same shape and meaning as a representation profile's 'invalid'. Omitted: not declared, so consumers apply their own rule (for depth, a value that is non-finite or not positive is invalid)."
+        },
+        "sparse": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the raster holds measurements at only some of its pixels, the rest invalid as 'invalid' declares (without it, consumers take 0 for depth), as in lidar-derived depth or disparity. Consumers must not interpolate between samples: a resize moves each measurement to its nearest target pixel, keeping the nearest surface, and evaluation scores the measured pixels. Default false."
+        },
+        "source_grid": {
+          "type": "object",
+          "required": [
+            "size",
+            "affine"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "size": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "affine": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "examples": [
+            {
+              "source": "rgb",
+              "size": [
+                400,
+                879
+              ],
+              "affine": [
+                [
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0
+                ]
+              ]
+            },
+            {
+              "size": [
+                480,
+                960
+              ],
+              "affine": [
+                [
+                  0.8,
+                  0,
+                  -0.1
+                ],
+                [
+                  0,
+                  0.8,
+                  -0.1
+                ]
+              ]
+            }
+          ],
+          "description": "How this dataset's pixel grid derives from the grid of the images it was computed from, such as a prediction from its model input: the source [height, width] and the affine [[sx, 0, tx], [0, sy, ty]] mapping source pixel centres to this grid (K_out = T @ K_in). A file's attributes.source_grid overrides it for that sample."
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "target_from_source",
+            "source_from_target"
+          ],
+          "description": "How the stored 4x4 matrix relates the two frames: 'target_from_source' maps points from source_frame into target_frame (p_target = T @ p_source); 'source_from_target' is its inverse."
+        },
+        "source_frame": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "LIDAR_TOP",
+            "camera_0",
+            "lidar"
+          ],
+          "description": "Frame the transform maps points from, e.g. a sensor name such as 'LIDAR_TOP' or 'HDL_64E'."
+        },
+        "target_frame": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "camera_optical",
+            "world",
+            "CS_FRONT"
+          ],
+          "description": "Frame the transform maps points into, e.g. 'camera_optical' or 'world'."
+        }
+      },
+      "required": [],
+      "additionalProperties": true
+    },
+    "point_cloud": {
+      "type": "object",
+      "description": "Optional meta fields when modality.key is 'point_cloud'.",
+      "properties": {
+        "dimensions": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "examples": [
+            {
+              "height": 375,
+              "width": 1242,
+              "channels": 3
+            },
+            {
+              "time": 16,
+              "features": 512
+            },
+            {
+              "x": 256,
+              "y": 256,
+              "z": 64
+            }
+          ],
+          "x-ui": {
+            "widget": "keyValueTable",
+            "keyLabel": "Axis",
+            "valueLabel": "Size",
+            "allowCustomKeys": true,
+            "suggestedKeys": [
+              "height",
+              "width",
+              "channels",
+              "depth",
+              "time",
+              "features"
+            ]
+          },
+          "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape."
+        },
+        "file_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^./\\\\\\s][^/\\\\\\s]*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "examples": [
+            [
+              "png"
+            ],
+            [
+              "jpg",
+              "png"
+            ],
+            [
+              "npy"
+            ]
+          ],
+          "description": "Observed data file types for this modality, stored as lowercase extensions without leading dots (for example ['jpg', 'png'])."
+        },
+        "invalid": {
+          "type": "object",
+          "properties": {
+            "non_finite": {
+              "type": "boolean",
+              "description": "Whether NaN or infinite values can appear; they mark invalid pixels."
+            },
+            "sentinel": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The finite value that marks invalid pixels, or null for none."
+            }
+          },
+          "required": [
+            "non_finite",
+            "sentinel"
+          ],
+          "additionalProperties": false,
+          "examples": [
+            {
+              "non_finite": false,
+              "sentinel": 0
+            },
+            {
+              "non_finite": true,
+              "sentinel": null
+            }
+          ],
+          "description": "How pixels without a valid value are marked in the values the loader returns: 'sentinel' is the finite value that marks them (null: none), and 'non_finite' whether NaN or infinite values can appear, which then mark invalid pixels too. The same shape and meaning as a representation profile's 'invalid'. Omitted: not declared, so consumers apply their own rule (for depth, a value that is non-finite or not positive is invalid)."
+        },
+        "sparse": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the raster holds measurements at only some of its pixels, the rest invalid as 'invalid' declares (without it, consumers take 0 for depth), as in lidar-derived depth or disparity. Consumers must not interpolate between samples: a resize moves each measurement to its nearest target pixel, keeping the nearest surface, and evaluation scores the measured pixels. Default false."
+        },
+        "source_grid": {
+          "type": "object",
+          "required": [
+            "size",
+            "affine"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "size": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "affine": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "examples": [
+            {
+              "source": "rgb",
+              "size": [
+                400,
+                879
+              ],
+              "affine": [
+                [
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0
+                ]
+              ]
+            },
+            {
+              "size": [
+                480,
+                960
+              ],
+              "affine": [
+                [
+                  0.8,
+                  0,
+                  -0.1
+                ],
+                [
+                  0,
+                  0.8,
+                  -0.1
+                ]
+              ]
+            }
+          ],
+          "description": "How this dataset's pixel grid derives from the grid of the images it was computed from, such as a prediction from its model input: the source [height, width] and the affine [[sx, 0, tx], [0, sy, ty]] mapping source pixel centres to this grid (K_out = T @ K_in). A file's attributes.source_grid overrides it for that sample."
+        },
+        "axes": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "x forward, y left, z up",
+            "x right, y forward, z up"
+          ],
+          "description": "Axis convention of the frame, e.g. 'x forward, y left, z up'."
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Names of a point cloud's columns in order, starting with the coordinates (e.g. ['x', 'y', 'z', 'intensity', 'ring'])."
+        },
+        "coordinate_unit": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "meters"
+          ],
+          "description": "Unit of the point coordinates, e.g. 'meters'."
+        },
+        "frame": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "LIDAR_TOP",
+            "lidar",
+            "camera_0_optical"
+          ],
+          "description": "Coordinate frame the points are expressed in, e.g. 'LIDAR_TOP'."
+        },
+        "representation": {
+          "type": "string",
+          "enum": [
+            "point_cloud",
+            "point_map"
+          ],
+          "description": "Layout of the points: 'point_cloud' is an unordered (N, C) list, 'point_map' one point per pixel."
+        }
+      },
+      "required": [],
+      "additionalProperties": true
+    },
+    "points_3d": {
+      "type": "object",
+      "description": "Optional meta fields when modality.key is 'points_3d'.",
+      "properties": {
+        "dimensions": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "examples": [
+            {
+              "height": 375,
+              "width": 1242,
+              "channels": 3
+            },
+            {
+              "time": 16,
+              "features": 512
+            },
+            {
+              "x": 256,
+              "y": 256,
+              "z": 64
+            }
+          ],
+          "x-ui": {
+            "widget": "keyValueTable",
+            "keyLabel": "Axis",
+            "valueLabel": "Size",
+            "allowCustomKeys": true,
+            "suggestedKeys": [
+              "height",
+              "width",
+              "channels",
+              "depth",
+              "time",
+              "features"
+            ]
+          },
+          "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape."
+        },
+        "file_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^./\\\\\\s][^/\\\\\\s]*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "examples": [
+            [
+              "png"
+            ],
+            [
+              "jpg",
+              "png"
+            ],
+            [
+              "npy"
+            ]
+          ],
+          "description": "Observed data file types for this modality, stored as lowercase extensions without leading dots (for example ['jpg', 'png'])."
+        },
+        "invalid": {
+          "type": "object",
+          "properties": {
+            "non_finite": {
+              "type": "boolean",
+              "description": "Whether NaN or infinite values can appear; they mark invalid pixels."
+            },
+            "sentinel": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The finite value that marks invalid pixels, or null for none."
+            }
+          },
+          "required": [
+            "non_finite",
+            "sentinel"
+          ],
+          "additionalProperties": false,
+          "examples": [
+            {
+              "non_finite": false,
+              "sentinel": 0
+            },
+            {
+              "non_finite": true,
+              "sentinel": null
+            }
+          ],
+          "description": "How pixels without a valid value are marked in the values the loader returns: 'sentinel' is the finite value that marks them (null: none), and 'non_finite' whether NaN or infinite values can appear, which then mark invalid pixels too. The same shape and meaning as a representation profile's 'invalid'. Omitted: not declared, so consumers apply their own rule (for depth, a value that is non-finite or not positive is invalid)."
+        },
+        "sparse": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the raster holds measurements at only some of its pixels, the rest invalid as 'invalid' declares (without it, consumers take 0 for depth), as in lidar-derived depth or disparity. Consumers must not interpolate between samples: a resize moves each measurement to its nearest target pixel, keeping the nearest surface, and evaluation scores the measured pixels. Default false."
+        },
+        "source_grid": {
+          "type": "object",
+          "required": [
+            "size",
+            "affine"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "size": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "affine": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "examples": [
+            {
+              "source": "rgb",
+              "size": [
+                400,
+                879
+              ],
+              "affine": [
+                [
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0
+                ]
+              ]
+            },
+            {
+              "size": [
+                480,
+                960
+              ],
+              "affine": [
+                [
+                  0.8,
+                  0,
+                  -0.1
+                ],
+                [
+                  0,
+                  0.8,
+                  -0.1
+                ]
+              ]
+            }
+          ],
+          "description": "How this dataset's pixel grid derives from the grid of the images it was computed from, such as a prediction from its model input: the source [height, width] and the affine [[sx, 0, tx], [0, sy, ty]] mapping source pixel centres to this grid (K_out = T @ K_in). A file's attributes.source_grid overrides it for that sample."
+        },
+        "axes": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "x forward, y left, z up",
+            "x right, y forward, z up"
+          ],
+          "description": "Axis convention of the frame, e.g. 'x forward, y left, z up'."
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Names of a point cloud's columns in order, starting with the coordinates (e.g. ['x', 'y', 'z', 'intensity', 'ring'])."
+        },
+        "coordinate_unit": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "meters"
+          ],
+          "description": "Unit of the point coordinates, e.g. 'meters'."
+        },
+        "frame": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "LIDAR_TOP",
+            "lidar",
+            "camera_0_optical"
+          ],
+          "description": "Coordinate frame the points are expressed in, e.g. 'LIDAR_TOP'."
+        },
+        "representation": {
+          "type": "string",
+          "enum": [
+            "point_cloud",
+            "point_map"
+          ],
+          "description": "Layout of the points: 'point_cloud' is an unordered (N, C) list, 'point_map' one point per pixel."
+        }
+      },
+      "required": [],
       "additionalProperties": true
     },
     "rgb": {
@@ -942,6 +2948,270 @@
       "required": [
         "skyclass"
       ],
+      "additionalProperties": true
+    },
+    "sparse_depth": {
+      "type": "object",
+      "description": "Optional meta fields when modality.key is 'sparse_depth'.",
+      "properties": {
+        "dimensions": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "examples": [
+            {
+              "height": 375,
+              "width": 1242,
+              "channels": 3
+            },
+            {
+              "time": 16,
+              "features": 512
+            },
+            {
+              "x": 256,
+              "y": 256,
+              "z": 64
+            }
+          ],
+          "x-ui": {
+            "widget": "keyValueTable",
+            "keyLabel": "Axis",
+            "valueLabel": "Size",
+            "allowCustomKeys": true,
+            "suggestedKeys": [
+              "height",
+              "width",
+              "channels",
+              "depth",
+              "time",
+              "features"
+            ]
+          },
+          "description": "Dataset-wide nominal sample dimensions keyed by semantic axis names (for example {'height': 375, 'width': 1242, 'channels': 3}). Omit this field when there is no single dataset-wide shape."
+        },
+        "file_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^./\\\\\\s][^/\\\\\\s]*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "examples": [
+            [
+              "png"
+            ],
+            [
+              "jpg",
+              "png"
+            ],
+            [
+              "npy"
+            ]
+          ],
+          "description": "Observed data file types for this modality, stored as lowercase extensions without leading dots (for example ['jpg', 'png'])."
+        },
+        "invalid": {
+          "type": "object",
+          "properties": {
+            "non_finite": {
+              "type": "boolean",
+              "description": "Whether NaN or infinite values can appear; they mark invalid pixels."
+            },
+            "sentinel": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The finite value that marks invalid pixels, or null for none."
+            }
+          },
+          "required": [
+            "non_finite",
+            "sentinel"
+          ],
+          "additionalProperties": false,
+          "examples": [
+            {
+              "non_finite": false,
+              "sentinel": 0
+            },
+            {
+              "non_finite": true,
+              "sentinel": null
+            }
+          ],
+          "description": "How pixels without a valid value are marked in the values the loader returns: 'sentinel' is the finite value that marks them (null: none), and 'non_finite' whether NaN or infinite values can appear, which then mark invalid pixels too. The same shape and meaning as a representation profile's 'invalid'. Omitted: not declared, so consumers apply their own rule (for depth, a value that is non-finite or not positive is invalid)."
+        },
+        "sparse": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the raster holds measurements at only some of its pixels, the rest invalid as 'invalid' declares (without it, consumers take 0 for depth), as in lidar-derived depth or disparity. Consumers must not interpolate between samples: a resize moves each measurement to its nearest target pixel, keeping the nearest surface, and evaluation scores the measured pixels. Default false."
+        },
+        "source_grid": {
+          "type": "object",
+          "required": [
+            "size",
+            "affine"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "size": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "affine": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "examples": [
+            {
+              "source": "rgb",
+              "size": [
+                400,
+                879
+              ],
+              "affine": [
+                [
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0
+                ]
+              ]
+            },
+            {
+              "size": [
+                480,
+                960
+              ],
+              "affine": [
+                [
+                  0.8,
+                  0,
+                  -0.1
+                ],
+                [
+                  0,
+                  0.8,
+                  -0.1
+                ]
+              ]
+            }
+          ],
+          "description": "How this dataset's pixel grid derives from the grid of the images it was computed from, such as a prediction from its model input: the source [height, width] and the affine [[sx, 0, tx], [0, sy, ty]] mapping source pixel centres to this grid (K_out = T @ K_in). A file's attributes.source_grid overrides it for that sample."
+        },
+        "axes": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "x forward, y left, z up",
+            "x right, y forward, z up"
+          ],
+          "description": "Axis convention of the frame, e.g. 'x forward, y left, z up'."
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Names of a point cloud's columns in order, starting with the coordinates (e.g. ['x', 'y', 'z', 'intensity', 'ring'])."
+        },
+        "coordinate_unit": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "meters"
+          ],
+          "description": "Unit of the point coordinates, e.g. 'meters'."
+        },
+        "frame": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "examples": [
+            "LIDAR_TOP",
+            "lidar",
+            "camera_0_optical"
+          ],
+          "description": "Coordinate frame the points are expressed in, e.g. 'LIDAR_TOP'."
+        },
+        "representation": {
+          "type": "string",
+          "enum": [
+            "point_cloud",
+            "point_map"
+          ],
+          "description": "Layout of the points: 'point_cloud' is an unordered (N, C) list, 'point_map' one point per pixel."
+        }
+      },
+      "required": [],
       "additionalProperties": true
     }
   }

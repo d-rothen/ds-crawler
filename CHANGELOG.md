@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Regenerate `meta/schema.json` from euler-dataset-contract 0.15.0, which
+  registers optional geometry meta fields (camera models, transform
+  directions and frames, point-cloud columns and units), and require
+  `euler-dataset-contract>=0.15.0`. Refresh `uv.lock` once 0.15.0 is published.
+- The `euler_loading` addon rules are always registered; the guard for
+  contracts older than 0.14 is gone.
 - Dataset heads are checked against the rules of the `euler_loading` addon
   (from euler-dataset-contract 0.14, registered on import). They used to be
   checked only when euler-loading was imported too, so a head ds-crawler
