@@ -4,6 +4,8 @@ from .artifact_builder import (
     build_crawler_config,
     build_dataset_artifacts_from_files,
     build_dataset_head,
+    build_index_output,
+    save_dataset_index,
 )
 from .config import Config, DatasetConfig, load_dataset_config
 from .layout import (
@@ -73,6 +75,7 @@ __all__ = [
     "align_datasets",
     "build_crawler_config",
     "build_dataset_artifacts_from_files",
+    "build_index_output",
     "build_dataset_head",
     "build_layout_addon",
     "collect_qualified_ids",
@@ -100,6 +103,7 @@ __all__ = [
     "migrate_dataset_metadata",
     "migrate_dataset_zip",
     "migrate_dataset_zips_in_folder",
+    "save_dataset_index",
     "split_dataset",
     "split_datasets",
     "split_qualified_ids",

@@ -11,7 +11,7 @@ from ._dataset_contract import (
     build_default_meta,
     parse_dataset_head,
 )
-from .artifacts import build_index_artifact
+from .artifacts import build_index_artifact, save_output_artifacts
 from .config import (
     CONFIG_FILENAME,
     CRAWLER_CONFIG_KIND,
@@ -20,6 +20,7 @@ from .config import (
 )
 from .parser import index_dataset_from_files
 from .traversal import get_files
+from .validation import DATASET_INDEX_KIND, DATASET_INDEX_VERSION, validate_output
 from .zip_utils import (
     DATASET_HEAD_FILENAME,
     OUTPUT_FILENAME,
@@ -248,8 +249,94 @@ def build_dataset_artifacts_from_files(
     }
 
 
+def build_index_output(
+    *,
+    head: dict[str, Any],
+    index: dict[str, Any],
+    indexing: dict[str, Any] | None = None,
+    generator: dict[str, Any] | None = None,
+    execution: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Assemble a validated index output from a dataset head and an index tree.
+
+    Use this when the caller, not a regex crawl, decides IDs and hierarchy, for
+    example from a dataset's metadata tables. *index* is a node of the shape
+    ``index.json`` stores: ``{"files": [...], "children": {key: node}}``, whose
+    file entries carry ``path`` (relative to the dataset root), ``id``,
+    ``path_properties``, ``basename_properties`` and optional ``attributes``.
+
+    Without *indexing* the dataset is *prebuilt*: :func:`save_dataset_index`
+    records ``source.prebuilt_index_file`` instead of regexes, and loading reads
+    the saved index back. *generator* (``{"name", "version"}``) and *execution*
+    record provenance in the index artifact.
+
+    Raises ``ValueError`` if the head or the index is invalid.
+    """
+    output: dict[str, Any] = {
+        "contract": {"kind": DATASET_INDEX_KIND, "version": DATASET_INDEX_VERSION},
+        "head_file": DATASET_HEAD_FILENAME,
+        "head": deepcopy(head),
+        "indexing": deepcopy(indexing or {}),
+        "index": deepcopy(index),
+    }
+    if generator is not None:
+        output["generator"] = deepcopy(generator)
+    if execution is not None:
+        output["execution"] = deepcopy(execution)
+    validate_output(output)
+    validate_index_provenance(output)
+    return output
+
+
+def validate_index_provenance(output: dict[str, Any]) -> None:
+    """Check the optional ``generator`` block the index artifact will carry."""
+    generator = output.get("generator")
+    if generator is None:
+        return
+    if not isinstance(generator, dict):
+        raise ValueError("output.generator must be an object")
+    for key in ("name", "version"):
+        value = generator.get(key)
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"output.generator.{key} must be a non-empty string")
+
+
+def save_dataset_index(
+    dataset_path: str | Path,
+    output: dict[str, Any],
+    *,
+    metadata_scope: str | None = None,
+    filename: str = OUTPUT_FILENAME,
+) -> Path:
+    """Validate *output* and write its artifact set below ``.ds_crawler/``.
+
+    Writes ``dataset-head.json``, ``ds-crawler.json`` and the index, under
+    ``.ds_crawler/<metadata_scope>/`` when a scope is given (``scopes.json`` is
+    kept up to date). *output* is a hydrated index output: one built by
+    :func:`build_index_output`, or one returned by ``index_dataset_from_files``
+    or ``index_dataset``, whose regexes are then kept in ``ds-crawler.json``.
+    The files the index names must already exist below *dataset_path*; this
+    writes only metadata. Nothing is written if validation fails.
+
+    Returns the path of the written index (the archive path for a ZIP root).
+    """
+    validate_output(output)
+    validate_index_provenance(output)
+    normalized_scope = (
+        validate_metadata_scope(metadata_scope) if metadata_scope is not None else None
+    )
+    return save_output_artifacts(
+        Path(dataset_path),
+        output,
+        filename=filename,
+        metadata_scope=normalized_scope,
+    )
+
+
 __all__ = [
     "build_crawler_config",
     "build_dataset_artifacts_from_files",
     "build_dataset_head",
+    "build_index_output",
+    "save_dataset_index",
 ]

@@ -69,7 +69,9 @@ A crawler configuration has four core areas:
 ```
 
 `source.prebuilt_index_file` is optional. It lets a generated dataset load an
-existing index without retaining regexes that can recreate it.
+existing index without retaining regexes that can recreate it. Write such a
+dataset with `build_index_output(head=..., index=...)` and
+`save_dataset_index(path, output, metadata_scope=...)`.
 
 ### IDs
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `build_index_output(head=..., index=..., indexing=None, generator=None,
+  execution=None)` and `save_dataset_index(path, output, metadata_scope=None)`
+  are public. Together they write a validated artifact set for files that
+  already exist, with IDs and hierarchy chosen by the caller, as a prebuilt
+  index (`source.prebuilt_index_file`). `save_dataset_index` also persists
+  `index_dataset_from_files` output, regexes included, into another root.
+  Callers no longer need the internal `ds_crawler.artifacts.save_output_artifacts`.
 - Regenerate `meta/schema.json` from euler-dataset-contract 0.13.0: the
   shared `invalid`, `sparse` and `source_grid` meta fields, and `skyclass`
   accepting `null`.

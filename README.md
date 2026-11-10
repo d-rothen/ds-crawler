@@ -258,6 +258,36 @@ writer.save_index()
 `ZipDatasetWriter` provides the same index-building behavior for a new ZIP
 archive and accepts bytes or writable file-like objects.
 
+### Index existing files with IDs from elsewhere
+
+When a dataset's IDs or hierarchy cannot be derived from its paths, for
+example when they come from the dataset's own metadata tables, build the index
+yourself and save it as a *prebuilt* index:
+
+```python
+from ds_crawler import build_dataset_head, build_index_output, save_dataset_index
+
+head = build_dataset_head(
+    dataset={"id": "demo_lidar", "name": "Demo lidar"},
+    modality={"key": "lidar_point_cloud"},
+)
+index = {"children": {"scene:a": {"files": [
+    {"path": "sweeps/lidar_100.bin", "id": "57",
+     "path_properties": {}, "basename_properties": {}},
+]}}}
+output = build_index_output(
+    head=head, index=index, generator={"name": "my-tool", "version": "1.0"}
+)
+save_dataset_index("/data/demo", output, metadata_scope="lidar")
+```
+
+The files must already exist below the dataset root; only metadata is
+written. `ds-crawler.json` records `source.prebuilt_index_file`, so loading
+reads the index back instead of crawling. `save_dataset_index` also persists
+the output of `index_dataset_from_files`, keeping its regexes. That lets you
+crawl one directory and write the index into another root holding the same
+relative paths.
+
 ### Migrate legacy metadata
 
 Normal loading is intentionally strict about the current schema. Migrate older
@@ -278,12 +308,12 @@ The main entry points are re-exported from `ds_crawler`:
 
 | Area | Entry points |
 |---|---|
-| Build | `build_dataset_head`, `build_crawler_config`, `build_dataset_artifacts_from_files` |
+| Build | `build_dataset_head`, `build_crawler_config`, `build_dataset_artifacts_from_files`, `build_index_output` |
 | Index | `index_dataset`, `index_dataset_from_files`, `index_dataset_from_path` |
 | Inspect | `get_files`, `collect_qualified_ids`, `get_dataset_contract`, `get_dataset_properties` |
 | Split | `create_dataset_splits`, `create_aligned_dataset_splits`, `create_hierarchy_dataset_splits`, `create_mapped_dataset_splits`, `load_dataset_split` |
 | Transform | `align_datasets`, `copy_dataset`, `extract_datasets`, `split_dataset`, `split_datasets` |
-| Write | `DatasetWriter`, `ZipDatasetWriter` |
+| Write | `DatasetWriter`, `ZipDatasetWriter`, `save_dataset_index` |
 | Validate | `validate_crawler_config`, `validate_dataset`, `validate_output` |
 
 All core path-based workflows support directories and ZIP archives. Scope-aware
