@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Dataset heads are checked against the rules of the `euler_loading` addon
+  (from euler-dataset-contract 0.14, registered on import). They used to be
+  checked only when euler-loading was imported too, so a head ds-crawler
+  wrote or accepted could be one euler-loading rejects, e.g. `hierarchy_scope`
+  without `used_as: condition`. Older contracts keep the previous behaviour.
 - `build_index_output(head=..., index=..., indexing=None, generator=None,
   execution=None)` and `save_dataset_index(path, output, metadata_scope=None)`
   are public. Together they write a validated artifact set for files that

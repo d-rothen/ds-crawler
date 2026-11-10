@@ -43,3 +43,14 @@ __all__ = [
     "validate_string_list",
     "validate_token",
 ]
+
+try:  # euler-dataset-contract >= 0.14
+    from euler_dataset_contract import register_euler_loading_addon_validator
+except ImportError:  # pragma: no cover - older contract
+    register_euler_loading_addon_validator = None
+
+if register_euler_loading_addon_validator is not None:
+    # Dataset heads name their euler-loading decoder in addons.euler_loading.
+    # Check them by the rules euler-loading loads them with, whether or not it
+    # is installed, so a head ds-crawler writes is one euler-loading accepts.
+    register_euler_loading_addon_validator()
