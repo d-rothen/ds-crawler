@@ -2,12 +2,13 @@
 
 ## Unreleased
 
-- Regenerate `meta/schema.json` from euler-dataset-contract: the shared
-  `invalid`, `sparse` and `source_grid` meta fields, and `skyclass` accepting `null`,
-  which the checked-in copy had fallen behind on
-  (`test_checked_in_schema_is_current` failed). The test compares against the
-  installed contract, so it needs the contract release that adds `invalid`,
-  `sparse` and `source_grid`.
+- Regenerate `meta/schema.json` from euler-dataset-contract 0.13.0: the
+  shared `invalid`, `sparse` and `source_grid` meta fields, and `skyclass`
+  accepting `null`.
+- Require `euler-dataset-contract>=0.13.0`, the version `meta/schema.json` is
+  generated from, and lock it. `test_checked_in_schema_is_current` compares
+  the file with the installed contract's schema, and the lock still installed
+  0.8.0, so the regenerated file failed in CI.
 - **Fixed:** `save_index(filename=...)` on `DatasetWriter` and
   `ZipDatasetWriter` records that filename as `ds-crawler.json`'s
   `source.prebuilt_index_file`. It always recorded `index.json`, so an index

@@ -25,7 +25,7 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-  "euler-dataset-contract>=0.8.0",
+  "euler-dataset-contract>=0.13.0",
 ]
 
 [project.urls]

@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.9"
 resolution-markers = [
     "python_full_version >= '3.10'",
@@ -17,7 +17,7 @@ wheels = [
 
 [[package]]
 name = "ds-crawler"
-version = "2.12.0"
+version = "2.15.0"
 source = { editable = "." }
 dependencies = [
     { name = "euler-dataset-contract" },
@@ -36,7 +36,7 @@ progress = [
 
 [package.metadata]
 requires-dist = [
-    { name = "euler-dataset-contract", specifier = ">=0.8.0" },
+    { name = "euler-dataset-contract", specifier = ">=0.13.0" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "tqdm", marker = "extra == 'dev'" },
@@ -46,11 +46,11 @@ provides-extras = ["progress", "dev"]
 
 [[package]]
 name = "euler-dataset-contract"
-version = "0.8.0"
+version = "0.13.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/11/bc/fd7a666f8274d3415fdba2244f515d0f70b2273b9b4c09538009b1646780/euler_dataset_contract-0.8.0.tar.gz", hash = "sha256:df8309a41998fe64493ecdf7f8e89e94518595e1596c5961333d7abfb1cbc4b8", size = 194509, upload-time = "2026-09-13T10:57:22.682Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8d/0a/60ac2c334192936e2bb8d4dfd901ddd5fe24924afba91a562c1bacd888a1/euler_dataset_contract-0.13.0.tar.gz", hash = "sha256:9440af66e9b8e2f984874908585c501b852fcfce7af78fe705598908b1a43bd6", size = 219294, upload-time = "2026-11-10T14:20:35.409Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1a/38/4cac02036ff11a4980d60b00c9ef6f9467948b9d51e4196fbe637bc9ba57/euler_dataset_contract-0.8.0-py3-none-any.whl", hash = "sha256:ac3fd635ab55924081e48cb070b1a53b8d7b78603d726cb5ea51e27ea007b974", size = 157732, upload-time = "2026-09-13T10:57:21.446Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/a3/9cb55df3874abf6bc74c2ad956845da6511c0bf03b3c025258c4997991d9/euler_dataset_contract-0.13.0-py3-none-any.whl", hash = "sha256:4b57634880b2ab4cbf8526f8abfd8286ab1d13c3a91b7ff68416d2e3bdbcb53b", size = 179301, upload-time = "2026-11-10T14:20:34.162Z" },
 ]
 
 [[package]]
