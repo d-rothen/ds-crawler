@@ -83,8 +83,16 @@ def build_split_artifact(
     return artifact
 
 
-def build_crawler_config_for_output(output: dict[str, Any]) -> dict[str, Any]:
-    """Derive a crawler config mapping from a full dataset output."""
+def build_crawler_config_for_output(
+    output: dict[str, Any],
+    *,
+    index_filename: str = OUTPUT_FILENAME,
+) -> dict[str, Any]:
+    """Derive a crawler config mapping from a full dataset output.
+
+    *index_filename* is the name the index artifact is saved under, recorded
+    as ``source.prebuilt_index_file`` so the dataset loads back from it.
+    """
     if not isinstance(output, dict):
         raise ValueError("output must be an object")
     if "head" not in output or not isinstance(output["head"], dict):
@@ -117,7 +125,7 @@ def build_crawler_config_for_output(output: dict[str, Any]) -> dict[str, Any]:
         and bool(id_cfg.get("regex"))
     )
     if not has_id_regex:
-        config["source"]["prebuilt_index_file"] = OUTPUT_FILENAME
+        config["source"]["prebuilt_index_file"] = index_filename
 
     return config
 
@@ -234,7 +242,9 @@ def save_output_artifacts(
         dataset_root,
         {
             head_file: output["head"],
-            CONFIG_FILENAME: build_crawler_config_for_output(output),
+            CONFIG_FILENAME: build_crawler_config_for_output(
+                output, index_filename=filename
+            ),
             filename: build_index_artifact(output),
         },
         metadata_scope=metadata_scope,

@@ -783,7 +783,9 @@ class ZipDatasetWriter(_BaseDatasetWriter):
         if self._closed:
             raise RuntimeError("ZipDatasetWriter is closed")
         output = self.build_output()
-        config_payload = build_crawler_config_for_output(output)
+        config_payload = build_crawler_config_for_output(
+            output, index_filename=filename
+        )
         index_artifact = build_index_artifact(output)
         self._zf.close()
         self._closed = True

@@ -72,6 +72,150 @@
           ],
           "description": "Observed data file types for this modality, stored as lowercase extensions without leading dots (for example ['jpg', 'png'])."
         },
+        "invalid": {
+          "type": "object",
+          "properties": {
+            "non_finite": {
+              "type": "boolean",
+              "description": "Whether NaN or infinite values can appear; they mark invalid pixels."
+            },
+            "sentinel": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The finite value that marks invalid pixels, or null for none."
+            }
+          },
+          "required": [
+            "non_finite",
+            "sentinel"
+          ],
+          "additionalProperties": false,
+          "examples": [
+            {
+              "non_finite": false,
+              "sentinel": 0
+            },
+            {
+              "non_finite": true,
+              "sentinel": null
+            }
+          ],
+          "description": "How pixels without a valid value are marked in the values the loader returns: 'sentinel' is the finite value that marks them (null: none), and 'non_finite' whether NaN or infinite values can appear, which then mark invalid pixels too. The same shape and meaning as a representation profile's 'invalid'. Omitted: not declared, so consumers apply their own rule (for depth, a value that is non-finite or not positive is invalid)."
+        },
+        "sparse": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the raster holds measurements at only some of its pixels, the rest invalid as 'invalid' declares (without it, consumers take 0 for depth), as in lidar-derived depth or disparity. Consumers must not interpolate between samples: a resize moves each measurement to its nearest target pixel, keeping the nearest surface, and evaluation scores the measured pixels. Default false."
+        },
+        "source_grid": {
+          "type": "object",
+          "required": [
+            "size",
+            "affine"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "size": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "affine": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "examples": [
+            {
+              "source": "rgb",
+              "size": [
+                400,
+                879
+              ],
+              "affine": [
+                [
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0
+                ]
+              ]
+            },
+            {
+              "size": [
+                480,
+                960
+              ],
+              "affine": [
+                [
+                  0.8,
+                  0,
+                  -0.1
+                ],
+                [
+                  0,
+                  0.8,
+                  -0.1
+                ]
+              ]
+            }
+          ],
+          "description": "How this dataset's pixel grid derives from the grid of the images it was computed from, such as a prediction from its model input: the source [height, width] and the affine [[sx, 0, tx], [0, sy, ty]] mapping source pixel centres to this grid (K_out = T @ K_in). A file's attributes.source_grid overrides it for that sample."
+        },
         "radial_depth": {
           "type": "boolean",
           "description": "Whether the depth values represent radial (euclidean) distance from the camera rather than perpendicular (z-buffer) depth.",
@@ -171,6 +315,150 @@
           ],
           "description": "Observed data file types for this modality, stored as lowercase extensions without leading dots (for example ['jpg', 'png'])."
         },
+        "invalid": {
+          "type": "object",
+          "properties": {
+            "non_finite": {
+              "type": "boolean",
+              "description": "Whether NaN or infinite values can appear; they mark invalid pixels."
+            },
+            "sentinel": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The finite value that marks invalid pixels, or null for none."
+            }
+          },
+          "required": [
+            "non_finite",
+            "sentinel"
+          ],
+          "additionalProperties": false,
+          "examples": [
+            {
+              "non_finite": false,
+              "sentinel": 0
+            },
+            {
+              "non_finite": true,
+              "sentinel": null
+            }
+          ],
+          "description": "How pixels without a valid value are marked in the values the loader returns: 'sentinel' is the finite value that marks them (null: none), and 'non_finite' whether NaN or infinite values can appear, which then mark invalid pixels too. The same shape and meaning as a representation profile's 'invalid'. Omitted: not declared, so consumers apply their own rule (for depth, a value that is non-finite or not positive is invalid)."
+        },
+        "sparse": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the raster holds measurements at only some of its pixels, the rest invalid as 'invalid' declares (without it, consumers take 0 for depth), as in lidar-derived depth or disparity. Consumers must not interpolate between samples: a resize moves each measurement to its nearest target pixel, keeping the nearest surface, and evaluation scores the measured pixels. Default false."
+        },
+        "source_grid": {
+          "type": "object",
+          "required": [
+            "size",
+            "affine"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "size": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "affine": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "examples": [
+            {
+              "source": "rgb",
+              "size": [
+                400,
+                879
+              ],
+              "affine": [
+                [
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0
+                ]
+              ]
+            },
+            {
+              "size": [
+                480,
+                960
+              ],
+              "affine": [
+                [
+                  0.8,
+                  0,
+                  -0.1
+                ],
+                [
+                  0,
+                  0.8,
+                  -0.1
+                ]
+              ]
+            }
+          ],
+          "description": "How this dataset's pixel grid derives from the grid of the images it was computed from, such as a prediction from its model input: the source [height, width] and the affine [[sx, 0, tx], [0, sy, ty]] mapping source pixel centres to this grid (K_out = T @ K_in). A file's attributes.source_grid overrides it for that sample."
+        },
         "range": {
           "type": "array",
           "items": {
@@ -258,8 +546,155 @@
           ],
           "description": "Observed data file types for this modality, stored as lowercase extensions without leading dots (for example ['jpg', 'png'])."
         },
+        "invalid": {
+          "type": "object",
+          "properties": {
+            "non_finite": {
+              "type": "boolean",
+              "description": "Whether NaN or infinite values can appear; they mark invalid pixels."
+            },
+            "sentinel": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The finite value that marks invalid pixels, or null for none."
+            }
+          },
+          "required": [
+            "non_finite",
+            "sentinel"
+          ],
+          "additionalProperties": false,
+          "examples": [
+            {
+              "non_finite": false,
+              "sentinel": 0
+            },
+            {
+              "non_finite": true,
+              "sentinel": null
+            }
+          ],
+          "description": "How pixels without a valid value are marked in the values the loader returns: 'sentinel' is the finite value that marks them (null: none), and 'non_finite' whether NaN or infinite values can appear, which then mark invalid pixels too. The same shape and meaning as a representation profile's 'invalid'. Omitted: not declared, so consumers apply their own rule (for depth, a value that is non-finite or not positive is invalid)."
+        },
+        "sparse": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the raster holds measurements at only some of its pixels, the rest invalid as 'invalid' declares (without it, consumers take 0 for depth), as in lidar-derived depth or disparity. Consumers must not interpolate between samples: a resize moves each measurement to its nearest target pixel, keeping the nearest surface, and evaluation scores the measured pixels. Default false."
+        },
+        "source_grid": {
+          "type": "object",
+          "required": [
+            "size",
+            "affine"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "size": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "affine": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "examples": [
+            {
+              "source": "rgb",
+              "size": [
+                400,
+                879
+              ],
+              "affine": [
+                [
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0
+                ]
+              ]
+            },
+            {
+              "size": [
+                480,
+                960
+              ],
+              "affine": [
+                [
+                  0.8,
+                  0,
+                  -0.1
+                ],
+                [
+                  0,
+                  0.8,
+                  -0.1
+                ]
+              ]
+            }
+          ],
+          "description": "How this dataset's pixel grid derives from the grid of the images it was computed from, such as a prediction from its model input: the source [height, width] and the affine [[sx, 0, tx], [0, sy, ty]] mapping source pixel centres to this grid (K_out = T @ K_in). A file's attributes.source_grid overrides it for that sample."
+        },
         "skyclass": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "integer",
             "minimum": 0,
@@ -267,12 +702,8 @@
           },
           "minItems": 3,
           "maxItems": 3,
-          "description": "RGB colour value identifying the sky class in the segmentation map.",
-          "default": [
-            0,
-            0,
-            0
-          ]
+          "description": "Sky label of the segmentation map as an RGB triple: the value of a sky pixel when the stored file is viewed as RGB. A colour-coded map uses the sky colour (e.g. [90, 200, 255]); a single-channel class map uses [v, v, v] for sky label v (e.g. [23, 23, 23] for Cityscapes label IDs, [10, 10, 10] for train IDs); a class ID stored in one channel of a colour file keeps the other channels' values (e.g. [29, 0, 0] for an ID in the red channel). null, the default, leaves the sky undeclared: a loader then uses its own default for the dataset, or rejects the head if it has none.",
+          "default": null
         }
       },
       "required": [
@@ -348,8 +779,155 @@
           ],
           "description": "Observed data file types for this modality, stored as lowercase extensions without leading dots (for example ['jpg', 'png'])."
         },
+        "invalid": {
+          "type": "object",
+          "properties": {
+            "non_finite": {
+              "type": "boolean",
+              "description": "Whether NaN or infinite values can appear; they mark invalid pixels."
+            },
+            "sentinel": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The finite value that marks invalid pixels, or null for none."
+            }
+          },
+          "required": [
+            "non_finite",
+            "sentinel"
+          ],
+          "additionalProperties": false,
+          "examples": [
+            {
+              "non_finite": false,
+              "sentinel": 0
+            },
+            {
+              "non_finite": true,
+              "sentinel": null
+            }
+          ],
+          "description": "How pixels without a valid value are marked in the values the loader returns: 'sentinel' is the finite value that marks them (null: none), and 'non_finite' whether NaN or infinite values can appear, which then mark invalid pixels too. The same shape and meaning as a representation profile's 'invalid'. Omitted: not declared, so consumers apply their own rule (for depth, a value that is non-finite or not positive is invalid)."
+        },
+        "sparse": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the raster holds measurements at only some of its pixels, the rest invalid as 'invalid' declares (without it, consumers take 0 for depth), as in lidar-derived depth or disparity. Consumers must not interpolate between samples: a resize moves each measurement to its nearest target pixel, keeping the nearest surface, and evaluation scores the measured pixels. Default false."
+        },
+        "source_grid": {
+          "type": "object",
+          "required": [
+            "size",
+            "affine"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "size": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "affine": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": false,
+                  "prefixItems": [
+                    {
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "examples": [
+            {
+              "source": "rgb",
+              "size": [
+                400,
+                879
+              ],
+              "affine": [
+                [
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0
+                ]
+              ]
+            },
+            {
+              "size": [
+                480,
+                960
+              ],
+              "affine": [
+                [
+                  0.8,
+                  0,
+                  -0.1
+                ],
+                [
+                  0,
+                  0.8,
+                  -0.1
+                ]
+              ]
+            }
+          ],
+          "description": "How this dataset's pixel grid derives from the grid of the images it was computed from, such as a prediction from its model input: the source [height, width] and the affine [[sx, 0, tx], [0, sy, ty]] mapping source pixel centres to this grid (K_out = T @ K_in). A file's attributes.source_grid overrides it for that sample."
+        },
         "skyclass": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "integer",
             "minimum": 0,
@@ -357,12 +935,8 @@
           },
           "minItems": 3,
           "maxItems": 3,
-          "description": "RGB colour value identifying the sky class in the segmentation map.",
-          "default": [
-            0,
-            0,
-            0
-          ]
+          "description": "Sky label of the segmentation map as an RGB triple: the value of a sky pixel when the stored file is viewed as RGB. A colour-coded map uses the sky colour (e.g. [90, 200, 255]); a single-channel class map uses [v, v, v] for sky label v (e.g. [23, 23, 23] for Cityscapes label IDs, [10, 10, 10] for train IDs); a class ID stored in one channel of a colour file keeps the other channels' values (e.g. [29, 0, 0] for an ID in the red channel). null, the default, leaves the sky undeclared: a loader then uses its own default for the dataset, or rejects the head if it has none.",
+          "default": null
         }
       },
       "required": [

@@ -37,6 +37,25 @@ def test_zip_dataset_writer_saves_canonical_artifacts(tmp_path: Path) -> None:
     assert loaded["head"]["dataset"]["name"] == "Segmentation"
 
 
+def test_an_index_saved_under_another_name_loads_back(tmp_path: Path) -> None:
+    # ds-crawler.json must name the file the index was written to.
+    root = tmp_path / "dataset"
+    writer = DatasetWriter(root, head=sample_head(name="Segmentation", modality="rgb"))
+    writer.get_path("/scene/0001", "0001.png").write_bytes(b"data")
+    writer.save_index(filename="custom-index.json")
+
+    config = read_metadata_json(root, "ds-crawler.json")
+    assert config["source"]["prebuilt_index_file"] == "custom-index.json"
+    assert index_dataset_from_path(root)["head"]["dataset"]["name"] == "Segmentation"
+
+    zip_path = tmp_path / "dataset.zip"
+    with ZipDatasetWriter(zip_path, head=sample_head(name="Zipped", modality="rgb")) as zipped:
+        with zipped.open("/scene/0001", "0001.png") as f:
+            f.write(b"data")
+        zipped.save_index(filename="custom-index.json")
+    assert index_dataset_from_path(zip_path)["head"]["dataset"]["name"] == "Zipped"
+
+
 def test_dataset_writer_get_path_uses_hierarchy_values_and_source_entry(tmp_path: Path) -> None:
     root = tmp_path / "dataset"
     writer = DatasetWriter(root, head=sample_head(name="Segmentation", modality="rgb"))

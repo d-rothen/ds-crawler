@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Regenerate `meta/schema.json` from euler-dataset-contract: the shared
+  `invalid`, `sparse` and `source_grid` meta fields, and `skyclass` accepting `null`,
+  which the checked-in copy had fallen behind on
+  (`test_checked_in_schema_is_current` failed). The test compares against the
+  installed contract, so it needs the contract release that adds `invalid`,
+  `sparse` and `source_grid`.
+- **Fixed:** `save_index(filename=...)` on `DatasetWriter` and
+  `ZipDatasetWriter` records that filename as `ds-crawler.json`'s
+  `source.prebuilt_index_file`. It always recorded `index.json`, so an index
+  saved under another name (euler-loading's output writers used
+  `output.json`) left a dataset that could not be loaded back.
 - `DatasetWriter.set_modality_meta(meta)` (also on `ZipDatasetWriter`) replaces
   the head's `modality.meta` before the index is saved, validated like the head.
   It is the meta counterpart of `set_head_addon`, for producers that learn
