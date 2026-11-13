@@ -233,7 +233,11 @@ def test_save_dataset_index_writes_a_prebuilt_scope(tmp_path: Path) -> None:
 def test_prebuilt_scope_keeps_its_hierarchy_separator(tmp_path: Path) -> None:
     """A prebuilt index may declare the separator of its name:value keys
     without a regex; loading it back keeps the separator."""
-    from ds_crawler import build_index_output, index_dataset_from_path, save_dataset_index
+    from ds_crawler import (
+        build_index_output,
+        index_dataset_from_path,
+        save_dataset_index,
+    )
 
     create_files(tmp_path, ["a/0.png"])
     head = build_dataset_head(dataset={"id": "demo", "name": "demo"}, modality={"key": "rgb"})
