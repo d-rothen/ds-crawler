@@ -230,6 +230,26 @@ def test_save_dataset_index_writes_a_prebuilt_scope(tmp_path: Path) -> None:
     assert get_files(loaded) == ["sweeps/lidar_100.bin", "sweeps/lidar_150.bin"]
 
 
+def test_prebuilt_scope_keeps_its_hierarchy_separator(tmp_path: Path) -> None:
+    """A prebuilt index may declare the separator of its name:value keys
+    without a regex; loading it back keeps the separator."""
+    from ds_crawler import build_index_output, index_dataset_from_path, save_dataset_index
+
+    create_files(tmp_path, ["a/0.png"])
+    head = build_dataset_head(dataset={"id": "demo", "name": "demo"}, modality={"key": "rgb"})
+    output = build_index_output(
+        head=head,
+        index={"children": {"scene:a": {"files": [_entry("a/0.png", "0")]}}},
+        indexing={"hierarchy": {"separator": ":"}},
+    )
+    save_dataset_index(tmp_path, output, metadata_scope="rgb")
+    config = json.loads((tmp_path / ".ds_crawler" / "rgb" / "ds-crawler.json").read_text())
+    assert config["indexing"] == {"hierarchy": {"separator": ":"}}
+    assert config["source"]["prebuilt_index_file"] == "index.json"
+    loaded = index_dataset_from_path(tmp_path, metadata_scope="rgb")
+    assert loaded["indexing"]["hierarchy"] == {"separator": ":"}
+
+
 def test_save_dataset_index_keeps_regex_indexing(tmp_path: Path) -> None:
     from ds_crawler import (
         index_dataset_from_files,

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A prebuilt index keeps a hierarchy separator declared without a regex
+  (`indexing: {"hierarchy": {"separator": ":"}}`) when it is loaded back.
+  It used to be dropped, so consumers could not split the `name:value`
+  hierarchy keys of prebuilt scopes, nor of `DatasetWriter` outputs.
 - Regenerate `meta/schema.json` from euler-dataset-contract 0.15.0, which
   registers optional geometry meta fields (camera models, transform
   directions and frames, point-cloud columns and units), and require

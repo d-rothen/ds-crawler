@@ -136,10 +136,15 @@ class DatasetConfig:
             indexing["files"]["path_filters"] = dict(self.path_filters)
         if self.id_override is not None and "id" in indexing:
             indexing["id"]["override"] = self.id_override
-        if self.hierarchy_regex is not None:
-            indexing["hierarchy"] = {
-                "regex": self.hierarchy_regex,
-            }
+        # A prebuilt index may declare only the separator of its
+        # ``name<sep>value`` hierarchy keys, without a regex.
+        if (
+            self.hierarchy_regex is not None
+            or self.named_capture_group_value_separator is not None
+        ):
+            indexing["hierarchy"] = {}
+            if self.hierarchy_regex is not None:
+                indexing["hierarchy"]["regex"] = self.hierarchy_regex
             if self.named_capture_group_value_separator is not None:
                 indexing["hierarchy"]["separator"] = (
                     self.named_capture_group_value_separator
